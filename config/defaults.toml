@@ -28,5 +28,34 @@ port = 8000
 host = "http://localhost:11434"
 timeout_seconds = 300
 
+# Seed values for settings-backed keys. Model selection and temperature become
+# admin-panel settings in Phase 9; until the settings table holds a row for one,
+# these are what the system uses.
+[models]
+chat = "gemma4:26b"
+embedding = "nomic-embed-text"
+
+[model_options]
+# Pinned deliberately. gemma4:26b reports a 262144 context window; that is the
+# model's capability, not a sensible allocation on a 32GB shared-memory Mac mini.
+# Verified: a real 17,626-token prompt completes at this setting, 100% GPU, with
+# no measurable memory penalty over smaller values. See the task 1.2 changelog
+# for the measurements behind this number.
+num_ctx = 32768
+temperature = 0.35
+# gemma4 advertises a "thinking" capability. Off: it costs latency and tokens on
+# every turn, and nothing in this build consumes a reasoning trace.
+think = false
+
+[embedding]
+# nomic-embed-text reports embedding length 768. Asserted on every embed call —
+# a silent dimension change would corrupt the vector store.
+expected_dimension = 768
+# The model's real context length is 2048 tokens, even though Ollama's own
+# parameter block defaults num_ctx to 8192 for it. Over-length input is rejected
+# by the server rather than truncated, so the application sizes its own input.
+# The splitter that enforces this is task 1.3; this is the budget it works to.
+max_input_chars = 5000
+
 [app]
 timezone = "America/New_York"

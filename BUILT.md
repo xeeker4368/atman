@@ -40,6 +40,26 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   cosmetic issue: bash job control prints a `Terminated: 15` notice on a normal
   Ctrl+C (see changelog).
 
+## Model plumbing
+
+- `[built]` **Ollama client** (`anam/engine/ollama.py`). Non-streaming and
+  streaming chat, embeddings, and `loaded_models()`. Five named exceptions —
+  unreachable, timeout, model-not-found, response error, embedding-dimension —
+  each carrying the host/model and how to check. Every request has an explicit
+  timeout; nothing can hang.
+- `[built]` **Chat model configured: `gemma4:26b`**, embedding model
+  `nomic-embed-text`. Verified present via `ollama list` and loaded via
+  `ollama ps`. *Model choice is open — `gemma4:26b-mlx` may be faster on this
+  hardware; see the task 1.2 changelog.*
+- `[built]` **`num_ctx` pinned to 32768.** Model ceiling is 262144; 32768 chosen
+  against a measured 17,626-token real prompt completing at 100% GPU on a 32 GB
+  Mac mini. Verified to *take effect*: a test reads `/api/ps` after a real chat
+  call and asserts the loaded context is 32768.
+- `[built]` **Embedding dimension guard** — 768 asserted on every call, proven
+  to fire by a live test with the expectation deliberately wrong.
+- `[unverified]` KV cache behaviour at a genuinely full 32K context. Measured to
+  ~17.6K tokens only.
+
 ## Memory / retrieval
 
 - `[built]` **Two-database schema.** `archive.db` (append-only, frozen, two
@@ -100,13 +120,17 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
 
 ## Eval / observability
 
-- `[built]` **Test suite** — 54 tests passing (`pytest`), `ruff check` clean.
+- `[built]` **Test suite** — 71 tests passing (`pytest`), `ruff check` clean.
 - `[built]` **Store-isolation guard skeleton** (`tests/conftest.py`). Captures
   real paths at import before any test can patch them; `StoreIsolationViolation`
   derives from `BaseException` so `except Exception` blocks cannot swallow it.
   Now exercised: the `isolated_data_dir` fixture redirects the data directory
   per test, and a full suite run creates no `data/` directory in the repo.
   Task 1.4 extends it to the vector store.
+- `[built]` **Live-integration tests against the real Ollama instance** — 17
+  tests, 0 mocked transports. Failure paths use real injection (a closed port; a
+  socket that accepts and stalls). They skip rather than fail without Ollama, and
+  a skip is visible in pytest output where a mock would look like a pass.
 
 ## Go-live readiness
 - *(nothing yet)*

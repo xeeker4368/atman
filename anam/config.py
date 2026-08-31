@@ -52,6 +52,19 @@ _FALLBACK: dict[str, Any] = {
         "host": "http://localhost:11434",
         "timeout_seconds": 300,
     },
+    "models": {
+        "chat": "gemma4:26b",
+        "embedding": "nomic-embed-text",
+    },
+    "model_options": {
+        "num_ctx": 32768,
+        "temperature": 0.35,
+        "think": False,
+    },
+    "embedding": {
+        "expected_dimension": 768,
+        "max_input_chars": 5000,
+    },
     "app": {
         "timezone": "America/New_York",
     },
@@ -67,6 +80,11 @@ _ENV_MAP: dict[str, tuple[str, str, str]] = {
     "ANAM_API_PORT": ("api", "port", "int"),
     "ANAM_OLLAMA_HOST": ("ollama", "host", "str"),
     "ANAM_OLLAMA_TIMEOUT_SECONDS": ("ollama", "timeout_seconds", "int"),
+    "ANAM_CHAT_MODEL": ("models", "chat", "str"),
+    "ANAM_EMBED_MODEL": ("models", "embedding", "str"),
+    "ANAM_MODEL_NUM_CTX": ("model_options", "num_ctx", "int"),
+    "ANAM_MODEL_TEMPERATURE": ("model_options", "temperature", "float"),
+    "ANAM_MODEL_THINK": ("model_options", "think", "bool"),
     "ANAM_TIMEZONE": ("app", "timezone", "str"),
 }
 
@@ -209,3 +227,43 @@ def api_port() -> int:
 
 def timezone() -> str:
     return get("app", "timezone", "America/New_York")
+
+
+# --- Models -----------------------------------------------------------------
+#
+# Seed values for settings-backed keys. From Phase 1 task 1.11 the settings
+# table is authoritative at runtime for any key it holds a row for; these are
+# what the system uses until it does. See the module docstring.
+
+
+def ollama_host() -> str:
+    return get("ollama", "host", "http://localhost:11434")
+
+
+def ollama_timeout_seconds() -> int:
+    return int(get("ollama", "timeout_seconds", 300))
+
+
+def chat_model() -> str:
+    return get("models", "chat")
+
+
+def embed_model() -> str:
+    return get("models", "embedding")
+
+
+def model_options() -> dict[str, Any]:
+    """Options sent with a chat request.
+
+    ``think`` is returned alongside the rest but belongs at the top level of the
+    Ollama payload rather than inside ``options`` — the client separates them.
+    """
+    return section("model_options")
+
+
+def expected_embedding_dimension() -> int:
+    return int(get("embedding", "expected_dimension", 768))
+
+
+def embedding_max_input_chars() -> int:
+    return int(get("embedding", "max_input_chars", 5000))
