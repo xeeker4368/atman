@@ -1,0 +1,21 @@
+# Copy to config/local.toml to override the checked-in defaults on this
+# machine. config/local.toml is gitignored and never committed.
+#
+# Every key below can also be set as an environment variable, which takes
+# precedence over both TOML layers. The variable name is shown beside each key.
+
+# [paths]
+# data_dir = "data"              # ANAM_DATA_DIR
+# workspace_dir = "workspace"    # ANAM_WORKSPACE_DIR
+# backup_dir = "backups"         # ANAM_BACKUP_DIR
+
+# [api]
+# host = "127.0.0.1"             # ANAM_API_HOST
+# port = 8000                    # ANAM_API_PORT
+
+# [ollama]
+# host = "http://localhost:11434"  # ANAM_OLLAMA_HOST
+# timeout_seconds = 300            # ANAM_OLLAMA_TIMEOUT_SECONDS
+
+# [app]
+# timezone = "America/New_York"  # ANAM_TIMEZONE

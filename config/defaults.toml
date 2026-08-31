@@ -1,0 +1,32 @@
+# Checked-in baseline configuration.
+#
+# Precedence: this file -> config/local.toml -> ANAM_* environment variables.
+#
+# Scope note: these are BOOTSTRAP defaults. From Phase 1 onward the settings
+# table in the working database is authoritative at runtime for any key it
+# holds a row for. Keys here fall into two classes:
+#
+#   * bootstrap-only  — never settings-backed, because they are needed before
+#                       the database can be opened (paths, ports, hosts).
+#   * seed values     — the starting value for a settings-backed key that has
+#                       no row yet.
+#
+# Everything currently in this file is bootstrap-only.
+
+[paths]
+# Relative paths resolve against the project root.
+data_dir = "data"
+workspace_dir = "workspace"
+backup_dir = "backups"
+
+[api]
+# Loopback by default. start.sh --lan overrides the host via ANAM_API_HOST.
+host = "127.0.0.1"
+port = 8000
+
+[ollama]
+host = "http://localhost:11434"
+timeout_seconds = 300
+
+[app]
+timezone = "America/New_York"

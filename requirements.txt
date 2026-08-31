@@ -1,0 +1,16 @@
+# Phase 0-1 dependencies. Later phases add their own, each with a note in the
+# changelog entry saying why it was needed.
+
+# Web framework and server
+fastapi
+uvicorn
+python-multipart
+
+# HTTP client (Ollama, and later SearXNG)
+requests
+
+# Dev tooling
+pytest
+httpx        # required by fastapi's TestClient
+ruff
+vulture

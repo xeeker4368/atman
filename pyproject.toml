@@ -1,0 +1,14 @@
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+exclude = [
+    "reference",
+    "venv",
+    ".venv",
+    "workspace",
+    "data",
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]

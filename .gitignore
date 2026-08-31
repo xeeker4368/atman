@@ -1,0 +1,42 @@
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# Virtual environments
+venv/
+.venv/
+
+# Prior implementation, consulted locally but not part of this repo's history.
+# Reference-only per AGENTS.md — see the reference-folder rule there.
+reference/
+
+# Local configuration and secrets
+config/local.toml
+.env
+.env.*
+
+# Runtime data and databases
+data/
+*.db
+*.db-wal
+*.db-shm
+
+# Logs
+logs/
+*.log
+
+# Local runtime artifacts under the workspace. The directory structure is
+# tracked via .gitkeep; its contents are not. Ignoring the directories
+# themselves would exclude the .gitkeep too, so the contents are ignored and
+# the marker file is re-included.
+workspace/*/*
+!workspace/*/.gitkeep
+
+# Backups
+backups/
