@@ -43,7 +43,7 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
 ## Memory / retrieval
 
 - `[built]` **Two-database schema.** `archive.db` (append-only, frozen, two
-  tables) and `working.db` (operational, 9 tables + FTS5). Defined in
+  tables) and `working.db` (operational, 7 tables + FTS5). Defined in
   `anam/memory/schema/*.sql`; narrative in `docs/DB_SCHEMA.md`.
 - `[built]` **Atomic dual write** (`anam/memory/db.py`). A message reaches both
   stores in one transaction over an `ATTACH`ed connection, or neither. Proven by
@@ -66,7 +66,10 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   `MIGRATIONS` is empty; version 1 is the initial schema. The archive has no
   migration path by design.
 - `[built]` **Tables asserted absent**: no review queue, no self-modification
-  columns, no summaries, no excluded-chunks (decisions #14, #15, #6, #1).
+  columns, no summaries, no excluded-chunks (decisions #14, #15, #6, #1), and no
+  `artifacts` or `research_candidates` — both removed at the Phase 1 checkpoint
+  as later-phase work with no Phase 1 consumer. Phase 2 builds `artifacts`;
+  Phase 5 designs its own research-candidate table fresh.
 
 ## Tools
 - *(nothing yet)*
@@ -85,6 +88,10 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
 - `[built]` **`settings` table** with a CHECK-constrained `value_type`.
   *No store or cache yet — task 1.11. `anam/settings/` is still empty.*
 
+## Artifacts
+- *(nothing yet — the `artifacts` table moves to Phase 2, where the ingestion
+  design drives its shape)*
+
 ## Users / households
 
 - `[built]` **`users` table** in both stores, with `role` (`admin` | `user`,
@@ -93,7 +100,7 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
 
 ## Eval / observability
 
-- `[built]` **Test suite** — 53 tests passing (`pytest`), `ruff check` clean.
+- `[built]` **Test suite** — 54 tests passing (`pytest`), `ruff check` clean.
 - `[built]` **Store-isolation guard skeleton** (`tests/conftest.py`). Captures
   real paths at import before any test can patch them; `StoreIsolationViolation`
   derives from `BaseException` so `except Exception` blocks cannot swallow it.

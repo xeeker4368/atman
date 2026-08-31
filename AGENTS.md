@@ -43,7 +43,13 @@ The following categories of work require an explicit pause for Lyle's
 review before continuing to the next task, regardless of how confident the
 implementation feels:
 
-- Database schema (initial design and any migration)
+- Database schema (initial design and any migration). This applies at the
+  column/field level on frozen tables too, not just at the whole-task level:
+  a column decision inside an already-approved Tier 3 task still goes up
+  before it is coded, not disclosed afterward. On a frozen table the cost of
+  a wrong column is permanent and one-directional, so raising it after the
+  fact hands the reviewer a question already answered in code — which is a
+  weaker review than being asked first.
 - Chunking / checkpointing pipeline design
 - Hybrid retrieval scoring (RRF fusion, relevance floors)
 - Retrieval changes that implement the supersedes/correction link

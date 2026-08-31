@@ -62,22 +62,51 @@ def test_working_has_the_expected_tables(store):
         "chunks",
         "supersedes",
         "settings",
-        "artifacts",
-        "research_candidates",
     }
 
 
-def test_deferred_features_have_no_tables(store):
-    """Decisions #14 and #15: no review queue, and no self-modification seam.
+def test_later_phase_tables_are_absent(store):
+    """Tables deferred to a later phase of this build.
 
-    Asserted rather than assumed, because a seam is easiest to add by accident.
+    Distinct from `test_deferred_features_have_no_tables`, which covers features
+    that are out of this build entirely. These two are expected back — `artifacts`
+    in Phase 2, a research-candidate table in Phase 5 — just not designed here.
+    Asserted so re-adding either is a deliberate act with a failing test attached
+    rather than something that drifts back in.
+    """
+    with db.connection() as conn:
+        names = {
+            row["name"] for row in conn.execute("SELECT name FROM main.sqlite_master")
+        }
+    assert "artifacts" not in names
+    assert "research_candidates" not in names
+
+
+def test_deferred_features_have_no_tables(store):
+    """Tables belonging to features that are out of this build entirely.
+
+    Distinct from `test_later_phase_tables_are_absent`, which covers tables
+    deferred to a *later phase of this build*. These are not coming back at all
+    within it. Asserted rather than assumed, because a seam is easiest to add by
+    accident.
     """
     with db.connection() as conn:
         names = {
             row["name"].lower()
             for row in conn.execute("SELECT name FROM main.sqlite_master")
         }
-    for forbidden in ("review_items", "review_queue"):
+    for forbidden in (
+        "review_items",
+        "review_queue",
+        # Nothing is ever summarised — history windowing drops turns from the
+        # prompt, never from the record (decision #6).
+        "summaries",
+        # The fabrication gate refuses to persist a bad turn rather than storing
+        # it and filtering it later (decisions #1, #16).
+        "excluded_chunks",
+        # One channel in this build; web credentials live on `users`.
+        "channel_identifiers",
+    ):
         assert forbidden not in names
     assert not any("self_mod" in n or "selfmod" in n for n in names)
     assert not any("behavioral_guidance" in n for n in names)

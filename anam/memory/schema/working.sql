@@ -23,6 +23,18 @@
 --                          full wipe precedes go-live (decisions #1, #16).
 --   * channel_identifiers — one channel in this build; iMessage is deferred.
 --                          Web credentials live on `users` instead.
+--   * artifacts          — belongs to Phase 2 (file/PDF ingestion) and Phase 4
+--                          (generated images). Nothing in Phase 1 depends on it,
+--                          so Phase 2 builds it against a real ingestion design.
+--   * research_candidates — belongs to Phase 5 (self-flag tool, periodic mining
+--                          pass). Phase 5 designs it fresh against real
+--                          requirements; nothing here should be treated as a
+--                          starting shape for it.
+--
+-- Both were present in an earlier draft of this file and were removed at the
+-- Phase 1 checkpoint. Neither had a consumer. Guessing a table's shape a phase
+-- or four ahead of the code that uses it is how a schema acquires columns
+-- nobody can later justify.
 
 -- ---------------------------------------------------------------------------
 -- Migration bookkeeping
@@ -263,61 +275,3 @@ CREATE TABLE IF NOT EXISTS settings (
     updated_by  TEXT,
     CHECK (value_type IN ('str', 'int', 'float', 'bool', 'json'))
 );
-
--- ---------------------------------------------------------------------------
--- Artifacts
--- ---------------------------------------------------------------------------
-
-CREATE TABLE IF NOT EXISTS artifacts (
-    id                     TEXT PRIMARY KEY,
-    artifact_type          TEXT NOT NULL,
-    title                  TEXT NOT NULL,
-    description            TEXT,
-    -- Relative to the workspace root. Contents stay on disk; this row is
-    -- metadata about them.
-    path                   TEXT,
-    checksum               TEXT,
-    status                 TEXT NOT NULL DEFAULT 'active',
-    -- Provenance, same vocabulary discipline as chunks.
-    origin                 TEXT NOT NULL,
-    source_role            TEXT,
-    source_conversation_id TEXT,
-    source_message_id      TEXT,
-    source_tool_name       TEXT,
-    revision_of            TEXT,
-    metadata_json          TEXT,
-    created_at             TEXT NOT NULL,
-    updated_at             TEXT NOT NULL,
-    FOREIGN KEY (revision_of) REFERENCES artifacts(id)
-);
-
-CREATE INDEX IF NOT EXISTS idx_artifacts_type       ON artifacts(artifact_type);
-CREATE INDEX IF NOT EXISTS idx_artifacts_status     ON artifacts(status);
-CREATE INDEX IF NOT EXISTS idx_artifacts_path       ON artifacts(path);
-CREATE INDEX IF NOT EXISTS idx_artifacts_created_at ON artifacts(created_at);
-CREATE INDEX IF NOT EXISTS idx_artifacts_revision   ON artifacts(revision_of);
-
--- ---------------------------------------------------------------------------
--- Research candidates (decisions #3, #4)
--- ---------------------------------------------------------------------------
-
--- Proposals only. Nothing in this table executes anything; a row is inert until
--- a human approves it. Self-flagged and mined candidates land here identically,
--- distinguished by `source` rather than by living in separate tables.
-CREATE TABLE IF NOT EXISTS research_candidates (
-    id                     TEXT PRIMARY KEY,
-    topic                  TEXT NOT NULL,
-    rationale              TEXT,
-    source                 TEXT NOT NULL,   -- 'self_flag' | 'mining' | 'manual'
-    source_user_id         TEXT,
-    source_conversation_id TEXT,
-    source_message_id      TEXT,
-    status                 TEXT NOT NULL DEFAULT 'proposed',
-    created_at             TEXT NOT NULL,
-    updated_at             TEXT NOT NULL,
-    FOREIGN KEY (source_user_id) REFERENCES users(id),
-    CHECK (status IN ('proposed', 'approved', 'rejected', 'executed'))
-);
-
-CREATE INDEX IF NOT EXISTS idx_research_candidates_status ON research_candidates(status);
-CREATE INDEX IF NOT EXISTS idx_research_candidates_source ON research_candidates(source);

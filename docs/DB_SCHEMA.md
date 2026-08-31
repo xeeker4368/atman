@@ -13,7 +13,7 @@ never migrated. It answers one question: what actually happened, and who said
 it. Nothing derived lives here.
 
 **`working.db` — the operational store.** Everything else: conversation state,
-chunks, provenance, settings, artifacts, correction links. All of it is either a
+chunks, provenance, settings, correction links. All of it is either a
 mirror of the archive or derived from it, and all of it is rebuildable.
 
 The split buys one thing: the irreplaceable data lives in a small, frozen,
@@ -217,18 +217,6 @@ mid-turn is severe enough that the read-side check is not optional.
 Authoritative at runtime for any key it holds a row for. TOML and env provide
 the bootstrap default until a row exists. Nothing reads both at request time.
 
-### `artifacts`
-Metadata about files that live on disk under `workspace/`. Carries provenance
-(`origin`, `source_role`, `source_conversation_id`, `source_message_id`,
-`source_tool_name`), `revision_of` for lineage, `checksum`, and `metadata_json`.
-
-### `research_candidates` (decisions #3, #4)
-Proposals only — a row is inert until a human approves it. Self-flagged and
-mined candidates land here identically, distinguished by `source` rather than by
-living in separate tables.
-
-*Flagged for review: this is the one table with no consumer until Phase 5.*
-
 ---
 
 ## Changing the schema
@@ -279,16 +267,36 @@ confirm explicitly with Lyle before executing it.
 
 ## Deliberately absent
 
-Each of these is a decision, not an oversight, and each is asserted by a test
-(`test_deferred_features_have_no_tables`):
+Each of these is a decision, not an oversight, and each is pinned by a test so
+that re-adding one is a deliberate act with a failing test attached rather than
+drift. Two tests, covering two different kinds of absence:
+
+**Out of this build entirely** — asserted by
+`test_deferred_features_have_no_tables`:
 
 - **`review_items`** — the review queue is out of this build (decision #14).
 - **Anything self-modification-shaped** — no seam anywhere, not even a nullable
-  column (decision #15).
+  column (decision #15). The test matches on `self_mod`, `selfmod` and
+  `behavioral_guidance` substrings rather than exact names, since a seam is
+  likelier to arrive under an unexpected name than a predicted one.
 - **`summaries`** — nothing is ever summarised. History windowing drops turns
   from the prompt, never from the record (decision #6).
 - **`excluded_chunks`** — the fabrication gate refuses to persist a bad turn
   rather than storing it and filtering it later, and a full wipe precedes
   go-live (decisions #1, #16). The reference build needed this; this one should
   not.
-- **`channel_identifiers`** — one channel in this build.
+- **`channel_identifiers`** — one channel in this build; web credentials live on
+  `users`.
+
+**Deferred to a later phase of this build** — asserted by
+`test_later_phase_tables_are_absent`. These two are expected back, just not
+designed here:
+
+- **`artifacts`** — belongs to Phase 2 (file/PDF ingestion) and Phase 4
+  (generated images). It was in an earlier draft of this schema and was removed
+  at the Phase 1 checkpoint: nothing in Phase 1 depends on it, and its shape
+  should be driven by a real ingestion design rather than guessed a phase ahead.
+- **`research_candidates`** — belongs to Phase 5 (self-flag tool, periodic
+  mining pass). Also removed at the Phase 1 checkpoint. **Phase 5 designs it
+  fresh**; the earlier draft's column shape is deliberately not recorded here
+  and should not be treated as a starting point.
