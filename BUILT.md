@@ -41,7 +41,32 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   Ctrl+C (see changelog).
 
 ## Memory / retrieval
-- *(nothing yet)*
+
+- `[built]` **Two-database schema.** `archive.db` (append-only, frozen, two
+  tables) and `working.db` (operational, 9 tables + FTS5). Defined in
+  `anam/memory/schema/*.sql`; narrative in `docs/DB_SCHEMA.md`.
+- `[built]` **Atomic dual write** (`anam/memory/db.py`). A message reaches both
+  stores in one transaction over an `ATTACH`ed connection, or neither. Proven by
+  `test_failed_write_leaves_neither_store_touched`, which forces a failure
+  between the two inserts. Both databases pinned to `DELETE` journaling — WAL
+  would break cross-database atomicity.
+- `[built]` **Canonical `chunks` table** with `NOT NULL` provenance columns.
+  ChromaDB and FTS5 are derived from it and rebuildable from it. *No writer yet
+  — task 1.3 fills it.*
+- `[built]` **FTS5 index** over `chunks.text` as an external-content table, kept
+  in sync by insert/delete/update triggers rather than by convention.
+- `[built]` **`supersedes` link table** (decision #2) with self-link and
+  duplicate-link constraints, plus **cycle guards** — `BEFORE INSERT` and
+  `BEFORE UPDATE` triggers using a recursive CTE, rejecting any link that would
+  close a loop of any length. Verified against 2-cycles and 4-hop cycles.
+  *No classifier yet — task 3.3; task 3.5 must additionally carry a visited set
+  at read time, see `docs/DB_SCHEMA.md`.*
+- `[built]` **Versioned migration runner** (`anam/memory/migrations.py`).
+  Forward-only, transactional, records versions as part of the same transaction.
+  `MIGRATIONS` is empty; version 1 is the initial schema. The archive has no
+  migration path by design.
+- `[built]` **Tables asserted absent**: no review queue, no self-modification
+  columns, no summaries, no excluded-chunks (decisions #14, #15, #6, #1).
 
 ## Tools
 - *(nothing yet)*
@@ -56,18 +81,25 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
 - *(nothing yet)*
 
 ## Admin / settings
-- *(nothing yet — `anam/settings/` exists but is empty; task 1.11)*
+
+- `[built]` **`settings` table** with a CHECK-constrained `value_type`.
+  *No store or cache yet — task 1.11. `anam/settings/` is still empty.*
 
 ## Users / households
-- *(nothing yet)*
+
+- `[built]` **`users` table** in both stores, with `role` (`admin` | `user`,
+  CHECK-constrained) and `password_hash` in working. Created atomically across
+  both stores. *No auth or role gating yet — task 1.12.*
 
 ## Eval / observability
 
-- `[built]` **Test suite** — 14 tests passing (`pytest`), `ruff check` clean.
+- `[built]` **Test suite** — 53 tests passing (`pytest`), `ruff check` clean.
 - `[built]` **Store-isolation guard skeleton** (`tests/conftest.py`). Captures
   real paths at import before any test can patch them; `StoreIsolationViolation`
   derives from `BaseException` so `except Exception` blocks cannot swallow it.
-  **Not yet armed** against a real store — there is none. Task 1.4 arms it.
+  Now exercised: the `isolated_data_dir` fixture redirects the data directory
+  per test, and a full suite run creates no `data/` directory in the repo.
+  Task 1.4 extends it to the vector store.
 
 ## Go-live readiness
 - *(nothing yet)*
