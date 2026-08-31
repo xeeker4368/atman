@@ -47,6 +47,20 @@ temperature = 0.35
 # every turn, and nothing in this build consumes a reasoning trace.
 think = false
 
+[chunking]
+# Greedily pack whole turns into a chunk until adding the next would exceed
+# target_chars, then seal. Turn boundaries are preserved so a chunk boundary
+# never falls between a question and its answer, but size decides where it goes.
+#
+# 2500 is ~540 tokens at the 4.63 chars/token measured in task 1.2, and half the
+# 5000-char embed ceiling — so an ordinary chunk has large headroom and
+# sub-chunk splitting stays exceptional rather than routine.
+target_chars = 2500
+# Coherence cap: without it a long run of terse turns ("ok", "yes") packs 30+
+# turns spanning many topics into one chunk, diluting the embedding. This is a
+# judgment value with nothing measured behind it — see the task 1.3 design, D3.
+max_turns = 8
+
 [embedding]
 # nomic-embed-text reports embedding length 768. Asserted on every embed call —
 # a silent dimension change would corrupt the vector store.

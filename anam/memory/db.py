@@ -294,3 +294,93 @@ def count_messages() -> tuple[int, int]:
         a = conn.execute("SELECT COUNT(*) AS n FROM archive.messages").fetchone()["n"]
         w = conn.execute("SELECT COUNT(*) AS n FROM messages").fetchone()["n"]
     return a, w
+
+
+# ---------------------------------------------------------------------------
+# Chunks
+# ---------------------------------------------------------------------------
+
+
+def get_chunk_by_index(conversation_id: str, chunk_index: int) -> sqlite3.Row | None:
+    """The chunk at this position, or None.
+
+    The existence check that stops a checkpoint re-embedding what a previous
+    checkpoint already wrote.
+    """
+    with connection() as conn:
+        return conn.execute(
+            "SELECT * FROM chunks WHERE conversation_id = ? AND chunk_index = ?",
+            (conversation_id, chunk_index),
+        ).fetchone()
+
+
+def get_conversation_chunks(conversation_id: str) -> list[sqlite3.Row]:
+    with connection() as conn:
+        return conn.execute(
+            "SELECT * FROM chunks WHERE conversation_id = ? ORDER BY chunk_index",
+            (conversation_id,),
+        ).fetchall()
+
+
+def insert_chunk(
+    *,
+    chunk_id: str,
+    conversation_id: str | None,
+    user_id: str | None,
+    text: str,
+    source_type: str,
+    source_trust: str,
+    text_sha256: str,
+    chunk_index: int | None = None,
+    first_message_id: str | None = None,
+    last_message_id: str | None = None,
+) -> None:
+    """Write one chunk row. The FTS index follows via trigger, same transaction.
+
+    Raises ``sqlite3.IntegrityError`` if a row already occupies this
+    ``(conversation_id, chunk_index)`` — which is how two concurrent writers are
+    resolved rather than by locking alone.
+    """
+    now = now_iso()
+    with transaction() as conn:
+        conn.execute(
+            """INSERT INTO chunks
+                   (id, conversation_id, user_id, text, source_type, source_trust,
+                    chunk_index, first_message_id, last_message_id, text_sha256,
+                    created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                chunk_id, conversation_id, user_id, text, source_type, source_trust,
+                chunk_index, first_message_id, last_message_id, text_sha256, now, now,
+            ),
+        )
+
+
+def mark_conversation_chunked(conversation_id: str) -> None:
+    """Record that a conversation has been chunked *in full*.
+
+    Set only by final chunking at close. A checkpoint never reaches this, because
+    it always leaves the trailing group open.
+    """
+    with transaction() as conn:
+        conn.execute(
+            "UPDATE conversations SET chunked = 1 WHERE id = ?", (conversation_id,)
+        )
+
+
+def get_unchunked_ended_conversations(limit: int | None = None) -> list[sqlite3.Row]:
+    """Closed conversations that final chunking has not completed for.
+
+    The recovery queue: final chunking that aborted part-way leaves a row here
+    for a later pass to retry.
+    """
+    sql = (
+        "SELECT * FROM conversations "
+        "WHERE ended_at IS NOT NULL AND chunked = 0 ORDER BY ended_at"
+    )
+    params: tuple = ()
+    if limit is not None:
+        sql += " LIMIT ?"
+        params = (limit,)
+    with connection() as conn:
+        return conn.execute(sql, params).fetchall()

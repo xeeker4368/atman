@@ -71,8 +71,24 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   between the two inserts. Both databases pinned to `DELETE` journaling — WAL
   would break cross-database atomicity.
 - `[built]` **Canonical `chunks` table** with `NOT NULL` provenance columns.
-  ChromaDB and FTS5 are derived from it and rebuildable from it. *No writer yet
-  — task 1.3 fills it.*
+  ChromaDB and FTS5 are derived from it and rebuildable from it.
+- `[built]` **Chunking + checkpointing pipeline** (`anam/memory/chunking.py`).
+  Exactly two entry points, pinned by a test. Turn-preserving, size-decided
+  boundaries (2500-char target, 8-turn cap). Sealed groups are embedded once and
+  never rewritten; the open trailing group is deliberately not indexed. Embed
+  precedes any write, so a failure leaves the store untouched — verified for
+  dimension, unreachable and timeout errors.
+- `[built]` **Sub-chunk splitting** (`anam/memory/splitting.py`). Prefers
+  paragraph → line → sentence → whitespace boundaries, hard-cutting only as a
+  last resort and always in `str` space, so multi-byte characters survive.
+  Split pieces take consecutive `chunk_index` values and share
+  `first_message_id`, which is how siblings are discoverable without a new column.
+- `[built]` **Vector-store seam** (`anam/memory/vectors.py`). `VectorStore`
+  protocol plus `NullVectorStore`. *Default is the null store until task 1.4 —
+  chunks are **lexically retrievable only**, and `ChunkingResult.vectors_indexed`
+  reports 0 rather than letting that read as success.*
+- `[unverified]` Reconciliation of chunks missing a vector — specified in the
+  task 1.3 design, lands with 1.4.
 - `[built]` **FTS5 index** over `chunks.text` as an external-content table, kept
   in sync by insert/delete/update triggers rather than by convention.
 - `[built]` **`supersedes` link table** (decision #2) with self-link and
@@ -120,7 +136,7 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
 
 ## Eval / observability
 
-- `[built]` **Test suite** — 71 tests passing (`pytest`), `ruff check` clean.
+- `[built]` **Test suite** — 109 tests passing (`pytest`), `ruff check` clean.
 - `[built]` **Store-isolation guard skeleton** (`tests/conftest.py`). Captures
   real paths at import before any test can patch them; `StoreIsolationViolation`
   derives from `BaseException` so `except Exception` blocks cannot swallow it.

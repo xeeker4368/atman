@@ -52,6 +52,7 @@ phase in the whole build — most of its tasks are Tier 2/3.
 | SQLite archive (durable) + working (operational) DB schema | **3** | **Opus** |
 | Ollama integration: chat + embedding calls, `num_ctx` pinned (confirm value against actual model in use — verify live via `ollama ps`, don't assume) | 1 | Sonnet |
 | Chunking + checkpointing pipeline, embedding-dimension guard, sub-chunk splitting for over-length input (known failure mode in `reference/old-anam` — design it out from the start, don't reproduce it) | **3** | **Opus** |
+| Idle-close for conversations: a conversation with no new message for a configured idle window is closed automatically, which is what triggers final chunking and sets `chunked`. Load-bearing for task 1.3, not a convenience — chunking deliberately leaves the open trailing group unindexed, so a conversation that is never closed leaves its last turns permanently unretrievable from outside itself, and never gets marked `chunked`. **Spec needs approval before building:** the idle window value, and the floor below which it must not go. The floor is a correctness constraint, not a preference — it has to exceed a worst-case in-flight turn (generation time plus the persist-on-disconnect tail) or the janitor will close a conversation mid-turn. State what "idle" is measured from (last message timestamp, not last request). Lazy evaluation is fine; no daemon required. | 2 | Sonnet |
 | ChromaDB integration + FTS5 setup | 1 | Sonnet |
 | Hybrid retrieval: BM25 + vector, RRF fusion, relevance floor on both legs (a bare "top-K regardless of match quality" retrieval is a known bug class — build the floor in from day one) | **3** | **Opus** |
 | Degenerate-query handling: when the lexical query collapses to ≤1 meaningful term AND the vector leg contributes zero chunks post-floor, treat as no reliable match rather than returning weak hits | 2 | Sonnet |
@@ -91,6 +92,19 @@ phase in the whole build — most of its tasks are Tier 2/3.
   the blocklist shipped in Phase 2). Put `soul.md` under the same
   directory-based rule if it isn't already, so this doesn't recur for
   whatever governance file gets added next.
+- **Chunk text carries no timestamps, and task 1.5 owes the replacement:**
+  chunk text embedded and indexed by task 1.3 contains speaker and content
+  only. The reference build formatted a local timestamp into every line, which
+  put date strings into both the vector and the BM25 index — a query mentioning
+  a month lexically matched every chunk from that month. Timestamps live on the
+  chunk row instead, and are rendered when a chunk is presented in context
+  (task 1.8), not when it is embedded.
+  **The capability this removes is lexical date matching, and replacing it is
+  task 1.5's responsibility:** hybrid retrieval must offer a structured
+  time filter over `chunks.created_at` / the message range, so "what did we
+  discuss last Tuesday" is answerable by a bounded query rather than by
+  matching date strings. Recorded here so it is a task obligation rather than
+  an implicit promise made in a design document.
 - **Direct reference access, exception to the reference-only rule:** for
   the schema task and the hybrid retrieval task specifically, consult
   `reference/old-anam/`'s actual implementation directly (not just when a

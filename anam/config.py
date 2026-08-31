@@ -61,6 +61,10 @@ _FALLBACK: dict[str, Any] = {
         "temperature": 0.35,
         "think": False,
     },
+    "chunking": {
+        "target_chars": 2500,
+        "max_turns": 8,
+    },
     "embedding": {
         "expected_dimension": 768,
         "max_input_chars": 5000,
@@ -85,6 +89,8 @@ _ENV_MAP: dict[str, tuple[str, str, str]] = {
     "ANAM_MODEL_NUM_CTX": ("model_options", "num_ctx", "int"),
     "ANAM_MODEL_TEMPERATURE": ("model_options", "temperature", "float"),
     "ANAM_MODEL_THINK": ("model_options", "think", "bool"),
+    "ANAM_CHUNK_TARGET_CHARS": ("chunking", "target_chars", "int"),
+    "ANAM_CHUNK_MAX_TURNS": ("chunking", "max_turns", "int"),
     "ANAM_TIMEZONE": ("app", "timezone", "str"),
 }
 
@@ -259,6 +265,14 @@ def model_options() -> dict[str, Any]:
     Ollama payload rather than inside ``options`` — the client separates them.
     """
     return section("model_options")
+
+
+def chunk_target_chars() -> int:
+    return int(get("chunking", "target_chars", 2500))
+
+
+def chunk_max_turns() -> int:
+    return int(get("chunking", "max_turns", 8))
 
 
 def expected_embedding_dimension() -> int:
