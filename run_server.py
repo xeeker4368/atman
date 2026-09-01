@@ -15,7 +15,7 @@ import logging
 
 import uvicorn
 
-from anam import config
+from program import config
 
 
 def main() -> None:
@@ -45,7 +45,7 @@ def main() -> None:
     )
 
     uvicorn.run(
-        "anam.api.app:app",
+        "program.api.app:app",
         host=config.api_host(),
         port=args.port if args.port is not None else config.api_port(),
         reload=args.debug,

@@ -6,9 +6,9 @@ import sqlite3
 
 import pytest
 
-from anam import config
-from anam.memory import db
-from anam.settings import store
+from program import config
+from program.memory import db
+from program.settings import store
 
 
 @pytest.fixture

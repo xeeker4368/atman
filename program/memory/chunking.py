@@ -59,9 +59,9 @@ import sqlite3
 import threading
 from dataclasses import dataclass, field
 
-from anam import config
-from anam.engine import ollama
-from anam.memory import db, splitting, vectors
+from program import config
+from program.engine import ollama
+from program.memory import db, splitting, vectors
 
 # Conversation chunks are firsthand: the entity was present for them. Task 1.7
 # owns the vocabulary and validates these; see the design's D4.

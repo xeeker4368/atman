@@ -28,8 +28,8 @@ Why this module degrades where chunking and reconcile abort
 -----------------------------------------------------------
 ``_vector_leg()`` catches broadly and returns a lexical-only answer when the
 embedder is unreachable. That is a deliberate divergence from
-``anam/memory/chunking.py`` ("no exception is caught in the write loop; a
-failure aborts the run and propagates") and ``anam/memory/reconcile.py``
+``program/memory/chunking.py`` ("no exception is caught in the write loop; a
+failure aborts the run and propagates") and ``program/memory/reconcile.py``
 ("failure policy matches the chunking pipeline: abort and propagate"), and the
 difference is the *shape of the work*, not a lapse:
 
@@ -48,7 +48,7 @@ difference is the *shape of the work*, not a lapse:
 
 Read side by side these are one rule applied to three situations, not three
 policies: **abort when a failure could corrupt or when retrying is free; degrade
-when nothing can be corrupted and a person is waiting.** ``anam/memory/idle.py``
+when nothing can be corrupted and a person is waiting.** ``program/memory/idle.py``
 sits between them for the same reason — it collects per-conversation failures
 and raises them together at the end, because one unreachable model must not stop
 every other conversation closing.
@@ -87,9 +87,9 @@ import sqlite3
 from dataclasses import dataclass, field
 from typing import Any, Iterable, Sequence
 
-from anam import config
-from anam.engine import ollama
-from anam.memory import db, vectors
+from program import config
+from program.engine import ollama
+from program.memory import db, vectors
 
 logger = logging.getLogger(__name__)
 

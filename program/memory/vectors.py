@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from typing import Any, Protocol, Sequence, runtime_checkable
 
-from anam import config
+from program import config
 
 #: One collection, named once. The go-live wipe and any rebuild both key on it.
 COLLECTION_NAME = "chunks"

@@ -5,7 +5,7 @@ invalidated on write. **No setting requires a restart to take effect.**
 
 The rule this module enforces
 -----------------------------
-``anam/config.py`` says of itself: *"Once the settings table exists (Phase 1),
+``program/config.py`` says of itself: *"Once the settings table exists (Phase 1),
 it is authoritative at runtime for any key it holds a row for... Nothing should
 read from both this module and the settings store at request time."*
 
@@ -32,7 +32,7 @@ read, so making every settings-backed accessor DB-first costs one query per
 invalidation rather than one per call. Any write drops the cache for that store.
 
 The cache is keyed by the resolved path of ``working.db``, matching the pattern
-``anam/memory/vectors.py`` uses. Config resolves paths at call time, so a test
+``program/memory/vectors.py`` uses. Config resolves paths at call time, so a test
 that repoints ``ANAM_DATA_DIR`` must not then read another store's cached
 values — keying by path is what stops that, rather than remembering to clear.
 
@@ -54,7 +54,7 @@ import threading
 from dataclasses import dataclass
 from typing import Any
 
-from anam import config
+from program import config
 
 logger = logging.getLogger(__name__)
 
@@ -222,7 +222,7 @@ def _decode(raw: str, spec: SettingSpec) -> Any:
 
 
 def _store_key() -> str:
-    from anam.memory import db
+    from program.memory import db
 
     return str(db.working_path())
 
@@ -250,14 +250,14 @@ def _store_exists() -> bool:
     suite's isolation guard exists because that class of accident already cost
     the reference build seven weeks of writes into production.
     """
-    from anam.memory import db
+    from program.memory import db
 
     return db.working_path().exists()
 
 
 def _load_table() -> dict[str, Any]:
     """Read every settings row in one query. Missing DB or table -> empty."""
-    from anam.memory import db
+    from program.memory import db
 
     if not _store_exists():
         return {}
@@ -359,7 +359,7 @@ def describe(name: str) -> EffectiveSetting:
 
 
 def _row(name: str) -> sqlite3.Row | None:
-    from anam.memory import db
+    from program.memory import db
 
     if not _store_exists():
         return None
@@ -388,7 +388,7 @@ def set(name: str, value: Any, updated_by: str | None = None) -> None:
     The value is validated against its declared type before the write, so a
     wrong type fails here rather than at the next read from an unrelated caller.
     """
-    from anam.memory import db
+    from program.memory import db
 
     spec = spec_for(name)
     encoded = _encode(value, spec)
@@ -415,7 +415,7 @@ def clear(name: str) -> bool:
     the admin panel, not a data deletion in any provenance sense — the settings
     table holds current operational values, never experience.
     """
-    from anam.memory import db
+    from program.memory import db
 
     spec = spec_for(name)
     with db.transaction() as conn:

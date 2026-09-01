@@ -26,7 +26,7 @@ Why the checks raise
 --------------------
 This module's constraints (S9) all raise. None degrade, none log-and-continue.
 
-That is a deliberate divergence from ``anam/memory/retrieval.py``, which
+That is a deliberate divergence from ``program/memory/retrieval.py``, which
 degrades a failing leg rather than failing the query, and it follows the same
 criterion stated there: *abort when a failure could corrupt something or when
 retrying is free; degrade when nothing can be corrupted and a person is
@@ -55,13 +55,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from anam.engine import history
-from anam.engine.history import BudgetBreakdown, HistoryWindow
-from anam.memory.retrieval import RetrievalResult, RetrievedChunk
+from program.engine import history
+from program.engine.history import BudgetBreakdown, HistoryWindow
+from program.memory.retrieval import RetrievalResult, RetrievedChunk
 
 #: soul.md lives beside the governance files the Phase 2 ingestion blocklist
 #: covers by resolved directory (S8). BUILD_PLAN names
-#: ``anam/integrity/architecture.md`` as the file whose late arrival broke a
+#: ``program/integrity/architecture.md`` as the file whose late arrival broke a
 #: filename-based blocklist; putting soul.md in the same directory means one
 #: directory rule covers both, and any governance file added there later is
 #: covered automatically. It is package content, not runtime data, so nothing

@@ -38,7 +38,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterator
 
-from anam import config
+from program import config
 
 SCHEMA_DIR = Path(__file__).resolve().parent / "schema"
 
@@ -154,7 +154,7 @@ def init_databases() -> None:
 
     # Imported here rather than at module scope: migrations imports this module
     # for its connection helpers.
-    from anam.memory import migrations
+    from program.memory import migrations
 
     migrations.run_working_migrations()
 

@@ -20,17 +20,28 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   `.gitignore` written first. `reference/`, `venv/`, `.DS_Store`,
   `__pycache__/` and `.pytest_cache/` confirmed excluded via `git check-ignore`.
   **Every commit on `main` is Lyle's** — CC has never committed and does not.
-- `[built]` **`anam/` package skeleton.** Subpackages `api/`, `api/routes/`,
+- `[built]` **Package renamed `anam/` → `program/`** (2026-09-01). Mechanical:
+  `git mv` plus import-path updates, no logic or behaviour change, verified by an
+  identical 326-test count, clean `ruff`, and a live `GET /api/health` returning
+  200 under the new `program.api.app:app` import string. The old name collided
+  with both "Project Anam" and the prior repo (`reference/old-anam/`), which had
+  caused real confusion about whether the package was inherited code — it was
+  not. **Deliberately unchanged**, being runtime artifact or project names rather
+  than package references: the `ANAM_*` env namespace, `logs/anam.log`,
+  `backups/anam-backup-*`, "Project Anam" in prose, `reference/old-anam/`, and
+  `Anam` as the substrate name in `soul.md`. Historical `changelog/` entries keep
+  the old paths on purpose — they are dated records of where files were then.
+- `[built]` **`program/` package skeleton.** Subpackages `api/`, `api/routes/`,
   `memory/`, `engine/`, `tools/`, `integrity/`, `settings/`, `ops/`,
   `artifacts/`. `api/`, `engine/` and `memory/` now carry real code; `tools/`,
   `integrity/`, `settings/`, `ops/` and `artifacts/` are still `__init__.py`
   only.
-- `[built]` **Layered configuration** (`anam/config.py`).
+- `[built]` **Layered configuration** (`program/config.py`).
   `defaults.toml` → `local.toml` → `ANAM_*` env, deep-merged, read through
   call-time accessors with no module-level constants. Bad values raise
   `ConfigError` rather than silently defaulting. 10 tests, including a live
   proof that `ANAM_API_PORT` changes the port the server actually binds.
-- `[built]` **FastAPI application factory** (`anam/api/app.py`) with routers
+- `[built]` **FastAPI application factory** (`program/api/app.py`) with routers
   split by domain. OpenAPI and docs endpoints disabled.
 - `[built]` **Health endpoint** — `GET /api/health` returns `{"status": "ok"}`.
   Liveness only; reports on no dependencies. Verified live, not mocked.
@@ -44,7 +55,7 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
 
 ## Model plumbing
 
-- `[built]` **Ollama client** (`anam/engine/ollama.py`). Non-streaming and
+- `[built]` **Ollama client** (`program/engine/ollama.py`). Non-streaming and
   streaming chat, embeddings, and `loaded_models()`. Five named exceptions —
   unreachable, timeout, model-not-found, response error, embedding-dimension —
   each carrying the host/model and how to check. Every request has an explicit
@@ -74,7 +85,7 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
 
 ## Prompt assembly
 
-- `[built]` **`soul.md` seed** at `anam/integrity/soul.md` — 3,401 characters,
+- `[built]` **`soul.md` seed** at `program/integrity/soul.md` — 3,401 characters,
   ~851 tokens, 2.6% of the 32,768 window. Design of record:
   `docs/SOUL_AND_PROMPT_DESIGN.md` (revision 2), S1–S12. The stored file was
   verified word-for-word (618 words) against the approved design's quoted text
@@ -101,7 +112,7 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   between turns you are not running"* — so it cannot be quoted without its
   qualifier. Every self-descriptive claim was audited against `BUILT.md`; no
   claim to learning, self-training or growth appears, because none is true.
-- `[built]` **Five constraints enforced in `anam/engine/prompt.py`, all
+- `[built]` **Five constraints enforced in `program/engine/prompt.py`, all
   raising** — required markers, size ceiling, entity naming, trait assignment,
   elapsed-time pairing. None degrades or logs-and-continues, deliberately unlike
   `retrieval.py`, on the criterion recorded in both modules: *abort when a
@@ -147,7 +158,7 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   its presence in `soul.md` does not decide it.*
 
 
-- `[built]` **History windowing** (`anam/engine/history.py`), decision #6. A
+- `[built]` **History windowing** (`program/engine/history.py`), decision #6. A
   **token budget**, not a message count: `plan_budget()` reserves for the system
   prompt, the retrieved chunks, the model's output and a safety margin, and
   `select_history()` fills the remainder with the most recent turns, newest
@@ -194,8 +205,8 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
 
 - `[built]` **Two-database schema.** `archive.db` (append-only, frozen, two
   tables) and `working.db` (operational, 7 tables + FTS5). Defined in
-  `anam/memory/schema/*.sql`; narrative in `docs/DB_SCHEMA.md`.
-- `[built]` **Atomic dual write** (`anam/memory/db.py`). A message reaches both
+  `program/memory/schema/*.sql`; narrative in `docs/DB_SCHEMA.md`.
+- `[built]` **Atomic dual write** (`program/memory/db.py`). A message reaches both
   stores in one transaction over an `ATTACH`ed connection, or neither. Proven by
   `test_failed_write_leaves_neither_store_touched`, which forces a failure
   between the two inserts. Both databases pinned to `DELETE` journaling — WAL
@@ -215,24 +226,24 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   becomes live risk at **task 2.2**, which introduces genuine concurrent write
   paths: a chat turn writing messages while idle-close's sweep or a background
   pass runs.
-  **Not fixed.** Resolving it means editing `anam/memory/db.py` and choosing
+  **Not fixed.** Resolving it means editing `program/memory/db.py` and choosing
   between `busy_timeout` tuning, a retry, and write serialisation — each with
   atomicity implications — so it needs its own **Tier 3** task rather than an
   incidental patch.
 - `[built]` **Canonical `chunks` table** with `NOT NULL` provenance columns.
   ChromaDB and FTS5 are derived from it and rebuildable from it.
-- `[built]` **Chunking + checkpointing pipeline** (`anam/memory/chunking.py`).
+- `[built]` **Chunking + checkpointing pipeline** (`program/memory/chunking.py`).
   Exactly two entry points, pinned by a test. Turn-preserving, size-decided
   boundaries (2500-char target, 8-turn cap). Sealed groups are embedded once and
   never rewritten; the open trailing group is deliberately not indexed. Embed
   precedes any write, so a failure leaves the store untouched — verified for
   dimension, unreachable and timeout errors.
-- `[built]` **Sub-chunk splitting** (`anam/memory/splitting.py`). Prefers
+- `[built]` **Sub-chunk splitting** (`program/memory/splitting.py`). Prefers
   paragraph → line → sentence → whitespace boundaries, hard-cutting only as a
   last resort and always in `str` space, so multi-byte characters survive.
   Split pieces take consecutive `chunk_index` values and share
   `first_message_id`, which is how siblings are discoverable without a new column.
-- `[built]` **Vector store** (`anam/memory/vectors.py`). `VectorStore` protocol,
+- `[built]` **Vector store** (`program/memory/vectors.py`). `VectorStore` protocol,
   `ChromaVectorStore` (chromadb 1.5.9, local on-disk, cosine, one `chunks`
   collection), and `NullVectorStore` retained for tests. **Chroma is the
   default**, constructed on first use and cached per resolved data path.
@@ -242,11 +253,11 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   can only ever be defined by a 768-wide vector. Both layers tested: ours raises
   `VectorDimensionError`, and Chroma itself refuses a mismatch
   (`InvalidArgumentError`), verified rather than assumed.
-- `[built]` **Reconciliation** (`anam/memory/reconcile.py`,
+- `[built]` **Reconciliation** (`program/memory/reconcile.py`,
   `scripts/reconcile_vectors.py`). Finds chunk rows with no vector, re-embeds,
   upserts. Idempotent, resumable, `--dry-run` and `--limit`. Verified end to end
   with real embeddings: 6 missing → 6 repaired → second run finds 0.
-- `[built]` **Hybrid retrieval** (`anam/memory/retrieval.py`), task 1.5. Lexical
+- `[built]` **Hybrid retrieval** (`program/memory/retrieval.py`), task 1.5. Lexical
   leg (FTS5/`bm25()`) + vector leg (Chroma cosine) over the same chunk store,
   fused by RRF. Design of record: `docs/RETRIEVAL_DESIGN.md` (D1–D9).
 - `[built]` **User text never reaches FTS5 as syntax.** Measured: `"what's the
@@ -336,7 +347,7 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   close a loop of any length. Verified against 2-cycles and 4-hop cycles.
   *No classifier yet — task 3.3; task 3.5 must additionally carry a visited set
   at read time, see `docs/DB_SCHEMA.md`.*
-- `[built]` **Versioned migration runner** (`anam/memory/migrations.py`).
+- `[built]` **Versioned migration runner** (`program/memory/migrations.py`).
   Forward-only, transactional, records versions as part of the same transaction.
   `MIGRATIONS` is empty; version 1 is the initial schema. The archive has no
   migration path by design.
@@ -348,7 +359,7 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
 
 ### Conversation lifecycle — idle-close
 
-- `[built]` **Idle-close** (`anam/memory/idle.py`). `close_idle_conversations()`
+- `[built]` **Idle-close** (`program/memory/idle.py`). `close_idle_conversations()`
   closes every open conversation past its idle window — sets `ended_at` first,
   then runs final chunking. `find_idle_conversations()` reports the same
   candidates and changes nothing; `dry_run=True` does the same through the main
@@ -433,13 +444,13 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
 - `[built]` **`settings` table** with a CHECK-constrained `value_type`. A test
   proves the constraint still rejects a type outside the vocabulary, so the
   store's registry and the schema are verified to agree rather than assumed to.
-- `[built]` **Settings store** (`anam/settings/store.py`), decision #8. Typed
+- `[built]` **Settings store** (`program/settings/store.py`), decision #8. Typed
   read/write over that table, an in-memory cache invalidated on every write, and
   a fallback to `config.py` for any key with no row. Seven registered keys.
 - `[built]` **The read path is settings-table-first, through the accessors that
   already existed.** `config.py`'s scope comment claimed this before task 1.11;
   it is now the behaviour. `config.chat_model()` and friends delegate via
-  `config._settings_first()`, so every existing caller — `anam/engine/ollama.py`
+  `config._settings_first()`, so every existing caller — `program/engine/ollama.py`
   included — became settings-first without being modified.
   `model_options()` resolves per key, so changing temperature leaves `num_ctx`
   alone. `config.get()` and `config.section()` deliberately stay pure layered
@@ -485,7 +496,7 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
 
 ## Development fixtures
 
-- `[built]` **Seed corpus** (`anam/ops/seed.py`, `scripts/seed_dataset.py`) for
+- `[built]` **Seed corpus** (`program/ops/seed.py`, `scripts/seed_dataset.py`) for
   the Phase 1 retrieval checkpoint: 8 conversations, 2 users (Lyle admin, Jodie
   user), 53 messages, 12 chunks. **Written through the real pipeline** —
   `db.save_message()` then `chunking.finalise_conversation()`, never a
@@ -543,7 +554,7 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
 
 ## Backup / restore
 
-- `[built]` **Backup CLI** (`anam/ops/backup.py`, `scripts/backup.py`). Captures
+- `[built]` **Backup CLI** (`program/ops/backup.py`, `scripts/backup.py`). Captures
   both databases plus the ChromaDB directory into a timestamped folder with a
   manifest recording sha256, row counts, schema version, source paths and the
   consistency guarantee *per artifact*.

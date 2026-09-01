@@ -16,7 +16,7 @@ A plain file copy is wrong here for two separate reasons:
    cannot observe a half-written commit.
 
 2. *Cross-database skew, which is the one that matters for this build.*
-   ``anam/memory/db.py`` exists to guarantee that a message reaches
+   ``program/memory/db.py`` exists to guarantee that a message reaches
    ``archive.db`` and ``working.db`` in a single transaction or neither. Two
    independent backups — even two individually perfect ones — would capture
    archive at one instant and working at another, and a dual write landing
@@ -74,8 +74,8 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
-from anam import config
-from anam.memory import db, vectors
+from program import config
+from program.memory import db, vectors
 
 logger = logging.getLogger(__name__)
 

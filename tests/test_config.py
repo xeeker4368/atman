@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from anam import config
+from program import config
 
 
 @pytest.fixture

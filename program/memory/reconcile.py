@@ -26,8 +26,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from anam.engine import ollama
-from anam.memory import db, vectors
+from program.engine import ollama
+from program.memory import db, vectors
 
 
 @dataclass

@@ -118,7 +118,7 @@ CREATE TABLE IF NOT EXISTS chunks (
     -- Provenance. NOT NULL is the enforcement: task 1.7 requires that no chunk
     -- can be written without it, and a constraint holds where a convention
     -- does not. The permitted values are a vocabulary owned by
-    -- anam/memory/provenance.py, deliberately not a CHECK constraint here —
+    -- program/memory/provenance.py, deliberately not a CHECK constraint here —
     -- adding a source type should not require a schema migration.
     source_type      TEXT NOT NULL,
     source_trust     TEXT NOT NULL,
@@ -266,7 +266,7 @@ END;
 
 -- Authoritative at runtime for any key it holds a row for. TOML and env
 -- provide the bootstrap default until a row exists; nothing reads both at
--- request time. See anam/config.py.
+-- request time. See program/config.py.
 CREATE TABLE IF NOT EXISTS settings (
     key         TEXT PRIMARY KEY,
     value       TEXT NOT NULL,

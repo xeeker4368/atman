@@ -13,9 +13,9 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from anam import config
-from anam.engine import ollama
-from anam.memory import chunking, db, idle, vectors
+from program import config
+from program.engine import ollama
+from program.memory import chunking, db, idle, vectors
 
 NOW = datetime(2026, 9, 1, 12, 0, 0, tzinfo=timezone.utc)
 

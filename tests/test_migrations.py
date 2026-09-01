@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from anam.memory import db, migrations
+from program.memory import db, migrations
 
 
 @pytest.fixture

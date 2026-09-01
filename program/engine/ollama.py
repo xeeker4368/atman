@@ -33,7 +33,7 @@ from typing import Any, Iterator
 
 import requests
 
-from anam import config
+from program import config
 
 
 class OllamaError(RuntimeError):

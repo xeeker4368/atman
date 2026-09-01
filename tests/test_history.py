@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from anam import config
-from anam.engine import history
+from program import config
+from program.engine import history
 
 
 @pytest.fixture(autouse=True)
@@ -256,7 +256,7 @@ def test_window_carries_the_breakdown_for_inspection():
 
 def test_it_accepts_sqlite_rows_from_the_message_store(isolated_data_dir):
     """A caller can pass db.get_conversation_messages() straight in."""
-    from anam.memory import db
+    from program.memory import db
 
     db.init_databases()
     uid = db.create_user("Lyle", role="admin")

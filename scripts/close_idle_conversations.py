@@ -15,8 +15,8 @@ from __future__ import annotations
 import argparse
 import sys
 
-from anam import config
-from anam.memory import idle
+from program import config
+from program.memory import idle
 
 
 def main() -> int:

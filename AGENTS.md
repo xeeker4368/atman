@@ -55,7 +55,7 @@ implementation feels:
 - Retrieval changes that implement the supersedes/correction link
 - Provenance/source-trust semantics
 - `soul.md` content and prompt assembly
-- Database concurrency and locking semantics in `anam/memory/db.py` —
+- Database concurrency and locking semantics in `program/memory/db.py` —
   `busy_timeout` tuning, write retry, or write serialisation. These read as
   operational tuning and are not: the cross-database atomicity guarantee
   depends on the locking behaviour they change, so a fix verified only against

@@ -8,8 +8,8 @@ import time
 
 import pytest
 
-from anam.memory import db
-from anam.ops import backup
+from program.memory import db
+from program.ops import backup
 
 
 @pytest.fixture
@@ -122,7 +122,7 @@ def test_a_write_during_the_snapshot_cannot_land_in_one_store_only(populated):
 
 
 def test_it_captures_the_vector_store_when_one_exists(populated):
-    from anam.memory import vectors
+    from program.memory import vectors
 
     store = vectors.get_vector_store()
     store.upsert(
@@ -138,7 +138,7 @@ def test_it_captures_the_vector_store_when_one_exists(populated):
 
 def test_the_vector_store_is_recorded_as_best_effort_not_transactional(populated):
     """The manifest must not overstate what a directory copy guarantees."""
-    from anam.memory import vectors
+    from program.memory import vectors
 
     store = vectors.get_vector_store()
     store.upsert(chunk_id="c1", vector=[0.02] * 768, metadata={})

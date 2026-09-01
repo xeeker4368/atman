@@ -5,7 +5,7 @@
 
 The two SQLite databases are captured with SQLite's online backup API under a
 single read lock held across both, so they are consistent with each other and
-not merely each valid on its own — see ``anam/ops/backup.py`` for why that
+not merely each valid on its own — see ``program/ops/backup.py`` for why that
 distinction is the whole point. The vector store is a plain directory copy,
 recorded in the manifest as best-effort, and is rebuildable from the chunks
 table with ``scripts/reconcile_vectors.py``.
@@ -22,7 +22,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from anam.ops import backup
+from program.ops import backup
 
 
 def main() -> int:

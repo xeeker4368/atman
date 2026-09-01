@@ -14,8 +14,8 @@ from __future__ import annotations
 
 import pytest
 
-from anam.engine import ollama
-from anam.memory import chunking, db, reconcile, vectors
+from program.engine import ollama
+from program.memory import chunking, db, reconcile, vectors
 
 live_only = pytest.mark.skipif(
     not ollama.is_available(),

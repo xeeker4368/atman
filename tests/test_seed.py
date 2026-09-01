@@ -6,9 +6,9 @@ import hashlib
 
 import pytest
 
-from anam.engine import ollama
-from anam.memory import chunking, db
-from anam.ops import seed
+from program.engine import ollama
+from program.memory import chunking, db
+from program.ops import seed
 
 
 @pytest.fixture

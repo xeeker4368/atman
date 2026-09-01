@@ -25,7 +25,7 @@ import sqlite3
 from dataclasses import dataclass
 from typing import Callable
 
-from anam.memory import db
+from program.memory import db
 
 
 @dataclass(frozen=True)

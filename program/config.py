@@ -292,10 +292,10 @@ def _settings_first(section_name: str, key: str, default: Any = None) -> Any:
     legible — a key is settings-backed because it appears in the store's
     registry, not because of which reader happened to be used.
 
-    The import is function-local: ``anam.settings.store`` reaches
-    ``anam.memory.db``, which imports this module.
+    The import is function-local: ``program.settings.store`` reaches
+    ``program.memory.db``, which imports this module.
     """
-    from anam.settings import store
+    from program.settings import store
 
     return store.resolve(section_name, key, get(section_name, key, default))
 

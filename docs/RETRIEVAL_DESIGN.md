@@ -5,7 +5,7 @@
 Decisions are numbered `D1`–`D9` so later work can cite them the way task 1.3's
 design is cited (`the task 1.3 design, D3`).
 
-Everything measured below was run against the **seed corpus** (`anam/ops/seed.py`,
+Everything measured below was run against the **seed corpus** (`program/ops/seed.py`,
 12 chunks, real embeddings) or against a live SQLite/Chroma store. Numbers
 without a measurement behind them are labelled **JUDGMENT** and listed together
 in §Flagged constants.

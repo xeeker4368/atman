@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from anam.memory import splitting
+from program.memory import splitting
 
 
 def test_text_within_budget_is_one_piece():

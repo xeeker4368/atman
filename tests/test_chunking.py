@@ -13,8 +13,8 @@ import sqlite3
 
 import pytest
 
-from anam.engine import ollama
-from anam.memory import chunking, db, vectors
+from program.engine import ollama
+from program.memory import chunking, db, vectors
 
 
 class RecordingStore:

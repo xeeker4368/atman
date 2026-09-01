@@ -61,7 +61,7 @@ import math
 from dataclasses import dataclass, field
 from typing import Any, Mapping, Sequence
 
-from anam import config
+from program import config
 
 logger = logging.getLogger(__name__)
 

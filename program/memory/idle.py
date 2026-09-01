@@ -47,8 +47,8 @@ import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 
-from anam import config
-from anam.memory import chunking, db
+from program import config
+from program.memory import chunking, db
 
 logger = logging.getLogger(__name__)
 

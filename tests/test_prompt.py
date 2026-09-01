@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import pytest
 
-from anam.engine import history, prompt
-from anam.memory.retrieval import RetrievalResult, RetrievedChunk
+from program.engine import history, prompt
+from program.memory.retrieval import RetrievalResult, RetrievedChunk
 
 REAL_SOUL = prompt.SOUL_PATH.read_text(encoding="utf-8")
 

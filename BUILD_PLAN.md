@@ -32,7 +32,7 @@ yet — just the shape of the app.
 |---|---|---|
 | Write `.gitignore` **before** running `git init` — must cover `__pycache__/`, `.pytest_cache/`, `.DS_Store`, and `reference/` (per the reference-folder rule in `AGENTS.md`). This has to exist before the first commit, not added afterward, or unwanted files already have history to clean up. | 0 | Sonnet |
 | `git init`, first commit — includes `.gitignore` itself; scaffold otherwise empty is fine | 0 | Sonnet |
-| Repo structure — package named `anam/` (the project's own codename, same role `tir/` played in the reference build; does not conflict with the entity staying unnamed — this names the package, not the entity), plus `config/`, `tests/`, `workspace/` | 0 | Sonnet |
+| Repo structure — package named `program/`. Originally `anam/`, taking the project's own codename the same way `tir/` did in the reference build; **renamed to `program/` on 2026-09-01** because reusing the project's name for the package made it read as inherited code from the prior repo (see that changelog). Neither name conflicts with the entity staying unnamed — this names the package, not the entity. Plus `config/`, `tests/`, `workspace/` | 0 | Sonnet |
 | Layered config: `defaults.toml` → `local.toml` → env override, matching the pattern already proven in `reference/old-anam/` | 0 | Sonnet |
 | `requirements.txt`, FastAPI app skeleton, `run_server.py`, health-check endpoint | 0 | Sonnet |
 | `start.sh` (local + `--lan` flags) | 0 | Sonnet |
@@ -69,7 +69,7 @@ phase in the whole build — most of its tasks are Tier 2/3.
   **enforces** this: it raises if an elapsed-time statement appears without a
   pairing marker, so a block that emits the figure alone will fail assembly
   rather than reach the model. Recognised markers are in
-  `anam/engine/prompt.py`'s `_PAIRING`; adding a new phrasing is a deliberate
+  `program/engine/prompt.py`'s `_PAIRING`; adding a new phrasing is a deliberate
   edit there, not a reason to weaken the check. | 2 | Sonnet |
 | History windowing: token-budget cutoff for in-context history (decision #6). **Token estimate: character-based (~4 chars/token), no tokenizer dependency.** Margin direction matters more than size: erring high (assuming fewer tokens than reality) under-fills the window — the omitted history stays retrievable via `memory_search`, a non-event. Erring low (assuming more tokens fit than actually do) means the model server silently drops the overflow, losing the oldest content with nothing raised — the worse failure mode. Bias the estimate toward erring high. This is the same ratio problem the embedding-input truncation work hits (dense content runs nearer 3 chars/token than 4) — document both margins together and keep them consistent rather than letting them diverge by accident. | 1 | Sonnet |
 | Settings persistence: DB-backed settings table + in-memory cache, invalidated on write (decision #8) | 1 | Sonnet |
@@ -100,7 +100,7 @@ phase in the whole build — most of its tasks are Tier 2/3.
 - **Governance-file blocklist, generalized:** match by resolved directory,
   not an enumerated filename list — a filename list silently fails to
   cover any governance file added in a later phase (this already bit task
-  2.8 once, when `anam/integrity/architecture.md` arrived in Phase 3 after
+  2.8 once, when `program/integrity/architecture.md` arrived in Phase 3 after
   the blocklist shipped in Phase 2). Put `soul.md` under the same
   directory-based rule if it isn't already, so this doesn't recur for
   whatever governance file gets added next.
@@ -112,7 +112,7 @@ phase in the whole build — most of its tasks are Tier 2/3.
   chunk row instead, and are rendered when a chunk is presented in context —
   which is the **soul.md / `build_system_prompt()` task**, not the
   current-situation block — rather than when it is embedded. Implemented in
-  `anam/engine/prompt.py`'s `render_retrieved()`, which renders each chunk with
+  `program/engine/prompt.py`'s `render_retrieved()`, which renders each chunk with
   its `created_at`.
   **The capability this removes is lexical date matching, and replacing it is
   task 1.5's responsibility:** hybrid retrieval must offer a structured

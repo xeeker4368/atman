@@ -1,7 +1,7 @@
 # Database schema
 
 Two SQLite databases under `data/`. This document is the narrative; the schema
-itself is in `anam/memory/schema/archive.sql` and `working.sql`, and those files
+itself is in `program/memory/schema/archive.sql` and `working.sql`, and those files
 are authoritative if the two ever disagree.
 
 ---
@@ -141,7 +141,7 @@ into a foreign-key violation instead of a maintenance task.
 
 Provenance is `NOT NULL` because task 1.7 requires that no chunk can be written
 without it, and a constraint holds where a convention does not. The permitted
-*values* are a vocabulary owned by `anam/memory/provenance.py`, deliberately not
+*values* are a vocabulary owned by `program/memory/provenance.py`, deliberately not
 a CHECK constraint — adding a source type should not require a migration.
 
 A partial unique index keeps `(conversation_id, chunk_index)` unique where both
@@ -230,7 +230,7 @@ version number describes:
   new object appears on existing databases without a migration.
 - **Anything that changes or backfills existing data** — `ALTER TABLE`, a column
   type change, a data rewrite — needs a `Migration` in
-  `anam/memory/migrations.py`. `IF NOT EXISTS` cannot express those, and they
+  `program/memory/migrations.py`. `IF NOT EXISTS` cannot express those, and they
   must run exactly once.
 
 Never edit or renumber an applied migration: a database that already ran version

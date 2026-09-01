@@ -11,7 +11,7 @@ Additive only: nothing is deleted or overwritten, and seeding a store that
 already holds conversations is refused unless ``--allow-existing`` is passed.
 
 Every chunk lands as ``source_type="conversation"``, which is the provisional
-convention ``anam/memory/chunking.py`` uses. Task 1.7 owns the real vocabulary
+convention ``program/memory/chunking.py`` uses. Task 1.7 owns the real vocabulary
 and has not landed, so this corpus is deliberately single-provenance.
 """
 
@@ -20,7 +20,7 @@ from __future__ import annotations
 import argparse
 import sys
 
-from anam.ops import seed
+from program.ops import seed
 
 
 def main() -> int:

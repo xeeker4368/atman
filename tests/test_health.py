@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
-from anam.api.app import create_app
+from program.api.app import create_app
 
 
 def test_app_builds():

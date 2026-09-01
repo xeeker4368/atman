@@ -6,7 +6,7 @@ import sqlite3
 
 import pytest
 
-from anam.memory import db
+from program.memory import db
 
 
 @pytest.fixture

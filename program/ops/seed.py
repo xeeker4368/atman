@@ -15,7 +15,7 @@ rules actually are, because it is produced by them.
 Provenance vocabulary — provisional, and not this task's to choose
 -----------------------------------------------------------------
 Every chunk here lands as ``source_type="conversation"`` /
-``source_trust="firsthand"``, because that is what ``anam/memory/chunking.py``
+``source_trust="firsthand"``, because that is what ``program/memory/chunking.py``
 writes and **task 1.7 owns the vocabulary**. 1.7 is Tier 3 and has not landed.
 
 So this corpus deliberately contains **one source_type only**. Inventing a
@@ -59,7 +59,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 
-from anam.memory import chunking, db
+from program.memory import chunking, db
 
 logger = logging.getLogger(__name__)
 

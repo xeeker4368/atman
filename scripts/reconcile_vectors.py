@@ -13,7 +13,7 @@ from __future__ import annotations
 import argparse
 import sys
 
-from anam.memory import db, reconcile, vectors
+from program.memory import db, reconcile, vectors
 
 
 def main() -> int:

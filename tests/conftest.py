@@ -22,8 +22,8 @@ import os
 
 import pytest
 
-from anam import config
-from anam.memory import vectors
+from program import config
+from program.memory import vectors
 
 # Captured at import — before any test can patch config.
 REAL_DATA_DIR = str(config.data_dir())
@@ -76,9 +76,9 @@ def _guard_runtime_store():
 def isolated_data_dir(tmp_path, monkeypatch):
     """Point the configured data directory at a temporary path for one test.
 
-    Works because ``anam.config`` resolves values through accessor functions at
+    Works because ``program.config`` resolves values through accessor functions at
     call time rather than binding module-level constants at import — see the
-    module docstring in ``anam/config.py`` for why that distinction matters.
+    module docstring in ``program/config.py`` for why that distinction matters.
     """
     monkeypatch.setenv("ANAM_DATA_DIR", str(tmp_path))
     # The backup directory resolves from its own config key, so repointing the

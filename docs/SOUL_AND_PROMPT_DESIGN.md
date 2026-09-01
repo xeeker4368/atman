@@ -273,10 +273,10 @@ See open question 3.
 
 ## S8 — Where `soul.md` lives
 
-**`anam/integrity/soul.md`.**
+**`program/integrity/soul.md`.**
 
 BUILD_PLAN requires the ingestion blocklist to match by **resolved directory**,
-and names `anam/integrity/architecture.md` as the governance file whose late
+and names `program/integrity/architecture.md` as the governance file whose late
 arrival broke a filename-based list. Putting `soul.md` in that same directory
 means **one directory rule covers both**, and any governance file added there
 later is covered automatically — which is what the note asks for.
@@ -339,7 +339,7 @@ exists to prevent. A hard failure at load is loud and immediate.
 ### Signatures
 
 ```python
-# anam/engine/prompt.py
+# program/engine/prompt.py
 
 SOUL_PATH = Path(__file__).resolve().parent.parent / "integrity" / "soul.md"
 SOUL_MAX_CHARS = 6000
@@ -465,8 +465,8 @@ swallowed, so a turn whose newest message alone exceeds the budget is visible.
 
 Recorded so they are not lost between approval and code:
 
-- `anam/integrity/soul.md` at the approved text (S8).
-- `anam/engine/prompt.py` per Part 2, with the S9 checks raising rather than
+- `program/integrity/soul.md` at the approved text (S8).
+- `program/engine/prompt.py` per Part 2, with the S9 checks raising rather than
   degrading.
 - `BUILD_PLAN.md`: record the pairing contract against the current-situation
   block task (question 2), and repoint the chunk-timestamp cross-reference at

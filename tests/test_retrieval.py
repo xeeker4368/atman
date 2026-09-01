@@ -1,6 +1,6 @@
 """Hybrid retrieval — tested against the seed corpus, not toy strings.
 
-The corpus (`anam/ops/seed.py`) was built for exactly this: the espresso /
+The corpus (`program/ops/seed.py`) was built for exactly this: the espresso /
 pour-over adjacency, the split notebook message, and the open conversation whose
 trailing group is deliberately unindexed.
 """
@@ -11,10 +11,10 @@ import hashlib
 
 import pytest
 
-from anam import config
-from anam.engine import ollama
-from anam.memory import chunking, db, retrieval
-from anam.ops import seed
+from program import config
+from program.engine import ollama
+from program.memory import chunking, db, retrieval
+from program.ops import seed
 
 
 @pytest.fixture
