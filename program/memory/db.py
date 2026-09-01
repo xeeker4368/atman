@@ -193,6 +193,24 @@ def get_user_by_name(name: str) -> sqlite3.Row | None:
         return conn.execute("SELECT * FROM users WHERE name = ?", (name,)).fetchone()
 
 
+def get_actor(user_id: str):
+    """Load a user row as an :class:`~program.settings.permissions.Actor`.
+
+    Returns ``None`` for an unknown id rather than inventing an actor — an
+    unrecognised user must not resolve to a default role.
+
+    Imported here rather than at module scope: ``permissions`` is a leaf that
+    should not pull the database layer in, and this is the only direction the
+    dependency runs.
+    """
+    from program.settings.permissions import Actor, Role
+
+    row = get_user(user_id)
+    if row is None:
+        return None
+    return Actor(user_id=row["id"], name=row["name"], role=Role(row["role"]))
+
+
 def list_users() -> list[sqlite3.Row]:
     with connection() as conn:
         return conn.execute("SELECT * FROM users ORDER BY created_at").fetchall()

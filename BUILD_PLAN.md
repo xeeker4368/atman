@@ -170,7 +170,17 @@ Goal: the entity can act, not just talk.
   Buffering both messages and writing them together at the end would make an
   in-flight turn indistinguishable from a finished one, and the short idle
   window would then apply to a conversation mid-generation. This is a
-  correctness dependency, not only crash-safety. | 1 | Sonnet |
+  correctness dependency, not only crash-safety.
+  **(c) Construct a real `Actor` from the request rather than reaching for
+  `Actor.operator()`.** The multi-user task made `actor` a required argument on
+  every gated settings operation, with `Actor.operator()` an explicit, greppable
+  sentinel for operator-run callers (scripts, migrations, a shell). That
+  sentinel is an unauthenticated always-allowed path — correct while nothing
+  untrusted can call Python in this process, which is true today and **false
+  the moment this task lands**. Build the actor via `db.get_actor(user_id)`.
+  Note authentication itself does not exist: `users.password_hash` is written by
+  nothing and read by nothing, so this task either depends on an authentication
+  task or must state plainly that the actor is asserted, not proven. | 1 | Sonnet |
 | `memory_search` tool | 1 | Sonnet |
 | Stand up local SearXNG instance; `web_search` tool against it | 1 | Sonnet |
 | `web_fetch` tool (public HTTP/HTTPS only, no localhost/private network access) | 1 | Sonnet |
@@ -294,7 +304,8 @@ directly, not just by trusting the UI.
 | Task | Tier | Model |
 |---|---|---|
 | React chat interface: single coordinated state machine (reducer-based), streaming responses, tool-call/artifact rendering — explicitly avoid the competing-poller pattern from `reference/old-anam` (decision #7) | 1 | Sonnet |
-| Server-rendered admin settings panel: capability toggles, model selection, temperature, API keys (decision #7) | 1 | Sonnet |
+| Server-rendered admin settings panel: capability toggles, model selection, temperature, API keys (decision #7).
+  **Owes the loopback gate.** The multi-user task deliberately did NOT build it — there was no admin route to mount it on, and an unmounted gate reads as protection that exists. This task mounts the first admin route, so the gate lands here. Full contract in `docs/ROLE_GATING_DESIGN.md` R2; the requirements are: trust `request.client.host` **only, never `X-Forwarded-For`/`X-Real-IP`** (no reverse proxy in this build, so those are attacker-controlled on the LAN — keep `uvicorn --proxy-headers` off); accept only `127.0.0.1`, `::1`, `::ffff:127.0.0.1`, parsed to an address object and tested with `is_loopback` rather than string-prefix matched; a missing `request.client` **denies**; deny returns **404, not 403**, since a 403 confirms the admin surface exists to a household device that should not learn it. `start.sh --lan` already binds `0.0.0.0`, so this is live the moment a route is mounted. **A network-position check is not authentication** — both are needed. | 1 | Sonnet |
 | Save-button UX: appears on change, commits + goes live immediately (decision #9) | 1 | Sonnet |
 | Check/Verify button framework: auto-rendered for any setting with a registered verification function (decision #9) | 1 | Sonnet |
 | Wire verification functions for each external-connection setting (SearXNG URL, ComfyUI, any API keys) | 1 | Sonnet |

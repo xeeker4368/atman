@@ -492,7 +492,56 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
 
 - `[built]` **`users` table** in both stores, with `role` (`admin` | `user`,
   CHECK-constrained) and `password_hash` in working. Created atomically across
-  both stores. *No auth or role gating yet — task 1.12.*
+  both stores.
+- `[built]` **Per-user attribution** — `messages.user_id` and `chunks.user_id`
+  written on every row and carried through to `RetrievedChunk`.
+- `[built]` **Role gating** (`program/settings/permissions.py`). A frozen
+  capability registry — `Role`, `Capability`, `Actor`, `require()` — with
+  enforcement wired into `settings.store`, the one built capability that was
+  admin-only by intent and enforced nothing. **Jodie is denied settings reads
+  *and* writes; Lyle is allowed both**, verified live and in tests against the
+  two real seed-corpus users. A denied write leaves the table unchanged.
+- `[built]` **`actor` is a required argument with no default** on every gated
+  settings operation, and `Actor.operator()` is an explicit sentinel for
+  operator-run callers (scripts, migrations, a shell) — `GUIDANCE.md`'s "a human
+  is directly driving the action" carve-out. Spelled as a sentinel rather than
+  `actor=None` because `None` reads as "no check happened" and is
+  indistinguishable from a caller who forgot; a test asserts a missing actor
+  raises `TypeError` rather than slipping through. The sentinel's reserved
+  `user_id` is not a real users-table id, so operator writes stay
+  distinguishable in `settings.updated_by`.
+- `[built]` **`updated_by` is derived from the actor**, not passed beside the
+  value, so the recorded attribution and the thing authorized cannot disagree.
+- `[built]` **`store.resolve()` is deliberately ungated** — it is the seam every
+  settings-backed `config` read goes through, the system reading its own
+  configuration to operate rather than a person reading settings. A test asserts
+  `config.model_options()` still needs no actor.
+- `[built]` **Only two capabilities are registered** (`settings.read`,
+  `settings.write`) because only two are enforceable. Chat, creative writing,
+  image generation, research triggering and Moltbook posting have nothing to
+  gate; each registers its own capability when built. An unregistered capability
+  **raises** rather than defaulting permissive.
+- `[built]` **Role is fixed at creation.** No `set_role()`/promote path — a test
+  asserts none exists on `db`. *Code-level only: `UPDATE users SET role` still
+  works from `sqlite3`; a trigger would be a Tier 3 schema change.*
+- `[unverified]` **This is authorization, not authentication.**
+  `users.password_hash` is written by nothing and read by nothing, so an `Actor`
+  is whatever the caller says it is and gating is only as strong as the caller's
+  honesty. Fine for a single-process operator-run backend with no HTTP write
+  surface; **not security**, and inadequate the moment task 2.2 lets an
+  untrusted caller construct an `Actor` — recorded against it in `BUILD_PLAN.md`.
+- `[unverified]` **No loopback gate is built**, deliberately: there is no admin
+  route to mount one on, and an unmounted gate reads as protection that exists.
+  The full contract (trust `request.client.host` only, never `X-Forwarded-For`;
+  parse to an address object; missing client denies; 404 not 403) is specified
+  in `docs/ROLE_GATING_DESIGN.md` R2 and recorded against the admin-panel task.
+  *`start.sh --lan` already binds `0.0.0.0`, so this goes live the moment an
+  admin route is mounted.*
+- *Cross-user data visibility is **not** governed here and is not foreclosed:
+  capability gating keys on `role`, data visibility keys on `chunks.user_id`,
+  and they are deliberately separate axes. No filter was added to retrieval and
+  no `memory.read_all_users`-style capability registered — either would presume
+  the open `NOW.md` decision's answer. Two tests enforce this.*
 
 ## Development fixtures
 
@@ -533,7 +582,7 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
 
 ## Eval / observability
 
-- `[built]` **Test suite** — 326 tests passing (`pytest`), `ruff check` clean.
+- `[built]` **Test suite** — 349 tests passing (`pytest`), `ruff check` clean.
   Verified order-independent across repeated full runs.
 - `[built]` **Store-isolation guard skeleton** (`tests/conftest.py`). Captures
   real paths at import before any test can patch them; `StoreIsolationViolation`

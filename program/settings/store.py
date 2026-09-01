@@ -55,6 +55,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from program import config
+from program.settings.permissions import Actor, require
 
 logger = logging.getLogger(__name__)
 
@@ -294,6 +295,14 @@ def resolve(section: str, key: str, fallback: Any) -> Any:
     This is the seam ``config.py`` calls. A key that is not settings-backed
     returns the fallback untouched, so wiring it in is harmless for bootstrap
     keys.
+
+    **Deliberately ungated** (task 1.12, R4). This runs on every settings-backed
+    config read — ``config.chat_model()``, ``config.model_options()`` — and is
+    the system reading its own configuration in order to operate, not a person
+    reading settings. Requiring an ``Actor`` here would mean the Ollama client
+    needed one to discover which model to call, which is not a permission
+    question. ``get()`` / ``describe()`` are the person-facing reads that
+    ``settings.read`` governs.
     """
     spec = _BY_CONFIG.get((section, key))
     if spec is None:
@@ -304,8 +313,15 @@ def resolve(section: str, key: str, fallback: Any) -> Any:
     return _decode(str(raw), spec)
 
 
-def get(name: str) -> Any:
-    """Effective value of one setting: the row if there is one, else the seed."""
+def get(name: str, actor: Actor) -> Any:
+    """Effective value of one setting: the row if there is one, else the seed.
+
+    ``actor`` is required and has no default (task 1.12, R4). A default of
+    ``Actor.operator()`` would let a caller who never thought about
+    authorization land silently on the always-allowed path, which is exactly
+    what the explicit sentinel exists to prevent.
+    """
+    require(actor, "settings.read")
     spec = spec_for(name)
     raw = _table().get(spec.name)
     if raw is None:
@@ -313,8 +329,9 @@ def get(name: str) -> Any:
     return _decode(str(raw), spec)
 
 
-def has_row(name: str) -> bool:
+def has_row(name: str, actor: Actor) -> bool:
     """Whether the settings table holds a row for this key."""
+    require(actor, "settings.read")
     return spec_for(name).name in _table()
 
 
@@ -336,7 +353,8 @@ class EffectiveSetting:
     updated_by: str | None = None
 
 
-def describe(name: str) -> EffectiveSetting:
+def describe(name: str, actor: Actor) -> EffectiveSetting:
+    require(actor, "settings.read")
     spec = spec_for(name)
     row = _row(spec.name)
     if row is None:
@@ -372,9 +390,10 @@ def _row(name: str) -> sqlite3.Row | None:
         return None
 
 
-def describe_all() -> list[EffectiveSetting]:
+def describe_all(actor: Actor) -> list[EffectiveSetting]:
     """Every registered setting, effective value and source. For diagnostics."""
-    return [describe(spec.name) for spec in SETTINGS]
+    require(actor, "settings.read")
+    return [describe(spec.name, actor) for spec in SETTINGS]
 
 
 # ---------------------------------------------------------------------------
@@ -382,16 +401,22 @@ def describe_all() -> list[EffectiveSetting]:
 # ---------------------------------------------------------------------------
 
 
-def set(name: str, value: Any, updated_by: str | None = None) -> None:
+def set(name: str, value: Any, actor: Actor) -> None:
     """Write one setting and invalidate the cache. Takes effect immediately.
 
     The value is validated against its declared type before the write, so a
     wrong type fails here rather than at the next read from an unrelated caller.
+
+    ``updated_by`` is **derived from ``actor``** rather than passed alongside it,
+    so the attribution recorded is the same thing that was authorized and the
+    two cannot disagree.
     """
     from program.memory import db
 
+    require(actor, "settings.write")
     spec = spec_for(name)
     encoded = _encode(value, spec)
+    updated_by = actor.name
 
     with db.transaction() as conn:
         conn.execute(
@@ -408,7 +433,7 @@ def set(name: str, value: Any, updated_by: str | None = None) -> None:
     logger.info("setting %s updated by %s", spec.name, updated_by or "unknown")
 
 
-def clear(name: str) -> bool:
+def clear(name: str, actor: Actor) -> bool:
     """Remove the row so the key falls back to its config seed again.
 
     Returns whether a row was actually removed. This is "revert to default" for
@@ -417,6 +442,7 @@ def clear(name: str) -> bool:
     """
     from program.memory import db
 
+    require(actor, "settings.write")
     spec = spec_for(name)
     with db.transaction() as conn:
         cursor = conn.execute("DELETE FROM settings WHERE key = ?", (spec.name,))
