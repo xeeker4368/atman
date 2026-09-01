@@ -74,6 +74,79 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
 
 ## Prompt assembly
 
+- `[built]` **`soul.md` seed** at `anam/integrity/soul.md` — 3,401 characters,
+  ~851 tokens, 2.6% of the 32,768 window. Design of record:
+  `docs/SOUL_AND_PROMPT_DESIGN.md` (revision 2), S1–S12. The stored file was
+  verified word-for-word (618 words) against the approved design's quoted text
+  rather than retyped, and a test asserts the 3,401 count so later drift fails
+  the suite.
+- `[built]` **The entity has no name, and it is mechanically enforced.**
+  `soul.md` states namelessness as settled rather than pending, and closes the
+  self-naming route: a name the entity coined would be adopted by users, enter
+  conversation content, and return through retrieval as established fact —
+  a technically-compliant path to the outcome CLAUDE.md's rule exists to
+  prevent. `Anam` appears exactly once, naming the *substrate*, in the sentence
+  that holds the distinction up.
+- `[built]` **Confabulation pairing (decision #5) at two levels.** `soul.md`
+  carries the standing rule in its own paragraph — enumerating the specific
+  false forms (waiting, noticing time pass, thinking something over) and
+  classifying them as fabrication about its own nature, not figures of speech.
+  Separately, the current-situation block must emit the no-experience clause
+  *adjacent to the figure*, and `build_system_prompt()` **raises** if an
+  elapsed-time statement appears without a pairing marker. Recorded against that
+  task in `BUILD_PLAN.md`.
+- `[built]` **Statelessness written as the fabrication gate's ground truth.**
+  The persistence paragraph welds the caveat into the same sentence as a causal
+  clause — *"the only thing that carries from one turn to the next — because
+  between turns you are not running"* — so it cannot be quoted without its
+  qualifier. Every self-descriptive claim was audited against `BUILT.md`; no
+  claim to learning, self-training or growth appears, because none is true.
+- `[built]` **Five constraints enforced in `anam/engine/prompt.py`, all
+  raising** — required markers, size ceiling, entity naming, trait assignment,
+  elapsed-time pairing. None degrades or logs-and-continues, deliberately unlike
+  `retrieval.py`, on the criterion recorded in both modules: *abort when a
+  failure could corrupt something or when retrying is free; degrade when nothing
+  can be corrupted and a person is waiting.*
+- `[built]` **The naming/trait checks apply to authored text only — never to
+  retrieved chunks or history.** Proven, not asserted: one string containing
+  "Anam thinks…" raises as authored text and passes through verbatim into the
+  assembled prompt as a retrieved chunk. Lyle genuinely discusses "Anam" the
+  project; censoring a real memory for prompt hygiene would corrupt the record.
+- `[built]` **Required markers are alternative phrasings, not one exact
+  string** — Phase 10 rewords, and a reword that preserves meaning must not fail
+  while deletion still does. A test covers both.
+- `[built]` **Size ceiling raises, never truncates** (`SOUL_MAX_CHARS = 6000`,
+  a flagged judgment value with ~2,600 chars of headroom). A test asserts the
+  full oversize content triggers the failure and the file on disk is unmodified —
+  truncation would silently drop whichever values sit at the end.
+- `[built]` **Assembly order: `soul.md` → situation → retrieved records** in the
+  system string, with windowed history as the separate message array. Order is
+  asserted by test, because `soul.md` preceding the elapsed figure is
+  load-bearing — stating the gap before the rule that says what it means is the
+  confabulation ordering. Chunk `created_at` renders at presentation, restoring
+  what task 1.3 stripped from chunk *text* without returning date strings to
+  either index; split siblings render as `record N, continued M`.
+- `[built]` **Budget wiring needed no change to `history.py`.** The system
+  prompt is measured first and history takes the remainder;
+  `system_prompt_chars` and `retrieved_chars` are passed **separately**, with a
+  test asserting the exact values and that they were not pre-summed. Live run:
+  system 3,840 chars (soul 3,400 · situation 206 · retrieved 230 · scaffolding
+  4), 29,247 tokens left for history.
+- `[unverified]` **The naming and trait checks are tripwires, not proofs.** They
+  catch the canonical forms CLAUDE.md names and the common assignment shapes; a
+  novel phrasing passes. The behavioural probe (task 7.2) remains the real
+  check — this only makes the *known* failures impossible.
+- `[unverified]` **No model has been run against this prompt.** Assembly is
+  verified; whether the text produces the intended behaviour is task 7.2's
+  question and nothing here is evidence about it. The current-situation block
+  does not exist yet either — its contract is enforced, but tests supply the
+  string.
+- *Cross-user disclosure (the "not something to repeat to someone else" line)
+  is an **open gap, not a settled decision**. Recommendation stands that a
+  `NOW.md` decision-log entry address it before Phase 5's cross-user mining;
+  its presence in `soul.md` does not decide it.*
+
+
 - `[built]` **History windowing** (`anam/engine/history.py`), decision #6. A
   **token budget**, not a message count: `plan_budget()` reserves for the system
   prompt, the retrieved chunks, the model's output and a safety margin, and
@@ -449,7 +522,7 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
 
 ## Eval / observability
 
-- `[built]` **Test suite** — 274 tests passing (`pytest`), `ruff check` clean.
+- `[built]` **Test suite** — 326 tests passing (`pytest`), `ruff check` clean.
   Verified order-independent across repeated full runs.
 - `[built]` **Store-isolation guard skeleton** (`tests/conftest.py`). Captures
   real paths at import before any test can patch them; `StoreIsolationViolation`

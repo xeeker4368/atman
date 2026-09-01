@@ -58,7 +58,19 @@ phase in the whole build — most of its tasks are Tier 2/3.
 | Degenerate-query handling: when the lexical query collapses to ≤1 meaningful term AND the vector leg contributes zero chunks post-floor, treat as no reliable match rather than returning weak hits | 2 | Sonnet |
 | Provenance/source metadata on every chunk (`source_type`, `source_trust`) — **metadata only, confirm it is never wired into ranking** unless a future decision explicitly changes that | **3** | **Opus** |
 | `soul.md` seed + prompt assembly (`build_system_prompt`) | **3** | **Opus** |
-| Current-situation block: current timestamp (existing good pattern) + elapsed-time-since-last-message (new, decision #5) + the confabulation-prevention pairing text in `soul.md` (decision #5, `GUIDANCE.md`) | 2 | Sonnet |
+| Current-situation block: current timestamp (existing good pattern) + elapsed-time-since-last-message (new, decision #5) + the confabulation-prevention pairing text in `soul.md` (decision #5, `GUIDANCE.md`).
+  **Owes the soul.md/prompt-assembly task a pairing contract.** Whenever this
+  block emits an elapsed-time statement, the no-experience clause must be
+  emitted **in the same block, adjacent to the figure** — one rendered unit, not
+  two composable ones. `soul.md` carries the standing rule, but it sits at the
+  top of a prompt that can run to thousands of tokens while the figure arrives
+  fresh each turn; relying on attention across that distance is exactly the
+  coupling `GUIDANCE.md` says is not optional. `build_system_prompt()` already
+  **enforces** this: it raises if an elapsed-time statement appears without a
+  pairing marker, so a block that emits the figure alone will fail assembly
+  rather than reach the model. Recognised markers are in
+  `anam/engine/prompt.py`'s `_PAIRING`; adding a new phrasing is a deliberate
+  edit there, not a reason to weaken the check. | 2 | Sonnet |
 | History windowing: token-budget cutoff for in-context history (decision #6). **Token estimate: character-based (~4 chars/token), no tokenizer dependency.** Margin direction matters more than size: erring high (assuming fewer tokens than reality) under-fills the window — the omitted history stays retrievable via `memory_search`, a non-event. Erring low (assuming more tokens fit than actually do) means the model server silently drops the overflow, losing the oldest content with nothing raised — the worse failure mode. Bias the estimate toward erring high. This is the same ratio problem the embedding-input truncation work hits (dense content runs nearer 3 chars/token than 4) — document both margins together and keep them consistent rather than letting them diverge by accident. | 1 | Sonnet |
 | Settings persistence: DB-backed settings table + in-memory cache, invalidated on write (decision #8) | 1 | Sonnet |
 | Multi-user schema + per-user attribution, admin vs. household role gating (loopback check) | 2 | Sonnet |
@@ -97,8 +109,11 @@ phase in the whole build — most of its tasks are Tier 2/3.
   only. The reference build formatted a local timestamp into every line, which
   put date strings into both the vector and the BM25 index — a query mentioning
   a month lexically matched every chunk from that month. Timestamps live on the
-  chunk row instead, and are rendered when a chunk is presented in context
-  (task 1.8), not when it is embedded.
+  chunk row instead, and are rendered when a chunk is presented in context —
+  which is the **soul.md / `build_system_prompt()` task**, not the
+  current-situation block — rather than when it is embedded. Implemented in
+  `anam/engine/prompt.py`'s `render_retrieved()`, which renders each chunk with
+  its `created_at`.
   **The capability this removes is lexical date matching, and replacing it is
   task 1.5's responsibility:** hybrid retrieval must offer a structured
   time filter over `chunks.created_at` / the message range, so "what did we
