@@ -93,6 +93,75 @@ idle_close_minutes = 15
 # BUILD_PLAN.md against that task, not just here.
 in_flight_grace_minutes = 30
 
+[retrieval]
+# Hybrid retrieval: BM25 + vector, fused by RRF. Design: docs/RETRIEVAL_DESIGN.md.
+
+# RRF constant: score = sum over legs of 1/(k + rank).
+#
+# JUDGMENT VALUE, NOTHING MEASURED BEHIND IT — same standing as
+# chunking.max_turns. 60 is the value from the original RRF paper (Cormack et
+# al. 2009) and the common default. It is NOT derived from this project's data,
+# and must not be read as if it were.
+#
+# I swept k from 0 to 200 over three real queries against the seed corpus:
+# ranks 1 and 2 were IDENTICAL for every value, and only rank 3 moved. With two
+# legs and 12 chunks the corpus provably cannot discriminate between values of
+# k. What k controls in principle is how far a top rank in one leg outweighs
+# mid-ranks in the other — small k makes rank 1 dominant, large k flattens
+# toward a rank-count vote. That only becomes measurable on a corpus large
+# enough for the legs to disagree.
+rrf_k = 60
+
+# How deep each leg goes before fusion. JUDGMENT VALUE.
+candidates_per_leg = 50
+
+# How many fused results come back. JUDGMENT VALUE, and it interacts with task
+# 1.10's token budget — every result here is context the history window cannot
+# spend on raw turns.
+top_k = 10
+
+# RELEVANCE FLOORS — DELIBERATELY UNSET. NOT "low", UNSET.
+#
+# BUILD_PLAN's Phase 1 note: build the floor as a configurable mechanism, leave
+# actual thresholds permissive until there is real data to calibrate against.
+#
+# "Permissive" here means NO FLOOR IS APPLIED AT ALL, not a threshold so low it
+# never fires. Those differ in a way that matters (design D4): a low-but-set
+# floor is indistinguishable at the call site from a calibrated floor that
+# passed, so "did the floor fire?" stops being answerable, and a future reader
+# could conclude the rejection path had been exercised because a floor was
+# configured and rejected nothing. Leaving them unset keeps "no floor is in
+# force" an explicit, inspectable state — which is what task 1.6 reads.
+#
+# WHY THEY CANNOT BE SET YET, measured rather than asserted: the two existing
+# off-topic datapoints DISAGREE.
+#   task 1.4 reconciliation test, 6 synthetic chunks : off-topic 0.658
+#   seed corpus, genuinely off-topic query           : off-topic 0.5567
+# A floor of 0.6 is a reasonable reading of the first and WOULD ADMIT the
+# second. Neither is a calibration; setting a number from either is a guess
+# wearing the costume of a measurement.
+#
+# To calibrate later, uncomment and set. Note the comparison directions:
+#   vector_distance_floor  cosine distance, smaller is better -> upper bound
+#   lexical_score_floor    bm25() is NEGATIVE, more negative is better -> upper bound
+#
+# FLAGGED FOR THE LEXICAL FLOOR SPECIFICALLY: bm25() magnitude scales with the
+# number of query terms (measured: the same documents roughly double from a
+# one-term to a two-term query). An ABSOLUTE lexical threshold therefore means
+# different things for different queries, and at calibration time this may need
+# to become a RELATIVE rule — a fraction of the top score, or a gap-to-next —
+# rather than the absolute comparison the mechanism ships with.
+# vector_distance_floor = 0.60
+# lexical_score_floor = -1.50
+
+# Attach split siblings to a hit rather than ranking them separately (D7).
+expand_siblings = true
+
+# Cap on attached siblings per hit. JUDGMENT VALUE. It exists so a
+# pathologically long split message cannot overrun the context budget task 1.10
+# meters.
+max_siblings_per_hit = 3
+
 [history]
 # History windowing (decision #6). A token budget, not a message count. Nothing
 # is deleted or summarised — turns outside the window just stop being resent and

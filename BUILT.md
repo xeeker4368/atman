@@ -173,6 +173,85 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   `scripts/reconcile_vectors.py`). Finds chunk rows with no vector, re-embeds,
   upserts. Idempotent, resumable, `--dry-run` and `--limit`. Verified end to end
   with real embeddings: 6 missing → 6 repaired → second run finds 0.
+- `[built]` **Hybrid retrieval** (`anam/memory/retrieval.py`), task 1.5. Lexical
+  leg (FTS5/`bm25()`) + vector leg (Chroma cosine) over the same chunk store,
+  fused by RRF. Design of record: `docs/RETRIEVAL_DESIGN.md` (D1–D9).
+- `[built]` **User text never reaches FTS5 as syntax.** Measured: `"what's the
+  deal with espresso?"` raises `fts5: syntax error near "'"`, as do a hyphen, a
+  trailing `AND`, and an empty string. `build_fts_query()` extracts `\w+` terms
+  and quotes each; seven hostile queries are a parametrised regression test.
+- `[built]` **Terms are OR-ed, not AND-ed** — measured: FTS5's default implicit
+  AND returns **zero rows for every natural-language query tested** (0 vs 10).
+  `bm25()` does the ranking.
+- `[built]` **`bm25()` sign pinned.** It returns *negative* values, more negative
+  = better, so ordering is ascending and a lexical floor is an *upper* bound. A
+  test asserts both, because getting it backwards silently inverts the leg.
+- `[built]` **RRF over ranks only** — `1/(k + rank)` summed per leg. Raw scores
+  never enter: `bm25()` is negative, unbounded and scales with query term count,
+  while cosine distance is bounded `[0,2]`, so there is no principled
+  conversion. A test asserts each result's `rrf_score` equals its rank
+  contributions.
+- `[unverified]` **`retrieval.rrf_k = 60` is a JUDGMENT value**, the RRF paper's
+  default. Swept 0→200 against real queries: ranks 1–2 were **identical for every
+  value** and only rank 3 moved, so this corpus provably cannot discriminate
+  between values of `k`. Not derived from this project's data — same standing as
+  `chunking.max_turns`. `candidates_per_leg = 50`, `top_k = 10` and
+  `max_siblings_per_hit = 3` are also unmeasured judgment.
+- `[built]` **Relevance floors: mechanism built, thresholds unset.** Both ship as
+  `None` — *not* a low number. A low-but-set floor is indistinguishable at the
+  call site from a calibrated floor that passed, which makes "did the floor
+  fire?" unanswerable; `None` keeps "no floor is in force" an inspectable state
+  that task 1.6 reads off `LegReport.floor_applied`. A test proves a floor of
+  99.0 (rejects nothing) and no floor at all produce the same *outcome* but
+  different reported *state*. The mechanism is proven live by setting 0.0 and
+  asserting every candidate is rejected.
+- `[built]` **Why the floors cannot be calibrated yet, measured:** the two
+  existing off-topic datapoints **disagree** — task 1.4's synthetic test saw
+  0.658, a genuinely off-topic query against the seed corpus saw **0.5567**. A
+  floor of 0.6, a reasonable reading of the first, would admit the second.
+  *Flagged for calibration time: `bm25()` magnitude scales with query term count,
+  so an absolute lexical floor means different things per query and may need to
+  become relative.*
+- `[built]` **Structured time filter is a pre-filter on both legs** (task 1.3's
+  D1 obligation). SQL resolves the window to an id set; the lexical leg joins on
+  it, the vector leg passes it as Chroma's `ids=`. Post-filtering would return
+  nothing when the best matches overall fall outside a narrow window. The window
+  matches on `chunks.created_at` **or** any message timestamp in the chunk's
+  range, since `created_at` is when the chunk was *written*. `None` (no window)
+  and `[]` (window matched nothing) are deliberately distinct, and tested —
+  conflating them would make an empty window return everything.
+- `[built]` **Split siblings are attached after fusion, never ranked** (D7).
+  Verified at several `top_k`: at 1 the unranked sibling is attached; at 3 both
+  pieces rank independently and nothing is attached. A test asserts the
+  invariant across `top_k` 1–10 — every sibling of a ranked hit is either ranked
+  or attached, and **never both**, which would duplicate it in the prompt.
+  Ranking them instead would let one long message occupy several top-N slots.
+- `[built]` **Provenance is returned but never scored** (D6, a named BUILD_PLAN
+  constraint). A test rewrites every chunk's `source_trust` and asserts ranks and
+  RRF scores are byte-identical.
+- `[built]` **One leg down does not take retrieval with it** — a test kills the
+  embedder and asserts the lexical leg still answers, with the failure recorded
+  in `LegReport.skip_reason` rather than raised.
+- `[built]` **`VectorStore` protocol gained `query(..., ids=)`** and
+  `NullVectorStore` gained a `query()` it never had — retrieval would otherwise
+  `AttributeError` on the null store. Two Chroma hazards handled, both found by
+  running it: an id the collection lacks raises `InternalError` (not "no match"),
+  so the allow-list is sanitised through `get()` first — a chunk row can
+  legitimately have no vector, which is what `reconcile.py` repairs; and
+  `get(ids=[])` raises `ValueError`, so an empty allow-list short-circuits.
+- `[unverified]` **OR semantics admits stopword-only matches.** Observed live: a
+  chunk matching only `and`/`too` scored `bm25=-0.00` yet still earned a rank and
+  an RRF contribution. A direct consequence of the approved OR semantics; no
+  stopword filtering was added, since which words count is corpus-dependent and
+  it would change what task 1.6's term count sees. The calibrated floor is the
+  intended answer. **Flagged for decision.**
+- `[unverified]` **Task 1.6 is structurally untestable end to end.** With floors
+  unset the vector leg always returns neighbours, so its post-floor contribution
+  can only be zero on an empty collection — 1.6's second condition is
+  unreachable. Pinned by a test that fails if floors are ever calibrated, which
+  would be a real change rather than a broken test. *Separately: the lexical leg
+  returning results for nearly any query is NOT in tension with 1.6's first
+  condition — 1.6 counts query terms, not result counts.*
 - `[built]` **Semantic retrieval round-trip confirmed** against a real store:
   on-topic distances 0.388–0.394 vs off-topic 0.658. *An observation, not a
   calibration — floors stay unset per BUILD_PLAN.*
@@ -370,7 +449,8 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
 
 ## Eval / observability
 
-- `[built]` **Test suite** — 233 tests passing (`pytest`), `ruff check` clean.
+- `[built]` **Test suite** — 274 tests passing (`pytest`), `ruff check` clean.
+  Verified order-independent across repeated full runs.
 - `[built]` **Store-isolation guard skeleton** (`tests/conftest.py`). Captures
   real paths at import before any test can patch them; `StoreIsolationViolation`
   derives from `BaseException` so `except Exception` blocks cannot swallow it.

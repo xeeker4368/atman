@@ -69,6 +69,16 @@ _FALLBACK: dict[str, Any] = {
         "target_chars": 2500,
         "max_turns": 8,
     },
+    "retrieval": {
+        "rrf_k": 60,
+        "candidates_per_leg": 50,
+        "top_k": 10,
+        # Unset by design (task 1.5, D4). None, not a low number.
+        "vector_distance_floor": None,
+        "lexical_score_floor": None,
+        "expand_siblings": True,
+        "max_siblings_per_hit": 3,
+    },
     "history": {
         "chars_per_token": 4.0,
         "message_overhead_tokens": 4,
@@ -103,6 +113,12 @@ _ENV_MAP: dict[str, tuple[str, str, str]] = {
     "ANAM_IN_FLIGHT_GRACE_MINUTES": ("conversations", "in_flight_grace_minutes", "int"),
     "ANAM_CHUNK_TARGET_CHARS": ("chunking", "target_chars", "int"),
     "ANAM_CHUNK_MAX_TURNS": ("chunking", "max_turns", "int"),
+    "ANAM_RETRIEVAL_RRF_K": ("retrieval", "rrf_k", "int"),
+    "ANAM_RETRIEVAL_TOP_K": ("retrieval", "top_k", "int"),
+    "ANAM_RETRIEVAL_CANDIDATES_PER_LEG": ("retrieval", "candidates_per_leg", "int"),
+    "ANAM_RETRIEVAL_VECTOR_FLOOR": ("retrieval", "vector_distance_floor", "float"),
+    "ANAM_RETRIEVAL_LEXICAL_FLOOR": ("retrieval", "lexical_score_floor", "float"),
+    "ANAM_RETRIEVAL_EXPAND_SIBLINGS": ("retrieval", "expand_siblings", "bool"),
     "ANAM_HISTORY_CHARS_PER_TOKEN": ("history", "chars_per_token", "float"),
     "ANAM_HISTORY_OUTPUT_RESERVE_TOKENS": (
         "history", "output_reserve_tokens", "int",
@@ -348,6 +364,72 @@ def in_flight_grace_minutes() -> int:
             f"correctness constraint, not a preference: a worst-case turn on "
             f"this hardware takes minutes, and a shorter window would close a "
             f"conversation while the model was still answering it."
+        )
+    return value
+
+
+# --- Retrieval (task 1.5) ---------------------------------------------------
+#
+# The two floors are **unset**, not low. See docs/RETRIEVAL_DESIGN.md D4: a
+# low-but-set floor is indistinguishable at the call site from a calibrated
+# floor that passed, which makes "did the floor fire?" unanswerable. None keeps
+# "no floor is in force" a first-class state that task 1.6 can read.
+
+
+def retrieval_rrf_k() -> int:
+    """RRF constant. JUDGMENT — see defaults.toml and the task 1.5 design D3."""
+    value = int(get("retrieval", "rrf_k", 60))
+    if value < 0:
+        raise ConfigError(
+            f"retrieval.rrf_k is {value}; it must not be negative. It is added "
+            f"to a 1-based rank, so a negative k can divide by zero or invert "
+            f"the ranking."
+        )
+    return value
+
+
+def retrieval_candidates_per_leg() -> int:
+    value = int(get("retrieval", "candidates_per_leg", 50))
+    if value < 1:
+        raise ConfigError(
+            f"retrieval.candidates_per_leg is {value}; it must be at least 1 or "
+            f"neither leg can contribute anything to fuse."
+        )
+    return value
+
+
+def retrieval_top_k() -> int:
+    value = int(get("retrieval", "top_k", 10))
+    if value < 1:
+        raise ConfigError(f"retrieval.top_k is {value}; it must be at least 1.")
+    return value
+
+
+def retrieval_vector_distance_floor() -> float | None:
+    """Cosine-distance ceiling for the vector leg. **None means no floor.**"""
+    value = get("retrieval", "vector_distance_floor", None)
+    return None if value is None else float(value)
+
+
+def retrieval_lexical_score_floor() -> float | None:
+    """bm25() ceiling for the lexical leg. **None means no floor.**
+
+    bm25() is negative and more-negative is better, so this is an upper bound.
+    """
+    value = get("retrieval", "lexical_score_floor", None)
+    return None if value is None else float(value)
+
+
+def retrieval_expand_siblings() -> bool:
+    return bool(get("retrieval", "expand_siblings", True))
+
+
+def retrieval_max_siblings_per_hit() -> int:
+    """Cap on attached split siblings. JUDGMENT — task 1.5 design D7."""
+    value = int(get("retrieval", "max_siblings_per_hit", 3))
+    if value < 0:
+        raise ConfigError(
+            f"retrieval.max_siblings_per_hit is {value}; it must not be negative."
         )
     return value
 

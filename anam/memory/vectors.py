@@ -18,7 +18,7 @@ production store for weeks.
 
 from __future__ import annotations
 
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, Protocol, Sequence, runtime_checkable
 
 from anam import config
 
@@ -43,6 +43,22 @@ class VectorStore(Protocol):
 
     def has(self, chunk_id: str) -> bool:
         """Whether a vector exists for this id. Used by reconciliation."""
+        ...
+
+    def query(
+        self,
+        vector: list[float],
+        n_results: int = 10,
+        ids: Sequence[str] | None = None,
+    ) -> dict[str, Any]:
+        """Nearest neighbours. Task 1.5 consumes this; nothing else should.
+
+        ``ids``, when given, restricts the search to those chunk ids — the
+        allow-list task 1.5's time filter uses to pre-filter the vector leg
+        (design D5). ``None`` means no restriction; an **empty** sequence means
+        nothing is allowed and yields no results, which is a real state the
+        time filter can produce and must not be confused with "unfiltered".
+        """
         ...
 
 
@@ -76,6 +92,20 @@ class NullVectorStore:
 
     def has(self, chunk_id: str) -> bool:
         return False
+
+    def query(
+        self,
+        vector: list[float],
+        n_results: int = 10,
+        ids: Sequence[str] | None = None,
+    ) -> dict[str, Any]:
+        """Always empty, in Chroma's result shape.
+
+        It holds nothing, so it finds nothing. The shape matters: retrieval
+        reads ``result["ids"][0]`` and must not need to special-case which store
+        it was handed.
+        """
+        return {"ids": [[]], "distances": [[]], "metadatas": [[]], "documents": [[]]}
 
 
 class ChromaVectorStore:
@@ -150,9 +180,51 @@ class ChromaVectorStore:
         """How many vectors the collection holds. For reporting and reconciliation."""
         return self._collection.count()
 
-    def query(self, vector: list[float], n_results: int = 10) -> dict[str, Any]:
-        """Nearest neighbours. Task 1.5 consumes this; nothing else should."""
-        return self._collection.query(query_embeddings=[vector], n_results=n_results)
+    #: Chroma's own empty-result shape, returned without calling it.
+    _EMPTY: dict[str, Any] = {
+        "ids": [[]], "distances": [[]], "metadatas": [[]], "documents": [[]],
+    }
+
+    def query(
+        self,
+        vector: list[float],
+        n_results: int = 10,
+        ids: Sequence[str] | None = None,
+    ) -> dict[str, Any]:
+        """Nearest neighbours, optionally restricted to an id allow-list.
+
+        Two Chroma behaviours are handled here because both were found by
+        running it, and both would otherwise surface as crashes in retrieval:
+
+        1. **An id the collection does not hold raises ``InternalError``** —
+           not "no match", a hard failure. A chunk row can legitimately exist
+           with no vector (exactly what ``reconcile.py`` repairs), so an
+           allow-list built from the ``chunks`` table can contain such ids.
+           ``get()`` tolerates missing ids and returns only what exists, so it
+           is used to sanitise the list first. Retrieval must degrade when a
+           vector is missing, never crash.
+        2. **``get(ids=[])`` raises ``ValueError``**, so an empty allow-list is
+           short-circuited before it reaches Chroma at all.
+
+        ``n_results`` is clamped by Chroma to the collection size, so
+        over-asking is safe and needs no guard here.
+        """
+        if ids is None:
+            return self._collection.query(
+                query_embeddings=[vector], n_results=n_results
+            )
+
+        allowed = list(dict.fromkeys(ids))
+        if not allowed:
+            return dict(self._EMPTY)
+
+        present = self._collection.get(ids=allowed)["ids"]
+        if not present:
+            return dict(self._EMPTY)
+
+        return self._collection.query(
+            query_embeddings=[vector], n_results=n_results, ids=present
+        )
 
 
 # ---------------------------------------------------------------------------
