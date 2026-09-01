@@ -19,10 +19,13 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
 - `[built]` **Repository initialised.** `git init` run on `main`, with
   `.gitignore` written first. `reference/`, `venv/`, `.DS_Store`,
   `__pycache__/` and `.pytest_cache/` confirmed excluded via `git check-ignore`.
-  *Not yet committed — the first commit is Lyle's.*
+  Seven commits on `main`, through `c263368` (task 1.4). **Every commit is
+  Lyle's** — CC has never committed and does not.
 - `[built]` **`anam/` package skeleton.** Subpackages `api/`, `api/routes/`,
   `memory/`, `engine/`, `tools/`, `integrity/`, `settings/`, `ops/`,
-  `artifacts/` — all empty apart from `api/`.
+  `artifacts/`. `api/`, `engine/` and `memory/` now carry real code; `tools/`,
+  `integrity/`, `settings/`, `ops/` and `artifacts/` are still `__init__.py`
+  only.
 - `[built]` **Layered configuration** (`anam/config.py`).
   `defaults.toml` → `local.toml` → `ANAM_*` env, deep-merged, read through
   call-time accessors with no module-level constants. Bad values raise
@@ -49,16 +52,26 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   timeout; nothing can hang.
 - `[built]` **Chat model configured: `gemma4:26b`**, embedding model
   `nomic-embed-text`. Verified present via `ollama list` and loaded via
-  `ollama ps`. *Model choice is open — `gemma4:26b-mlx` may be faster on this
-  hardware; see the task 1.2 changelog.*
+  `ollama ps` (both at 100% GPU). *Model choice is still open, but the task 1.2
+  candidate is not: `gemma4:26b-mlx` has been **uninstalled** — `ollama list`
+  shows only `gemma4:26b`, `nomic-embed-text` and `muse-glimmer:30b-mlx`.
+  Trying it again means re-pulling it. `muse-glimmer:30b-mlx` was measured
+  against `gemma4:26b` on 2026-08-31 and nothing was reconfigured; see that
+  changelog.*
 - `[built]` **`num_ctx` pinned to 32768.** Model ceiling is 262144; 32768 chosen
   against a measured 17,626-token real prompt completing at 100% GPU on a 32 GB
   Mac mini. Verified to *take effect*: a test reads `/api/ps` after a real chat
   call and asserts the loaded context is 32768.
 - `[built]` **Embedding dimension guard** — 768 asserted on every call, proven
   to fire by a live test with the expectation deliberately wrong.
-- `[unverified]` KV cache behaviour at a genuinely full 32K context. Measured to
-  ~17.6K tokens only.
+- `[built]` **Near-full-context timing measured** (2026-09-01, task idle-close):
+  prompt eval of 30,167 tokens against the 32,768 ceiling took 132.8s
+  (227.2 tok/s), generation 22.2 tok/s, cold model load 19.1s. This supersedes
+  the earlier "~17.6K tokens only" note — the 17,626-token figure was not the
+  worst case, and measuring the near-full case moved the answer materially.
+- `[unverified]` KV cache *eviction* behaviour at a genuinely saturated 32K
+  context. Timing was measured at 30,167 tokens; what happens when the window
+  actually overflows has not been exercised.
 
 ## Memory / retrieval
 
@@ -118,6 +131,76 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   as later-phase work with no Phase 1 consumer. Phase 2 builds `artifacts`;
   Phase 5 designs its own research-candidate table fresh.
 
+### Conversation lifecycle — idle-close
+
+- `[built]` **Idle-close** (`anam/memory/idle.py`). `close_idle_conversations()`
+  closes every open conversation past its idle window — sets `ended_at` first,
+  then runs final chunking. `find_idle_conversations()` reports the same
+  candidates and changes nothing; `dry_run=True` does the same through the main
+  entry point. This is load-bearing, not housekeeping: chunking deliberately
+  never indexes the open trailing group, so a conversation that never closes
+  leaves its last turns permanently unretrievable from anywhere except itself.
+- `[built]` **Idle is measured from `MAX(messages.timestamp)`**, never from
+  request activity — confirmed there is no request-time field in the schema to
+  read by accident. A conversation with no messages falls back to `started_at`,
+  or it could never close. A conversation open three days with a message two
+  minutes ago is not idle; a test pins that.
+- `[built]` **Two windows, chosen by the last message's role.**
+  `db.get_open_conversations_with_activity()` returns `last_role` from the same
+  `MAX()` aggregate as the timestamp (SQLite's bare-column rule — verified
+  directly against a user/assistant/user sequence, not taken from the docs).
+  Last message from the **assistant**, or no messages at all →
+  `idle_close_minutes`: the turn completed, nothing is in flight. Last message
+  from the **user** → `in_flight_grace_minutes`: a turn may still be running.
+  No schema change — the split reuses existing columns, specifically to avoid a
+  migration that would have escalated a Tier 2 task to Tier 3.
+- `[built]` **The floor raises, it does not clamp.**
+  `config.in_flight_grace_minutes()` raises `ConfigError` when configured below
+  `config.IN_FLIGHT_GRACE_FLOOR_MINUTES`, rather than silently substituting the
+  floor — a clamped value hides that the operator asked for something unsafe,
+  and unsafe here means closing a conversation while the model is still
+  answering it. `idle_close_minutes` has **no** floor: closing early only
+  fragments a conversation someone paused in the middle of, which is a
+  continuity judgment rather than a correctness one.
+- `[built]` **The sweep continues on error** — a deliberate deviation from task
+  1.3's chunking policy of aborting immediately. One unreachable model must not
+  stop every other idle conversation from closing, so per-conversation failures
+  are collected and raised together as `IdleCloseError` at the *end* of the
+  sweep: visible, never swallowed, never fatal mid-sweep. Because `ended_at` is
+  set before chunking, a chunking failure leaves the conversation
+  closed-but-unchunked and present in `db.get_unchunked_ended_conversations()`.
+  *That recovery queue exists and is populated, but nothing drains it yet.*
+- `[built]` 18 tests (`tests/test_idle.py`) asserting outcomes rather than the
+  existence of a check — `ended_at` set **and** `chunked = 1`; trailing turns
+  actually retrievable (chunks exist where none did, FTS matches); same age and
+  different last-message role producing different outcomes; the excluded
+  conversation never closing. Plus a live run outside the suite against a real
+  store with real embeddings: 1 idle + 1 fresh seeded, dry run changed nothing,
+  real run closed and chunked exactly the idle one.
+- `[unverified]` **The 15 / 30 / 20-minute values are placeholders.**
+  `idle_close_minutes = 15`, `in_flight_grace_minutes = 30`, floor 20. They come
+  from a real measurement (~197s for one worst-case turn, from the figures under
+  "Model plumbing" above) multiplied by an **assumed** 5-iteration agent loop
+  that does not exist yet — giving ~15–16 minutes, of which 30 is roughly 2x.
+  Tool execution time is not in the arithmetic at all, because there are no
+  tools; the reference build's 300s image-generation timeout would have exceeded
+  a per-iteration budget on its own. **Task 2.2 owes a re-derivation** from its
+  actual iteration limit and actual tool timeouts, recorded against that task in
+  `BUILD_PLAN.md` rather than only here.
+- **Nothing triggers this automatically.** There is no chat endpoint, no daemon
+  and no timer — the design is lazy on purpose, since conversation state only
+  changes when a message arrives. The only callers today are
+  `scripts/close_idle_conversations.py` and the tests. The per-request sweep
+  arrives with **task 2.2**, which will pass the active conversation as
+  `exclude_conversation_id` so a sweep can never close the turn that triggered
+  it. Task 2.2 additionally owes persisting the user's message *before*
+  generation begins: without that, an in-flight turn is indistinguishable from a
+  completed one and the short window would apply mid-generation. That is a
+  correctness dependency, not just crash-safety.
+- **Known gap:** an abandoned turn and a running turn are indistinguishable —
+  both show a user message with no reply and both wait the full grace period.
+  Accepted; waiting 30 minutes to close a crashed turn costs nothing.
+
 ## Tools
 - *(nothing yet)*
 
@@ -147,7 +230,7 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
 
 ## Eval / observability
 
-- `[built]` **Test suite** — 133 tests passing (`pytest`), `ruff check` clean.
+- `[built]` **Test suite** — 151 tests passing (`pytest`), `ruff check` clean.
 - `[built]` **Store-isolation guard skeleton** (`tests/conftest.py`). Captures
   real paths at import before any test can patch them; `StoreIsolationViolation`
   derives from `BaseException` so `except Exception` blocks cannot swallow it.

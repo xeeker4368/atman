@@ -384,3 +384,42 @@ def get_unchunked_ended_conversations(limit: int | None = None) -> list[sqlite3.
         params = (limit,)
     with connection() as conn:
         return conn.execute(sql, params).fetchall()
+
+
+def get_open_conversations_with_activity() -> list[sqlite3.Row]:
+    """Open conversations, each with its last message time and role.
+
+    ``last_message_at`` falls back to ``started_at`` for a conversation that has
+    no messages — otherwise it would be NULL and the conversation could never be
+    judged idle, so it would never close.
+
+    ``last_role`` is what distinguishes an in-flight turn from a completed one:
+    an assistant message means the model has answered, a user message means a
+    turn may still be running. Idle-close applies a different window to each.
+    """
+    with connection() as conn:
+        return conn.execute(
+            """
+            SELECT
+                c.id,
+                c.user_id,
+                c.started_at,
+                c.message_count,
+                COALESCE(m.last_timestamp, c.started_at) AS last_message_at,
+                m.last_role
+            FROM conversations c
+            LEFT JOIN (
+                SELECT
+                    conversation_id,
+                    MAX(timestamp) AS last_timestamp,
+                    -- The role of the row holding that MAX. SQLite's bare-column
+                    -- rule makes other columns in a MAX() aggregate come from
+                    -- the matching row, which is exactly what is wanted here.
+                    role AS last_role
+                FROM messages
+                GROUP BY conversation_id
+            ) m ON m.conversation_id = c.id
+            WHERE c.ended_at IS NULL
+            ORDER BY last_message_at
+            """
+        ).fetchall()

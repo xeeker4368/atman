@@ -138,7 +138,23 @@ Goal: the entity can act, not just talk.
   over structurally — not debug/log output.** This is what makes
   structural tool-output fabrication detection possible (checking a claim
   against what actually happened in the trace) rather than the reference
-  build's weaker pattern-matching-on-prose approach. | 1 | Sonnet |
+  build's weaker pattern-matching-on-prose approach.
+  **Owes idle-close two things.** (a) *Re-derive idle-close's timing.* Its
+  `in_flight_grace_minutes` (30) and `FLOOR_MINUTES` (20) were derived from an
+  assumed 5-iteration loop before this task existed — placeholders, explicitly.
+  The floor is `L x (prompt eval + generation) + tool execution`, so this task's
+  actual iteration limit and actual tool timeouts must be used to recompute
+  both. Measured inputs to reuse: 19.1s cold model load, 132.8s prompt eval at
+  30,167 tokens, 22.2 tok/s generation at full context (2026-09-01, gemma4:26b
+  at num_ctx=32768). Note image generation carried a 300s timeout in the
+  reference build — a single tool call at that length would exceed a
+  per-iteration budget on its own. (b) *Persist the user's message before
+  generation begins.* Idle-close distinguishes an in-flight turn from a
+  completed one by whether the last message is from the user or the assistant.
+  Buffering both messages and writing them together at the end would make an
+  in-flight turn indistinguishable from a finished one, and the short idle
+  window would then apply to a conversation mid-generation. This is a
+  correctness dependency, not only crash-safety. | 1 | Sonnet |
 | `memory_search` tool | 1 | Sonnet |
 | Stand up local SearXNG instance; `web_search` tool against it | 1 | Sonnet |
 | `web_fetch` tool (public HTTP/HTTPS only, no localhost/private network access) | 1 | Sonnet |

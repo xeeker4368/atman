@@ -61,6 +61,10 @@ _FALLBACK: dict[str, Any] = {
         "temperature": 0.35,
         "think": False,
     },
+    "conversations": {
+        "idle_close_minutes": 15,
+        "in_flight_grace_minutes": 30,
+    },
     "chunking": {
         "target_chars": 2500,
         "max_turns": 8,
@@ -89,6 +93,8 @@ _ENV_MAP: dict[str, tuple[str, str, str]] = {
     "ANAM_MODEL_NUM_CTX": ("model_options", "num_ctx", "int"),
     "ANAM_MODEL_TEMPERATURE": ("model_options", "temperature", "float"),
     "ANAM_MODEL_THINK": ("model_options", "think", "bool"),
+    "ANAM_IDLE_CLOSE_MINUTES": ("conversations", "idle_close_minutes", "int"),
+    "ANAM_IN_FLIGHT_GRACE_MINUTES": ("conversations", "in_flight_grace_minutes", "int"),
     "ANAM_CHUNK_TARGET_CHARS": ("chunking", "target_chars", "int"),
     "ANAM_CHUNK_MAX_TURNS": ("chunking", "max_turns", "int"),
     "ANAM_TIMEZONE": ("app", "timezone", "str"),
@@ -265,6 +271,36 @@ def model_options() -> dict[str, Any]:
     Ollama payload rather than inside ``options`` — the client separates them.
     """
     return section("model_options")
+
+
+#: Hard floor on the in-flight grace, in minutes. Derived from a measured
+#: worst-case turn (see config/defaults.toml). Configuring below it raises
+#: rather than clamping: a silently clamped value hides that the operator asked
+#: for something unsafe, and this is the setting where unsafe means closing a
+#: conversation while the model is still answering.
+IN_FLIGHT_GRACE_FLOOR_MINUTES = 20
+
+
+def idle_close_minutes() -> int:
+    """Idle window for a conversation whose last turn completed."""
+    return int(get("conversations", "idle_close_minutes", 15))
+
+
+def in_flight_grace_minutes() -> int:
+    """Idle window for a conversation whose last message is unanswered.
+
+    Raises rather than clamping when configured below the floor.
+    """
+    value = int(get("conversations", "in_flight_grace_minutes", 30))
+    if value < IN_FLIGHT_GRACE_FLOOR_MINUTES:
+        raise ConfigError(
+            f"conversations.in_flight_grace_minutes is {value}, below the "
+            f"{IN_FLIGHT_GRACE_FLOOR_MINUTES}-minute floor. That floor is a "
+            f"correctness constraint, not a preference: a worst-case turn on "
+            f"this hardware takes minutes, and a shorter window would close a "
+            f"conversation while the model was still answering it."
+        )
+    return value
 
 
 def chunk_target_chars() -> int:
