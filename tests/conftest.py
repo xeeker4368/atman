@@ -28,11 +28,17 @@ from anam.memory import vectors
 # Captured at import — before any test can patch config.
 REAL_DATA_DIR = str(config.data_dir())
 REAL_CHROMA_DIR = vectors.chroma_path()
+# Added with the backup CLI: it is a third real location the suite can write
+# into, and isolating the data directory does not isolate this one. A backup
+# test that forgot to repoint it wrote two real backup directories into the
+# repo before this guard existed.
+REAL_BACKUP_DIR = str(config.backup_dir())
 
 # Whether they were already there. A store that predates the run is the
 # operator's, not evidence of a leak.
 _DATA_DIR_PREEXISTED = os.path.exists(REAL_DATA_DIR)
 _CHROMA_DIR_PREEXISTED = os.path.exists(REAL_CHROMA_DIR)
+_BACKUP_DIR_PREEXISTED = os.path.exists(REAL_BACKUP_DIR)
 
 _violations: list[str] = []
 
@@ -56,6 +62,8 @@ def _guard_runtime_store():
         _violations.append(f"the real data directory was created: {REAL_DATA_DIR}")
     if not _CHROMA_DIR_PREEXISTED and os.path.exists(REAL_CHROMA_DIR):
         _violations.append(f"the real vector store was created: {REAL_CHROMA_DIR}")
+    if not _BACKUP_DIR_PREEXISTED and os.path.exists(REAL_BACKUP_DIR):
+        _violations.append(f"the real backup directory was created: {REAL_BACKUP_DIR}")
 
     if _violations:
         raise StoreIsolationViolation(
@@ -73,11 +81,15 @@ def isolated_data_dir(tmp_path, monkeypatch):
     module docstring in ``anam/config.py`` for why that distinction matters.
     """
     monkeypatch.setenv("ANAM_DATA_DIR", str(tmp_path))
+    # The backup directory resolves from its own config key, so repointing the
+    # data directory alone leaves backups writing into the real one.
+    monkeypatch.setenv("ANAM_BACKUP_DIR", str(tmp_path / "backups"))
     config.reload()
     # Stores are cached per resolved path, so clearing here means this test gets
     # its own vector store rather than one another test built for another path.
     vectors.reset_vector_store()
     yield tmp_path
     monkeypatch.delenv("ANAM_DATA_DIR", raising=False)
+    monkeypatch.delenv("ANAM_BACKUP_DIR", raising=False)
     config.reload()
     vectors.reset_vector_store()

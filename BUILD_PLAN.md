@@ -129,6 +129,7 @@ Goal: the entity can act, not just talk.
 | Task | Tier | Model |
 |---|---|---|
 | Tool registry + dispatch framework | 1 | Sonnet |
+| **Fix `db.py` write contention** — `db.connection()` can raise `database is locked` under sustained write contention (found and reproduced during task 1.14's backup work, not introduced by it — a property of every write path, dormant until this phase introduces genuine concurrent writes: a live chat turn writing messages while idle-close's sweep, or a background pass, runs against the same database). Not a data-integrity risk — every write already goes through explicit `BEGIN`/`COMMIT`/`ROLLBACK`, so a caller that loses the race raises cleanly with nothing written, rather than leaving a partial state. Real choices with atomicity implications: raise `busy_timeout`, retry with backoff, or serialize writes through a single writer. Whichever is chosen must not weaken the cross-database atomicity guarantee `db.py`'s docstring already establishes — verify against that constraint explicitly, not just against the lock-timeout symptom. | **3** | Sonnet |
 | **Agent loop**: the actual iterate-and-dispatch turn — call model, check
   for tool calls, dispatch, feed results back, repeat until a terminal
   response or iteration limit. Nothing in Phase 0/1 builds this; the

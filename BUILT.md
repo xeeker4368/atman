@@ -19,8 +19,7 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
 - `[built]` **Repository initialised.** `git init` run on `main`, with
   `.gitignore` written first. `reference/`, `venv/`, `.DS_Store`,
   `__pycache__/` and `.pytest_cache/` confirmed excluded via `git check-ignore`.
-  Seven commits on `main`, through `c263368` (task 1.4). **Every commit is
-  Lyle's** — CC has never committed and does not.
+  **Every commit on `main` is Lyle's** — CC has never committed and does not.
 - `[built]` **`anam/` package skeleton.** Subpackages `api/`, `api/routes/`,
   `memory/`, `engine/`, `tools/`, `integrity/`, `settings/`, `ops/`,
   `artifacts/`. `api/`, `engine/` and `memory/` now carry real code; `tools/`,
@@ -73,6 +72,51 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   context. Timing was measured at 30,167 tokens; what happens when the window
   actually overflows has not been exercised.
 
+## Prompt assembly
+
+- `[built]` **History windowing** (`anam/engine/history.py`), decision #6. A
+  **token budget**, not a message count: `plan_budget()` reserves for the system
+  prompt, the retrieved chunks, the model's output and a safety margin, and
+  `select_history()` fills the remainder with the most recent turns, newest
+  first, stopping at the first that does not fit. Returns a `HistoryWindow`
+  carrying included/omitted counts, the estimated tokens and the full
+  `BudgetBreakdown` — a test asserts `reserved + history == context`, so the
+  accounting cannot silently stop adding up. **No write path**: turns outside
+  the window are untouched in both stores and stay retrievable.
+- `[built]` **Reserves are caller-supplied character counts, not built here.**
+  Task 1.9 (`soul.md` / prompt assembly) and task 1.5 (retrieval) are both
+  Tier 3 and unbuilt; `plan_budget(system_prompt_chars=..., retrieved_chars=...)`
+  takes their sizes as inputs, so this module is complete now and neither of
+  those tasks has to rework it when they land.
+- `[built]` **Stops at the first message that does not fit** rather than
+  skipping back to a smaller one — a resent history with a hole reads to the
+  model as though the turn never happened. A test builds exactly that temptation
+  and asserts it is refused. The newest message is sent even when it alone
+  exceeds the budget, with `overflowed=True` and a logged warning: dropping the
+  turn being answered is worse than overflowing, and this way it is not silent.
+- `[built]` **Estimator margin is measured, in the safe direction.** `chars /
+  4.0`, rounded up. Task 1.2 measured 4.63 chars/token over 81,600 chars of real
+  prose (the muse-glimmer eval independently saw 4.619 — 0.2% apart), so 4.0
+  over-counts tokens by ~14% and the window under-fills rather than overflows.
+  Pinned by a test against those real numbers. Both chars-per-token margins —
+  this one and `embedding.max_input_chars`'s implied 2.44 — are now documented
+  together in `config/defaults.toml`, as BUILD_PLAN's task 1.10 entry requires.
+- `[unverified]` **Dense content is the known gap.** Code, JSON and tool traces
+  run nearer 3 chars/token, where the 4.0 divisor **under**-counts by ~33% — the
+  overflow direction. No code-heavy conversation has been measured because none
+  exists yet. `safety_margin_tokens` does not cover that case. A test pins the
+  arithmetic so it cannot be forgotten.
+- `[unverified]` **Three unmeasured judgment values**, flagged not decided:
+  `message_overhead_tokens = 4` (not read off the model's real chat template),
+  `output_reserve_tokens = 2048` (~92s at the measured 22.2 tok/s, but no chat
+  endpoint exists to measure real answer lengths), `safety_margin_tokens = 512`.
+  All configurable, all raising `ConfigError` on nonsense rather than defaulting.
+- `[unverified]` **Never verified end to end against a live `num_ctx`.** Nothing
+  has yet sent a windowed history to Ollama and confirmed the real token count
+  came in under the window — that needs task 2.2's chat endpoint and is the only
+  thing that will prove the margin rather than reason about it. Tool-call traces
+  are also not priced yet; `_normalise()` keeps only role and content.
+
 ## Memory / retrieval
 
 - `[built]` **Two-database schema.** `archive.db` (append-only, frozen, two
@@ -83,6 +127,25 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   `test_failed_write_leaves_neither_store_touched`, which forces a failure
   between the two inserts. Both databases pinned to `DELETE` journaling — WAL
   would break cross-database atomicity.
+- `[unverified]` **`db.connection()` can raise `database is locked` under
+  sustained write contention.** This is a **busy-timeout expiry, not data
+  corruption**: every write in `db.py` goes through `transaction()`'s explicit
+  `BEGIN`/`COMMIT`/`ROLLBACK`, so a caller that loses the race raises with
+  nothing written rather than leaving a partial state. Verified directly — with
+  another connection holding `BEGIN EXCLUSIVE`, a new connection's
+  `PRAGMA journal_mode = DELETE` in `_configure()` waits its full 10-second
+  timeout and then raises.
+  **Not introduced by the backup CLI**; it is a property of every
+  `db.connection()` call, including `save_message()`. Backup only made it
+  observable because it deliberately holds a lock across both stores.
+  **Currently dormant** — nothing in the codebase writes concurrently yet. It
+  becomes live risk at **task 2.2**, which introduces genuine concurrent write
+  paths: a chat turn writing messages while idle-close's sweep or a background
+  pass runs.
+  **Not fixed.** Resolving it means editing `anam/memory/db.py` and choosing
+  between `busy_timeout` tuning, a retry, and write serialisation — each with
+  atomicity implications — so it needs its own **Tier 3** task rather than an
+  incidental patch.
 - `[built]` **Canonical `chunks` table** with `NOT NULL` provenance columns.
   ChromaDB and FTS5 are derived from it and rebuildable from it.
 - `[built]` **Chunking + checkpointing pipeline** (`anam/memory/chunking.py`).
@@ -215,8 +278,48 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
 
 ## Admin / settings
 
-- `[built]` **`settings` table** with a CHECK-constrained `value_type`.
-  *No store or cache yet — task 1.11. `anam/settings/` is still empty.*
+- `[built]` **`settings` table** with a CHECK-constrained `value_type`. A test
+  proves the constraint still rejects a type outside the vocabulary, so the
+  store's registry and the schema are verified to agree rather than assumed to.
+- `[built]` **Settings store** (`anam/settings/store.py`), decision #8. Typed
+  read/write over that table, an in-memory cache invalidated on every write, and
+  a fallback to `config.py` for any key with no row. Seven registered keys.
+- `[built]` **The read path is settings-table-first, through the accessors that
+  already existed.** `config.py`'s scope comment claimed this before task 1.11;
+  it is now the behaviour. `config.chat_model()` and friends delegate via
+  `config._settings_first()`, so every existing caller — `anam/engine/ollama.py`
+  included — became settings-first without being modified.
+  `model_options()` resolves per key, so changing temperature leaves `num_ctx`
+  alone. `config.get()` and `config.section()` deliberately stay pure layered
+  reads: the store calls `get()` for its own fallback, so delegating there would
+  recurse.
+- `[built]` **No setting requires a restart.** A test reads a value first (so a
+  stale cache would be caught), writes, and re-reads through the same accessor
+  with no reload, no cache reset and no new process.
+- `[built]` **One query per invalidation, not per read.** A cache miss loads the
+  whole table in a single query; a test counts loads across twenty accessor
+  calls and asserts exactly one. The cache is keyed by resolved `working.db`
+  path — the pattern `vectors.py` uses — and a test switches stores *without*
+  clearing it to prove values cannot leak between them.
+- `[built]` **A read never creates a database file.** `sqlite3.connect()`
+  creates a missing file, so existence is checked before connecting; a
+  regression test asserts an empty data directory stays empty after reads. A
+  corrupt row raises rather than silently serving the config seed, which would
+  otherwise show a panel value the system is not using.
+- `[built]` **Registry boundary is enforced, not conventional.** Bootstrap keys
+  (data paths, ports) are unregistered and unsettable; a hand-written `api.port`
+  row is proven not to change `config.api_port()`. Chunking, history and
+  idle-close values are deliberately unregistered — live-editing them would
+  change Tier 3 pipeline behaviour and no task has asked for that.
+- `[unverified]` **`ollama.host` is bootstrap-only, and that is flagged rather
+  than settled.** `config.py`'s docstring names it among keys the settings table
+  never owns; `NOW.md` #9's Check/Verify button implies external-connection
+  settings belong in the panel. Left out as the reversible choice — see the task
+  1.11 changelog.
+- *No admin panel, no HTTP surface, no verification functions — persistence
+  only. Decision #9's Save button and auto-generated Check buttons are a later
+  task. The store records `updated_by` but enforces no authorization; task 1.12
+  owns that. The cache is per-process, with no cross-process invalidation.*
 
 ## Artifacts
 - *(nothing yet — the `artifacts` table moves to Phase 2, where the ingestion
@@ -228,20 +331,107 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   CHECK-constrained) and `password_hash` in working. Created atomically across
   both stores. *No auth or role gating yet — task 1.12.*
 
+## Development fixtures
+
+- `[built]` **Seed corpus** (`anam/ops/seed.py`, `scripts/seed_dataset.py`) for
+  the Phase 1 retrieval checkpoint: 8 conversations, 2 users (Lyle admin, Jodie
+  user), 53 messages, 12 chunks. **Written through the real pipeline** —
+  `db.save_message()` then `chunking.finalise_conversation()`, never a
+  hand-written `chunks` row — so the chunks carry genuine provenance and real
+  embeddings and cannot drift from the chunking rules.
+- `[built]` **Shaped to make ranking judgeable, not just matchable.** It contains
+  a deliberately *adjacent* pair (espresso vs. pour-over, different users), short
+  exchanges under the chunk target, a message over the 5,000-char embedding
+  budget that **does** trigger sub-chunk splitting (4 chunks, 3 distinct
+  `first_message_id`, so siblings exist), a long conversation split by the
+  character target, a nine-turn conversation at 949 chars where only the
+  **8-turn cap** can explain the boundary, and one conversation left **open** so
+  the unindexed trailing group is represented.
+- `[built]` **Verified live with real embeddings.** The adjacent pair ranks
+  correctly in *both* directions — espresso query 0.244 vs 0.484, filter-coffee
+  query 0.380 vs 0.457 (the pair flips) — which is what separates a working
+  ranking from a lucky one. *An observation of ranking only, not a calibration;
+  floors stay unset per BUILD_PLAN.*
+- `[built]` **Additive and non-destructive.** Refuses a store that already holds
+  conversations unless explicitly allowed (a test asserts the refusal changes
+  nothing), reuses existing users rather than duplicating them, and has **no
+  wipe/reset/clear/drop/truncate surface at all** — pinned by a test, since
+  go-live wipe tooling is its own Tier 3 task and a fixture module is not the
+  place for a second implementation of it.
+- `[unverified]` **Single `source_type`, deliberately.** Everything is
+  `conversation`/`firsthand`, the provisional convention `chunking.py` uses —
+  **task 1.7 owns the vocabulary and has not landed**, and inventing a second
+  type to look more varied would write 1.7's vocabulary ahead of its design pass.
+  A test pins this, so it fails and points here when 1.7 arrives.
+- *Eight conversations is a handful, not a corpus: enough to judge ranking on
+  known pairs, nowhere near enough to calibrate a floor. The content is invented
+  English prose — no code or symbol-dense text, and no time spread, so the
+  structured time filter task 1.5 owes has nothing to bite on yet.*
+
 ## Eval / observability
 
-- `[built]` **Test suite** — 151 tests passing (`pytest`), `ruff check` clean.
+- `[built]` **Test suite** — 233 tests passing (`pytest`), `ruff check` clean.
 - `[built]` **Store-isolation guard skeleton** (`tests/conftest.py`). Captures
   real paths at import before any test can patch them; `StoreIsolationViolation`
   derives from `BaseException` so `except Exception` blocks cannot swallow it.
   **Armed as of task 1.4:** captures the real data directory and the real
   ChromaDB path at import, records whether each pre-existed, and fails the
   session if either was created during the run. Confirmed after a full run: no
-  `data/` directory in the repo.
+  `data/` directory in the repo. **Extended at task 1.14** to capture the real
+  *backup* directory too, and `isolated_data_dir` now repoints `ANAM_BACKUP_DIR`
+  as well as `ANAM_DATA_DIR` — the backup path resolves from its own config key,
+  so isolating the data directory did not isolate it, and the first run of the
+  backup tests wrote two real backup directories into the repo before this
+  existed.
 - `[built]` **Live-integration tests against the real Ollama instance** — 17
   tests, 0 mocked transports. Failure paths use real injection (a closed port; a
   socket that accepts and stalls). They skip rather than fail without Ollama, and
   a skip is visible in pytest output where a mock would look like a pass.
+
+## Backup / restore
+
+- `[built]` **Backup CLI** (`anam/ops/backup.py`, `scripts/backup.py`). Captures
+  both databases plus the ChromaDB directory into a timestamped folder with a
+  manifest recording sha256, row counts, schema version, source paths and the
+  consistency guarantee *per artifact*.
+- `[built]` **The databases use SQLite's online backup API, not a file copy, and
+  both are captured under one held read lock.** A file copy could capture torn
+  pages; worse, two *independent* backups could capture archive at one instant
+  and working at another, reproducing in the copy exactly the half-state
+  `db.py`'s single-transaction dual write exists to prevent — the atomicity
+  guarantee would hold live and be lost in the backup. The mechanism is
+  connection A holding `BEGIN` + a read on both databases (SHARED on each,
+  writers excluded) while connection B runs `backup()` for `main` and for the
+  attached `archive`.
+- `[built]` **Two connections because one deadlocks — established by running
+  it.** `conn.backup()` while that same connection holds `BEGIN IMMEDIATE` hangs
+  indefinitely. A *read* transaction on a second connection is compatible with
+  the backup's own read lock while still excluding writers. Also verified
+  directly: `backup(name="archive")` does reach an ATTACHed database, and a
+  concurrent writer does get `database is locked` while the snapshot holds.
+  *Writers block for the snapshot's duration — milliseconds at this size.*
+- `[built]` **ChromaDB is best-effort and the manifest says so.** No snapshot API
+  exists for its HNSW files, so it is a directory copy, recorded as
+  `best-effort` rather than `transactional`; a test asserts the manifest does not
+  overstate it. Acceptable because vectors are derived and rebuildable from the
+  transactionally captured `chunks` table via `scripts/reconcile_vectors.py`.
+- `[built]` **Never destructive.** Refuses an existing destination rather than
+  overwriting (a test puts a file in the way and asserts it survives); no prune,
+  rotate or cleanup surface exists at all, pinned by a test over the module's
+  public names. Default destinations take a numeric suffix on a same-second
+  collision, keeping never-overwrite intact.
+- `[built]` **Verified end to end live**, real store with real embeddings:
+  working.db 233,472 B and archive.db 61,440 B both `integrity=ok`, chroma
+  551,076 B best-effort, row counts matching (20/20 messages, 10 chunks). An
+  immediate second run produced `...-2` rather than colliding.
+- `[unverified]` **A backup has never been restored.** The files pass
+  `PRAGMA integrity_check` and open as databases, which is not the same thing as
+  a tested recovery path. **Restore is Tier 3 and deliberately not built or
+  stubbed**; the manifest carries a field saying so, so a backup cannot be
+  mistaken for something with a restore path behind it.
+- *No compression, no encryption, no off-machine copy, and nothing schedules
+  this — manual invocation only. A backup beside the original does not survive
+  losing the disk.*
 
 ## Go-live readiness
 - *(nothing yet)*

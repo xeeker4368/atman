@@ -93,6 +93,77 @@ idle_close_minutes = 15
 # BUILD_PLAN.md against that task, not just here.
 in_flight_grace_minutes = 30
 
+[history]
+# History windowing (decision #6). A token budget, not a message count. Nothing
+# is deleted or summarised — turns outside the window just stop being resent and
+# stay retrievable through memory_search.
+
+# THE TWO CHARS-PER-TOKEN MARGINS, TOGETHER.
+#
+# This project has two places that convert characters to tokens without a
+# tokenizer, and they point in opposite directions on purpose. BUILD_PLAN's task
+# 1.10 entry asks for both to be documented in one place so they cannot drift
+# apart by accident. This is that place.
+#
+#   1. history.chars_per_token = 4.0   (below)
+#      Used as: estimated_tokens = chars / 4.0
+#      Safe when the divisor is AT OR BELOW the text's true ratio, because that
+#      over-counts tokens and the window under-fills.
+#      Measured basis: task 1.2 saw 4.63 chars/token over 81,600 chars of real
+#      prose (and the 2026-08-31 muse-glimmer eval independently saw 4.619 on
+#      the same prompt — a 0.2% spread). At 4.63 actual vs 4.0 assumed the
+#      estimate over-counts by ~14%. Safe direction, measured.
+#
+#   2. embedding.max_input_chars = 5000 against a 2048-token model context
+#      Implies 2.44 chars/token.
+#      Used as: a hard character ceiling on what is sent to the embedder.
+#      Safe when the implied ratio is BELOW the true one, same as above.
+#      At 4.63 actual this is ~47% of what would fit — very conservative.
+#
+# They diverge because the consequences differ. Over-running the embedder's
+# 2048-token context is a hard HTTP rejection of that one call, so its margin is
+# bought cheaply and set wide. Over-running num_ctx is a silent drop of the
+# oldest history by the model server, so its margin is set as wide as it can be
+# without wasting most of a 32K window on slack.
+#
+# KNOWN GAP, NOT MEASURED: symbol-dense text — code, JSON, tool traces — runs
+# nearer 3 chars/token. At 3.0 actual against the 4.0 divisor the history
+# estimate UNDER-counts by ~33%, which is the overflow direction. Nothing in
+# this build has measured a code-heavy conversation yet. safety_margin_tokens
+# below is the only thing standing between that case and a silent drop, and it
+# is not sized to cover it. Re-measure once real conversations exist; if dense
+# content is common here, this drops to 3.0 and costs window space rather than
+# correctness.
+chars_per_token = 4.0
+
+# Per-message cost of the chat template's role markers and delimiters, on top of
+# the content itself. Charged per message so a long run of short turns is not
+# systematically under-priced.
+#
+# JUDGMENT VALUE, NOTHING MEASURED BEHIND IT. Reading it off the model's actual
+# chat template would make it real; that was not done. 4 is a small round number
+# in the right direction (over-charging is the safe direction here too).
+message_overhead_tokens = 4
+
+# Context space held back for the model's own reply, never given to history.
+#
+# JUDGMENT VALUE, NOTHING MEASURED BEHIND IT. 2048 tokens is ~92 seconds of
+# generation at the 22.2 tok/s measured on this hardware at full context, which
+# is a plausible ceiling for a long answer but is not a measurement of what
+# answers this system actually produces — there is no chat endpoint yet to
+# measure. Under-reserving here truncates the reply; over-reserving only costs
+# history. Revisit once real turns exist.
+output_reserve_tokens = 2048
+
+# Unallocated slack. Absorbs estimator error on text denser than the prose the
+# 4.63 figure came from.
+#
+# JUDGMENT VALUE, NOTHING MEASURED BEHIND IT. 512 tokens covers roughly a 2%
+# under-count of a 32K window. It does NOT cover the ~33% under-count that
+# fully code-dense content would produce — see the known gap above. It is slack,
+# not a solution to that case.
+safety_margin_tokens = 512
+
 [embedding]
 # nomic-embed-text reports embedding length 768. Asserted on every embed call —
 # a silent dimension change would corrupt the vector store.

@@ -69,6 +69,12 @@ _FALLBACK: dict[str, Any] = {
         "target_chars": 2500,
         "max_turns": 8,
     },
+    "history": {
+        "chars_per_token": 4.0,
+        "message_overhead_tokens": 4,
+        "output_reserve_tokens": 2048,
+        "safety_margin_tokens": 512,
+    },
     "embedding": {
         "expected_dimension": 768,
         "max_input_chars": 5000,
@@ -97,6 +103,13 @@ _ENV_MAP: dict[str, tuple[str, str, str]] = {
     "ANAM_IN_FLIGHT_GRACE_MINUTES": ("conversations", "in_flight_grace_minutes", "int"),
     "ANAM_CHUNK_TARGET_CHARS": ("chunking", "target_chars", "int"),
     "ANAM_CHUNK_MAX_TURNS": ("chunking", "max_turns", "int"),
+    "ANAM_HISTORY_CHARS_PER_TOKEN": ("history", "chars_per_token", "float"),
+    "ANAM_HISTORY_OUTPUT_RESERVE_TOKENS": (
+        "history", "output_reserve_tokens", "int",
+    ),
+    "ANAM_HISTORY_SAFETY_MARGIN_TOKENS": (
+        "history", "safety_margin_tokens", "int",
+    ),
     "ANAM_TIMEZONE": ("app", "timezone", "str"),
 }
 
@@ -248,29 +261,65 @@ def timezone() -> str:
 # what the system uses until it does. See the module docstring.
 
 
+def _settings_first(section_name: str, key: str, default: Any = None) -> Any:
+    """Resolve one key settings-table-first, falling back to the layered config.
+
+    **This is what makes this module's "bootstrap defaults only" scope real
+    rather than aspirational.** Task 1.11 (decision #8) makes the settings table
+    authoritative at runtime for any key it holds a row for; every accessor
+    below goes through here, so an existing caller of ``chat_model()`` picks up
+    a live setting change with no restart and no code change.
+
+    Deliberately *not* wired into ``get()`` or ``section()``. Those stay pure
+    layered-config reads: the settings store calls ``get()`` for its own
+    fallback, so delegating there would recurse. It also keeps the boundary
+    legible — a key is settings-backed because it appears in the store's
+    registry, not because of which reader happened to be used.
+
+    The import is function-local: ``anam.settings.store`` reaches
+    ``anam.memory.db``, which imports this module.
+    """
+    from anam.settings import store
+
+    return store.resolve(section_name, key, get(section_name, key, default))
+
+
 def ollama_host() -> str:
+    """Bootstrap-only, per this module's docstring — not settings-backed.
+
+    Flagged rather than settled: ``NOW.md`` #9's Check/Verify button implies
+    external-connection settings belong in the panel. See the settings
+    registry's note and the task 1.11 changelog.
+    """
     return get("ollama", "host", "http://localhost:11434")
 
 
 def ollama_timeout_seconds() -> int:
-    return int(get("ollama", "timeout_seconds", 300))
+    return int(_settings_first("ollama", "timeout_seconds", 300))
 
 
 def chat_model() -> str:
-    return get("models", "chat")
+    return _settings_first("models", "chat")
 
 
 def embed_model() -> str:
-    return get("models", "embedding")
+    return _settings_first("models", "embedding")
 
 
 def model_options() -> dict[str, Any]:
     """Options sent with a chat request.
 
+    Each key resolves settings-table-first, so a temperature change in the admin
+    panel reaches the next request without a restart.
+
     ``think`` is returned alongside the rest but belongs at the top level of the
     Ollama payload rather than inside ``options`` — the client separates them.
     """
-    return section("model_options")
+    options = section("model_options")
+    return {
+        key: _settings_first("model_options", key, value)
+        for key, value in options.items()
+    }
 
 
 #: Hard floor on the in-flight grace, in minutes. Derived from a measured
@@ -299,6 +348,61 @@ def in_flight_grace_minutes() -> int:
             f"correctness constraint, not a preference: a worst-case turn on "
             f"this hardware takes minutes, and a shorter window would close a "
             f"conversation while the model was still answering it."
+        )
+    return value
+
+
+# --- History windowing ------------------------------------------------------
+#
+# The divisor and the embedding-input budget are two answers to the same
+# chars-per-token question, and they are deliberately different numbers. See
+# config/defaults.toml under [history] for both margins and why they diverge.
+
+
+def history_chars_per_token() -> float:
+    """Characters per token, for the history-window estimate.
+
+    Must be **at or below** the true ratio of the text: the estimate has to
+    over-count tokens so the window under-fills rather than overflows.
+    """
+    value = float(get("history", "chars_per_token", 4.0))
+    if value <= 0:
+        raise ConfigError(
+            f"history.chars_per_token is {value}; it must be greater than zero. "
+            f"It is a divisor over character counts."
+        )
+    return value
+
+
+def history_message_overhead_tokens() -> int:
+    """Per-message cost of the chat template's role markers and delimiters."""
+    value = int(get("history", "message_overhead_tokens", 4))
+    if value < 0:
+        raise ConfigError(
+            f"history.message_overhead_tokens is {value}; it must not be "
+            f"negative. A negative overhead would make the estimate under-count, "
+            f"which is the overflow direction."
+        )
+    return value
+
+
+def history_output_reserve_tokens() -> int:
+    """Context space held back for the model's own reply."""
+    value = int(get("history", "output_reserve_tokens", 2048))
+    if value < 0:
+        raise ConfigError(
+            f"history.output_reserve_tokens is {value}; it must not be negative."
+        )
+    return value
+
+
+def history_safety_margin_tokens() -> int:
+    """Unallocated slack, absorbing estimator error on denser-than-prose text."""
+    value = int(get("history", "safety_margin_tokens", 512))
+    if value < 0:
+        raise ConfigError(
+            f"history.safety_margin_tokens is {value}; it must not be negative. "
+            f"The margin exists to absorb estimator error toward overflow."
         )
     return value
 
