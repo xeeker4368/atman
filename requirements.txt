@@ -9,6 +9,9 @@ python-multipart
 # HTTP client (Ollama, and later SearXNG)
 requests
 
+# Vector store (task 1.4). Local, on-disk; no server process.
+chromadb
+
 # Dev tooling
 pytest
 httpx        # required by fastapi's TestClient

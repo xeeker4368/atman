@@ -7,8 +7,10 @@ failing — the writes either succeeded into production or were swallowed by an
 ``except Exception`` downstream. Adding the guard alongside the first store is
 too late; the guard has to predate it.
 
-Right now this captures the real paths and records violations. Phase 1 task 1.4
-arms it against the vector store and working database once those exist.
+Armed as of task 1.4: the real data directory and the real ChromaDB path are
+captured at import, and the session fails if either was created while the suite
+ran. Capturing whether they existed *beforehand* rather than merely checking at
+the end means a pre-existing development store is not mistaken for a violation.
 
 The violation type derives from ``BaseException`` deliberately: retrieval and
 indexing paths wrap store access in ``except Exception``, and a guard those can
@@ -16,12 +18,21 @@ swallow is not a guard. Violations are also recorded and re-reported at session
 end, so one that does get swallowed still fails the run visibly.
 """
 
+import os
+
 import pytest
 
 from anam import config
+from anam.memory import vectors
 
 # Captured at import — before any test can patch config.
 REAL_DATA_DIR = str(config.data_dir())
+REAL_CHROMA_DIR = vectors.chroma_path()
+
+# Whether they were already there. A store that predates the run is the
+# operator's, not evidence of a leak.
+_DATA_DIR_PREEXISTED = os.path.exists(REAL_DATA_DIR)
+_CHROMA_DIR_PREEXISTED = os.path.exists(REAL_CHROMA_DIR)
 
 _violations: list[str] = []
 
@@ -38,11 +49,17 @@ def record_violation(message: str) -> StoreIsolationViolation:
 
 @pytest.fixture(scope="session", autouse=True)
 def _guard_runtime_store():
-    """Fail the session if any test resolved a real runtime store path."""
+    """Fail the session if the suite touched a real runtime store."""
     yield
+
+    if not _DATA_DIR_PREEXISTED and os.path.exists(REAL_DATA_DIR):
+        _violations.append(f"the real data directory was created: {REAL_DATA_DIR}")
+    if not _CHROMA_DIR_PREEXISTED and os.path.exists(REAL_CHROMA_DIR):
+        _violations.append(f"the real vector store was created: {REAL_CHROMA_DIR}")
+
     if _violations:
         raise StoreIsolationViolation(
-            f"{len(_violations)} test(s) resolved the real runtime store:\n"
+            f"{len(_violations)} isolation violation(s):\n"
             + "\n".join(f"  - {v}" for v in _violations)
         )
 
@@ -57,6 +74,10 @@ def isolated_data_dir(tmp_path, monkeypatch):
     """
     monkeypatch.setenv("ANAM_DATA_DIR", str(tmp_path))
     config.reload()
+    # Stores are cached per resolved path, so clearing here means this test gets
+    # its own vector store rather than one another test built for another path.
+    vectors.reset_vector_store()
     yield tmp_path
     monkeypatch.delenv("ANAM_DATA_DIR", raising=False)
     config.reload()
+    vectors.reset_vector_store()

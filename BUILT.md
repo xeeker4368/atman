@@ -83,12 +83,23 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   last resort and always in `str` space, so multi-byte characters survive.
   Split pieces take consecutive `chunk_index` values and share
   `first_message_id`, which is how siblings are discoverable without a new column.
-- `[built]` **Vector-store seam** (`anam/memory/vectors.py`). `VectorStore`
-  protocol plus `NullVectorStore`. *Default is the null store until task 1.4 —
-  chunks are **lexically retrievable only**, and `ChunkingResult.vectors_indexed`
-  reports 0 rather than letting that read as success.*
-- `[unverified]` Reconciliation of chunks missing a vector — specified in the
-  task 1.3 design, lands with 1.4.
+- `[built]` **Vector store** (`anam/memory/vectors.py`). `VectorStore` protocol,
+  `ChromaVectorStore` (chromadb 1.5.9, local on-disk, cosine, one `chunks`
+  collection), and `NullVectorStore` retained for tests. **Chroma is the
+  default**, constructed on first use and cached per resolved data path.
+- `[built]` **Dimension guard at the store boundary.** Chroma infers a
+  collection's width from the first vector and enforces it thereafter, so
+  `upsert()` checks against `embedding.expected_dimension` first — the collection
+  can only ever be defined by a 768-wide vector. Both layers tested: ours raises
+  `VectorDimensionError`, and Chroma itself refuses a mismatch
+  (`InvalidArgumentError`), verified rather than assumed.
+- `[built]` **Reconciliation** (`anam/memory/reconcile.py`,
+  `scripts/reconcile_vectors.py`). Finds chunk rows with no vector, re-embeds,
+  upserts. Idempotent, resumable, `--dry-run` and `--limit`. Verified end to end
+  with real embeddings: 6 missing → 6 repaired → second run finds 0.
+- `[built]` **Semantic retrieval round-trip confirmed** against a real store:
+  on-topic distances 0.388–0.394 vs off-topic 0.658. *An observation, not a
+  calibration — floors stay unset per BUILD_PLAN.*
 - `[built]` **FTS5 index** over `chunks.text` as an external-content table, kept
   in sync by insert/delete/update triggers rather than by convention.
 - `[built]` **`supersedes` link table** (decision #2) with self-link and
@@ -136,13 +147,14 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
 
 ## Eval / observability
 
-- `[built]` **Test suite** — 109 tests passing (`pytest`), `ruff check` clean.
+- `[built]` **Test suite** — 133 tests passing (`pytest`), `ruff check` clean.
 - `[built]` **Store-isolation guard skeleton** (`tests/conftest.py`). Captures
   real paths at import before any test can patch them; `StoreIsolationViolation`
   derives from `BaseException` so `except Exception` blocks cannot swallow it.
-  Now exercised: the `isolated_data_dir` fixture redirects the data directory
-  per test, and a full suite run creates no `data/` directory in the repo.
-  Task 1.4 extends it to the vector store.
+  **Armed as of task 1.4:** captures the real data directory and the real
+  ChromaDB path at import, records whether each pre-existed, and fails the
+  session if either was created during the run. Confirmed after a full run: no
+  `data/` directory in the repo.
 - `[built]` **Live-integration tests against the real Ollama instance** — 17
   tests, 0 mocked transports. Failure paths use real injection (a closed port; a
   socket that accepts and stalls). They skip rather than fail without Ollama, and
