@@ -277,7 +277,7 @@ question from this fix.
 
 ---
 
-## Open questions for approval
+## Open questions — all four resolved
 
 1. **Decorator vs. a `write(fn)` helper.** The decorator keeps existing function
    bodies untouched (one line each) but spreads the policy across two modules. A
@@ -285,15 +285,48 @@ question from this fix.
    functions. I lean decorator on diff size and because each function already
    *is* the unit of work — but the helper is more greppable, which this project
    generally prefers.
+
+   **RESOLVED: decorator.** `@retry_on_locked` is applied to the eight write
+   functions that already are the unit of work (six in `db.py`, two in
+   `settings/store.py`), so no function body changed. The greppability argument
+   for a `db.write(callable)` helper was real and was traded away deliberately:
+   the policy is spread across two modules, and the compensating measure is that
+   `retry_on_locked` names its own exclusions in one docstring —
+   `migrations.run_working_migrations()`, `IntegrityError`, non-lock
+   `OperationalError` — with a test asserting migrations carry no `__wrapped__`.
+   C3 carries why retry cannot live in `transaction()` at all.
+
 2. **Attempt count vs. wall-clock deadline (C4).** `write_retry_attempts = 4`
    gives ~40s tolerance but a fuzzy worst-case stall. A
    `write_deadline_seconds = 30` is more predictable and directly expressible.
    Slightly more code. I lean deadline on honesty, count on simplicity — genuinely
    unsure.
+
+   **RESOLVED: deadline.** Shipped as
+   `database.write_retry_deadline_seconds = 30.0`, with
+   `database.busy_timeout_seconds = 10` and
+   `database.write_retry_base_delay_seconds = 0.05` (doubling, ±50% jitter,
+   capped at 1s). There is no attempt cap — the loop runs until the deadline
+   gates a new attempt from *starting*, which is why **the worst case is
+   `deadline + busy_timeout` ≈ 40s, not 30s**: an attempt beginning just under
+   the deadline can still wait a full busy timeout.
+
 3. **Making `busy_timeout` configurable** is required by C6's fast test. It also
    becomes a live tuning knob. Confirm that is wanted, or should it stay
    hardcoded with the test paying the 11-second cost?
+
+   **RESOLVED: yes.** `database.busy_timeout_seconds` is read at connect time
+   and is a live tuning knob as well as a test lever. C6's fast test sets it to
+   **0** rather than the ~0.2s proposed here, so a ~1s hold reproduces
+   deterministically what an 11s hold does against the shipped 10s timeout.
+
 4. **Should `retry_on_locked` log?** A retry that silently succeeds hides that
    contention is happening at all. I would log at WARNING on each retry, so the
    frequency is observable before it becomes a failure — but that is a new log
    line in a hot path.
+
+   **RESOLVED: yes, WARNING on both paths.** A line per retry (function,
+   attempt, elapsed, next delay) and a line when the deadline is reached and the
+   error is re-raised, so contention is observable in the ordinary case as well
+   as the failing one. It costs nothing when there is no contention: neither
+   line is reached unless a lock error was actually caught.

@@ -368,16 +368,54 @@ The corpus was built for this. Planned assertions:
 
 ---
 
-## Open questions for approval
+## Open questions — four resolved, one open (D4's lexical floor)
 
 1. **D7's position** — siblings attached post-fusion rather than ranked. Taken
    as asked, but it is a policy call and worth an explicit yes.
+
+   **RESOLVED: yes, attached post-fusion.** Built as specified;
+   `test_no_sibling_is_ever_lost` pins the invariant across `top_k` 1–10 — every
+   sibling of a ranked hit is either ranked or attached, never both.
+
 2. **D5's `ids=` allow-list scaling** — accept as-is now, with `created_at` in
    Chroma metadata (Tier 3, re-index) as the recorded fallback?
+
+   **RESOLVED: accepted as-is.** The `created_at`-in-Chroma-metadata alternative
+   (Tier 3 — it touches `chunking.py` — plus a full re-index) stays recorded in
+   D5 as the fallback, not built.
+
 3. **D4's lexical floor** — agreed that it may need to become *relative* at
    calibration time rather than absolute?
+
+   **OPEN, not resolved.** The question was accepted as correctly flagged, not
+   answered. The mechanism ships as an **absolute** comparison because that is
+   what an uncalibrated placeholder should be, and both floors ship unset;
+   whether the lexical floor must become **relative** — a fraction of the top
+   score, or a gap-to-next rule — is a calibration-time decision, unmade. It
+   cannot be settled from this corpus: `bm25()` magnitude scales with query term
+   count (D1, measured), so an absolute threshold means different things for a
+   one-term and a five-term query. Carried in `config/defaults.toml`'s
+   `[retrieval]` block and in `NOW.md`'s **"Retrieval floor calibration"**
+   backlog entry. **Do not read this as decided.**
+
 4. **D1's OR semantics** — measured-necessary, but it means the lexical leg
    returns something for nearly every query. Confirm that is intended before it
    becomes load-bearing for 1.6.
+
+   **RESOLVED: confirmed as intended, with one consequence still open.** OR is
+   measured-necessary (AND returns zero rows for every natural-language query
+   tested), and D9 records why it is not in tension with task 1.6's first
+   condition — 1.6 counts *query terms*, not result counts. What the build then
+   surfaced is not resolved: OR admits **stopword-only matches**, observed live
+   as a chunk scoring `bm25=-0.00` on `and`/`too` that still earned a rank and an
+   RRF contribution. No stopword filtering was added, because which words count
+   is corpus-dependent and dropping them changes what task 1.6's term count sees;
+   the calibrated relevance floor (D4) is the intended answer. Recorded as
+   flagged-for-decision in `BUILT.md`, not settled here.
+
 5. **`VectorStore.query()` gaining an `ids` parameter** — Tier 1 file, but a
    protocol change. Confirm it belongs in this task rather than its own.
+
+   **RESOLVED: yes, it belongs in this task.** Protocol, `ChromaVectorStore` and
+   `NullVectorStore` changed together; `NullVectorStore` gained the `query()` it
+   had never had, without which retrieval would `AttributeError` against it.
