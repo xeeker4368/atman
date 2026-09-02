@@ -130,9 +130,12 @@ removed lines were the two headings.
   marker rather than hidden by it, and it remains flagged for decision in
   `BUILT.md`. The heading's count is of questions as asked.
 
-- **`scripts/checkpoint_queries.py` is untracked.** `f5ee598`'s message
-  describes adding it, but the commit contains only the two design docs; the
-  script is still uncommitted in the working tree. Noted, not acted on.
+- **`scripts/checkpoint_queries.py` was untracked at the time this discrepancy
+  was found.** `f5ee598`'s message describes adding it, but that commit contains
+  only the two design docs. It was committed afterwards in `3a8785b`, alongside
+  this changelog. (It was first committed on its own as `84b31b1`; that commit
+  is not reachable from `main` — it was superseded — so `3a8785b` is the
+  reference that resolves.)
 
 ## Follow-up
 
