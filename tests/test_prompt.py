@@ -32,18 +32,24 @@ def write_soul(tmp_path, text):
 
 
 def test_soul_md_char_count_matches_the_design_document():
-    """The design claims 3,401 characters. Drift means a transcription error.
+    """The design claims 3,963 characters. Drift means a transcription error.
 
     Asserted rather than eyeballed once, because the approved artefact is the
     design document and the file is supposed to be that text.
+
+    Was 3,401 until the cross-user disclosure paragraph replaced S7's original
+    single sentence (2026-09-02); the design document was updated in the same
+    change, so this still compares the file against the approved text.
     """
-    assert len(REAL_SOUL) == 3401
+    assert len(REAL_SOUL) == 3963
 
 
 def test_soul_md_token_estimate_stays_within_its_stated_share_of_the_window():
     tokens = history.estimate_tokens(REAL_SOUL)
-    assert tokens == pytest.approx(851, abs=5)
-    assert tokens / 32768 < 0.03
+    assert tokens == pytest.approx(991, abs=5)
+    # ~3.0% of the window. The ceiling that actually governs growth is
+    # SOUL_MAX_CHARS; this bound only catches an order-of-magnitude mistake.
+    assert tokens / 32768 < 0.04
 
 
 def test_the_real_soul_md_passes_every_check():

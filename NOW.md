@@ -133,6 +133,36 @@ it rather than deciding silently.
 19. **Compute tier** — Max plan confirmed. Multi-session, multi-day
     pacing is still realistic given real work volume and review bandwidth,
     but quota itself is not the binding constraint.
+20. **Cross-user memory disclosure** — retrieval is **not** filtered by who
+    is asking. Something said in one conversation can surface in another,
+    with a different person, because that is how the memory works; results
+    carry `user_id` as metadata only and nothing in the retrieval path
+    scopes by actor. The judgment sits at the point of **disclosure**, not
+    retrieval: whether to say a thing once it has surfaced. It is entity
+    discretion exercised each time, not a rule applied for it, and the
+    entity owes no explanation for declining to relay something.
+    **Implemented in `program/integrity/soul.md`'s final two paragraphs**
+    (the multi-user paragraph and the one following it), landed 2026-09-02.
+    This is the second concrete instance of the entity-discretion principle
+    in `PROJECT.md`, alongside declining to share creative writing.
+    Consequences that follow from it, so they are not rediscovered:
+    no filter is added to `retrieval.search()`; no `visibility` column
+    exists on `chunks` or `users`; the capability registry in
+    `program/settings/permissions.py` registers nothing like
+    `memory.read_all_users`, because capability gating and data visibility
+    stay separate axes (task 1.12 design, R7).
+
+    **This is not an access boundary.** Nothing enforces it and nothing
+    audits it — there is no eval harness, and no way to confirm after the
+    fact whether discretion held on any given turn. It carries the same
+    reliability as any other soul.md instruction: a prompted tendency, not
+    a guarantee. Chosen deliberately over retrieval-time filtering, which
+    would require a sensitivity classifier judging chunks with no tagging
+    or metadata to go on — an unvalidated judgment call this project's own
+    bar (frozen eval set, same standard as the fabrication gate) isn't
+    ready to meet. Revisit if this proves unreliable in practice; the
+    two-axis split (R7) was kept specifically so a real filter could still
+    be added later without rework.
 
 ## Backlog (deferred, not forgotten)
 

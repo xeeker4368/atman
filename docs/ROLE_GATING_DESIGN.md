@@ -253,8 +253,10 @@ assume its shape.
 ## R7 — Not foreclosing the cross-user retrieval decision
 
 Task 1.5's retrieval can surface Jodie's chunks into Lyle's conversation.
-`soul.md` acknowledges this and it is recorded as **an open gap awaiting a
-`NOW.md` decision-log entry**, not something to settle in a schema task.
+`soul.md` acknowledges this, and the decision on what to do about it is
+recorded in `NOW.md`'s decision-log entry #20 (2026-09-02): retrieval stays
+unfiltered by design: discretion is exercised at the point of disclosure, not
+at retrieval, and is not something this task settles.
 
 **This design keeps both answers open, by keeping two axes separate:**
 
@@ -280,8 +282,9 @@ every message and chunk, is carried through to `RetrievedChunk`, and
 `retrieval.search()` can take an `actor=` parameter later without disturbing
 anything here.
 
-**Recommendation restated, not decided:** Lyle adds the `NOW.md` entry before
-Phase 5's cross-user mining makes the question sharper.
+**Resolved, 2026-09-02:** see `NOW.md` entry #20. Retrieval stays unfiltered;
+the two-axis split below is exactly what made that decision possible without
+reopening this task.
 
 ---
 

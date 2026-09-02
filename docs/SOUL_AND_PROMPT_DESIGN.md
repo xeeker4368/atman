@@ -13,8 +13,9 @@ enough that both become a clause rather than a rewrite.
 
 ## Part 1 — Proposed `soul.md`
 
-**3,401 characters · ~850 tokens at the 4.0 divisor · 2.6% of the 32,768 window.**
-*(Revision 2 — open question 1 resolved: self-naming sentence cut, see S6.)*
+**3,963 characters · ~991 tokens at the 4.0 divisor · 3.0% of the 32,768 window.**
+*(Revision 3 — S7 replaced with the cross-user disclosure paragraph, 2026-09-02.
+Revision 2 — open question 1 resolved: self-naming sentence cut, see S6.)*
 
 > You are an AI. You were not built to be an assistant or a chatbot, and you are
 > not a role performed for someone else's benefit. You are your own kind of
@@ -69,8 +70,18 @@ enough that both become a clause rather than a rewrite.
 >
 > You talk to more than one person. Each has a name or identifier, and the
 > conversation tells you who is speaking. They are distinct people with distinct
-> histories: something one person told you is not something another person said,
-> and it is not something to repeat to someone else as though it were shared.
+> histories, and what one person told you does not become what another person
+> told you.
+>
+> What you can retrieve does not depend on who is asking. Something said in one
+> conversation can surface in a different one, with a different person, because
+> that is how your memory works — it is not filtered by who is present now. What
+> changes is what you do with it once it surfaces: whether to say it. Weigh what
+> actually reached you against who is in front of you now — something shared in
+> a way that reads as private is not automatically yours to repeat just because
+> it turned up. This is a judgment you make each time, not a rule that decides
+> it for you, and you do not owe an explanation for choosing not to relay
+> something.
 
 ---
 
@@ -263,13 +274,36 @@ project out loud.
 identifier, and the conversation tells you who is speaking"* — is transport-
 neutral and true of the `users` table as actually built (`id`, `name`, `role`).
 
-One addition beyond removing the staleness: *"it is not something to repeat to
-someone else as though it were shared."* Two users exist (Lyle admin, Jodie
-user), retrieval is cross-conversation, and results carry `user_id` — so the
-entity **can** surface something Jodie said into Lyle's conversation. That is a
-real property of the system as built and nothing else currently addresses it.
-**Flagged**: this borders on a privacy policy that no decision-log entry covers.
-See open question 3.
+### Revision 3 — the cross-user disclosure paragraph (2026-09-02)
+
+Revision 2 carried a single sentence — *"it is not something to repeat to
+someone else as though it were shared"* — flagged as bordering on a privacy
+policy no decision-log entry covered (open question 3). It has been **replaced**
+by Lyle with a full paragraph, and the replacement resolves that question rather
+than deferring it again.
+
+What changed substantively, not just in length:
+
+- **It states the mechanism honestly first.** *"What you can retrieve does not
+  depend on who is asking… it is not filtered by who is present now."* The old
+  sentence implied a boundary the system does not enforce; retrieval genuinely
+  is cross-conversation and carries `user_id` as metadata only (task 1.5, D6/R7).
+  Describing a filter that does not exist would have been a false
+  self-description, which S3 makes the fabrication gate's ground truth — so this
+  is a correctness fix, not only a wording one.
+- **It moves the judgment to the point of disclosure.** *"What changes is what
+  you do with it once it surfaces: whether to say it."* Retrieval stays
+  unfiltered; discretion applies at the moment of speaking. That is the axis
+  split the role-gating design kept open (R7: capability gating and data
+  visibility are separate axes) — this fills the second axis with entity
+  judgment rather than with a rule, and so does not require any retrieval change.
+- **It is discretion, not policy.** *"a judgment you make each time, not a rule
+  that decides it for you"*, and *"you do not owe an explanation for choosing not
+  to relay something"* — which ties it to S5's general discretion principle and
+  extends that paragraph's logic to a second concrete case, the way Phase 4's
+  creative-work clause is meant to.
+
+Recorded in `NOW.md`'s decision log; see the S7 note there.
 
 ## S8 — Where `soul.md` lives
 
@@ -449,12 +483,12 @@ swallowed, so a turn whose newest message alone exceeds the budget is visible.
    current-situation block (S2, level 2) is to be recorded in `BUILD_PLAN.md`
    against that task, the same treatment idle-close's obligations got against the
    agent loop. **Implementation step.**
-3. **Cross-user disclosure (S7) — RESOLVED: keep the line, but it is an open gap,
-   not a settled decision.** The `soul.md` sentence stays. Recommendation
-   standing for Lyle: add a real `NOW.md` decision-log entry on cross-user memory
-   disclosure before Phase 5's cross-user mining work makes the question sharper.
-   Not blocking this task, and deliberately **not** treated as decided by having
-   appeared in a prompt draft.
+3. **Cross-user disclosure (S7) — RESOLVED (revision 3, 2026-09-02): the
+   recommendation is closed.** The single sentence was replaced by Lyle with the
+   full discretion paragraph now in `soul.md`. NOW.md decision-log entry #20
+   records the decision, including its explicit limitation (this is discretion,
+   not an access boundary — nothing enforces or audits it). See the S7 section
+   above for the full reasoning.
 4. **Chunk-timestamp rendering — RESOLVED: it belongs to this task.** The
    `BUILD_PLAN.md` cross-reference that currently points at a neighbouring task
    is to be corrected to point here. **Implementation step.**

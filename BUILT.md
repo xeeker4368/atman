@@ -85,12 +85,13 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
 
 ## Prompt assembly
 
-- `[built]` **`soul.md` seed** at `program/integrity/soul.md` — 3,401 characters,
-  ~851 tokens, 2.6% of the 32,768 window. Design of record:
+- `[built]` **`soul.md` seed** at `program/integrity/soul.md` — 3,963 characters,
+  ~991 tokens, 3.0% of the 32,768 window (2,037 chars of headroom under the
+  6,000 ceiling). Design of record:
   `docs/SOUL_AND_PROMPT_DESIGN.md` (revision 2), S1–S12. The stored file was
   verified word-for-word (618 words) against the approved design's quoted text
-  rather than retyped, and a test asserts the 3,401 count so later drift fails
-  the suite.
+  rather than retyped, and a test asserts the exact character count so later
+  drift fails the suite.
 - `[built]` **The entity has no name, and it is mechanically enforced.**
   `soul.md` states namelessness as settled rather than pending, and closes the
   self-naming route: a name the entity coined would be adopted by users, enter
@@ -152,10 +153,18 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   question and nothing here is evidence about it. The current-situation block
   does not exist yet either — its contract is enforced, but tests supply the
   string.
-- *Cross-user disclosure (the "not something to repeat to someone else" line)
-  is an **open gap, not a settled decision**. Recommendation stands that a
-  `NOW.md` decision-log entry address it before Phase 5's cross-user mining;
-  its presence in `soul.md` does not decide it.*
+- `[built]` **Cross-user memory disclosure is settled** (`NOW.md` decision #20,
+  2026-09-02) — no longer an open gap. `soul.md` now states the mechanism
+  honestly rather than implying a boundary the system does not enforce:
+  *"What you can retrieve does not depend on who is asking… it is not filtered
+  by who is present now."* The judgment moves to the point of **disclosure** —
+  whether to say a thing once it has surfaced — exercised as entity discretion
+  each time rather than as a rule, with no explanation owed for declining to
+  relay. Correctness matters here as much as policy: describing a filter that
+  does not exist would have been a false self-description, and `soul.md` is the
+  fabrication gate's ground truth. **Nothing in the retrieval path changed** —
+  no filter, no `visibility` column, no `memory.read_all_users` capability —
+  so capability gating and data visibility remain separate axes.
 
 
 - `[built]` **History windowing** (`program/engine/history.py`), decision #6. A
