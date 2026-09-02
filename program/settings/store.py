@@ -55,6 +55,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from program import config
+from program.memory.db import retry_on_locked
 from program.settings.permissions import Actor, require
 
 logger = logging.getLogger(__name__)
@@ -401,6 +402,7 @@ def describe_all(actor: Actor) -> list[EffectiveSetting]:
 # ---------------------------------------------------------------------------
 
 
+@retry_on_locked
 def set(name: str, value: Any, actor: Actor) -> None:
     """Write one setting and invalidate the cache. Takes effect immediately.
 
@@ -433,6 +435,7 @@ def set(name: str, value: Any, actor: Actor) -> None:
     logger.info("setting %s updated by %s", spec.name, updated_by or "unknown")
 
 
+@retry_on_locked
 def clear(name: str, actor: Actor) -> bool:
     """Remove the row so the key falls back to its config seed again.
 

@@ -69,6 +69,11 @@ _FALLBACK: dict[str, Any] = {
         "target_chars": 2500,
         "max_turns": 8,
     },
+    "database": {
+        "busy_timeout_seconds": 10,
+        "write_retry_deadline_seconds": 30.0,
+        "write_retry_base_delay_seconds": 0.05,
+    },
     "retrieval": {
         "rrf_k": 60,
         "candidates_per_leg": 50,
@@ -113,6 +118,13 @@ _ENV_MAP: dict[str, tuple[str, str, str]] = {
     "ANAM_IN_FLIGHT_GRACE_MINUTES": ("conversations", "in_flight_grace_minutes", "int"),
     "ANAM_CHUNK_TARGET_CHARS": ("chunking", "target_chars", "int"),
     "ANAM_CHUNK_MAX_TURNS": ("chunking", "max_turns", "int"),
+    "ANAM_DB_BUSY_TIMEOUT_SECONDS": ("database", "busy_timeout_seconds", "int"),
+    "ANAM_DB_WRITE_RETRY_DEADLINE_SECONDS": (
+        "database", "write_retry_deadline_seconds", "float",
+    ),
+    "ANAM_DB_WRITE_RETRY_BASE_DELAY_SECONDS": (
+        "database", "write_retry_base_delay_seconds", "float",
+    ),
     "ANAM_RETRIEVAL_RRF_K": ("retrieval", "rrf_k", "int"),
     "ANAM_RETRIEVAL_TOP_K": ("retrieval", "top_k", "int"),
     "ANAM_RETRIEVAL_CANDIDATES_PER_LEG": ("retrieval", "candidates_per_leg", "int"),
@@ -364,6 +376,49 @@ def in_flight_grace_minutes() -> int:
             f"correctness constraint, not a preference: a worst-case turn on "
             f"this hardware takes minutes, and a shorter window would close a "
             f"conversation while the model was still answering it."
+        )
+    return value
+
+
+# --- Database concurrency ---------------------------------------------------
+#
+# The write-contention fix. See docs/DB_CONTENTION_DESIGN.md.
+
+
+def db_busy_timeout_seconds() -> int:
+    """How long one SQLite call waits for a lock before raising.
+
+    Returns as soon as the lock frees, so this is a ceiling rather than a cost.
+    """
+    value = int(get("database", "busy_timeout_seconds", 10))
+    if value < 0:
+        raise ConfigError(
+            f"database.busy_timeout_seconds is {value}; it must not be negative."
+        )
+    return value
+
+
+def db_write_retry_deadline_seconds() -> float:
+    """How long a write may keep *starting* new attempts after a lock failure.
+
+    Zero disables retry entirely, which is how the reproduction test
+    demonstrates the original failure still exists underneath the fix.
+    """
+    value = float(get("database", "write_retry_deadline_seconds", 30.0))
+    if value < 0:
+        raise ConfigError(
+            f"database.write_retry_deadline_seconds is {value}; it must not be "
+            f"negative. Use 0 to disable retry."
+        )
+    return value
+
+
+def db_write_retry_base_delay_seconds() -> float:
+    value = float(get("database", "write_retry_base_delay_seconds", 0.05))
+    if value <= 0:
+        raise ConfigError(
+            f"database.write_retry_base_delay_seconds is {value}; it must be "
+            f"greater than zero or the backoff never grows."
         )
     return value
 

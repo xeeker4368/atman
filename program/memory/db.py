@@ -31,14 +31,22 @@ operator, and background processes.
 
 from __future__ import annotations
 
+import functools
+import logging
+import random
 import sqlite3
+import time
 import uuid
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterator
+from typing import Any, Callable, Iterator, TypeVar
 
 from program import config
+
+logger = logging.getLogger(__name__)
+
+T = TypeVar("T")
 
 SCHEMA_DIR = Path(__file__).resolve().parent / "schema"
 
@@ -75,14 +83,14 @@ def _configure(conn: sqlite3.Connection) -> None:
 
 def _connect_archive_only() -> sqlite3.Connection:
     """Direct connection to archive.db. Used for initialisation only."""
-    conn = sqlite3.connect(str(archive_path()), timeout=10)
+    conn = sqlite3.connect(str(archive_path()), timeout=config.db_busy_timeout_seconds())
     _configure(conn)
     return conn
 
 
 def _connect_working_only() -> sqlite3.Connection:
     """Direct connection to working.db. Used for initialisation and migration."""
-    conn = sqlite3.connect(str(working_path()), timeout=10)
+    conn = sqlite3.connect(str(working_path()), timeout=config.db_busy_timeout_seconds())
     _configure(conn)
     return conn
 
@@ -94,7 +102,7 @@ def connection() -> Iterator[sqlite3.Connection]:
     This is the normal way to touch the stores. The attachment is what makes a
     cross-store write a single transaction.
     """
-    conn = sqlite3.connect(str(working_path()), timeout=10)
+    conn = sqlite3.connect(str(working_path()), timeout=config.db_busy_timeout_seconds())
     _configure(conn)
     conn.execute("ATTACH DATABASE ? AS archive", (str(archive_path()),))
     # The attached database carries its own journal mode and needs setting too;
@@ -123,6 +131,103 @@ def transaction() -> Iterator[sqlite3.Connection]:
         except Exception:
             conn.execute("ROLLBACK")
             raise
+
+
+# ---------------------------------------------------------------------------
+# Write contention
+# ---------------------------------------------------------------------------
+
+#: SQLite's lock-contention messages. Matched on text because the sqlite3 module
+#: surfaces SQLITE_BUSY and SQLITE_LOCKED as a bare ``OperationalError`` with no
+#: distinguishing code.
+_LOCK_MESSAGES = ("database is locked", "database table is locked")
+
+
+def _is_lock_error(exc: sqlite3.OperationalError) -> bool:
+    text = str(exc).lower()
+    return any(message in text for message in _LOCK_MESSAGES)
+
+
+def retry_on_locked(fn: Callable[..., T]) -> Callable[..., T]:
+    """Retry a write that lost a lock race, until a wall-clock deadline.
+
+    **Why this exists.** Measured: writer-vs-writer contention is absorbed
+    entirely by ``busy_timeout`` (0 failures in 320 concurrent writes), but a
+    lock held *longer* than the timeout fails ~8% of writes. ``ops/backup.py``
+    creates exactly that shape, holding a read transaction across both stores
+    for the length of a snapshot. The failure is transient by construction — the
+    holder will finish — so retrying matches the failure's nature.
+
+    **Why it wraps whole functions rather than living in ``transaction()``.** A
+    ``@contextmanager`` cannot replay its caller's body: by the time ``__exit__``
+    sees the exception the body has already run. And the failures land *inside*
+    the body and at ``COMMIT`` (measured), not during connection setup, so there
+    is no earlier point to retry from. Each decorated function is already a
+    self-contained unit of work.
+
+    **Why this cannot break the atomicity guarantee.** Retry runs entirely
+    outside ``transaction()``: it only sees the exception after the context
+    manager has committed or rolled back and ``connection()``'s ``finally`` has
+    closed the connection. It never observes or resumes a half-open transaction,
+    and each attempt opens a *fresh* connection that re-``ATTACH``es and
+    re-applies both journal-mode pragmas. Nothing about the transaction's
+    semantics, the ``ATTACH``, or the ``DELETE`` journaling choice changes —
+    retry changes how many transactions are attempted, never what one does.
+
+    **Only lock errors are retried.** ``sqlite3.IntegrityError`` in particular
+    must not be: ``insert_chunk`` relies on a duplicate-index violation as the
+    arbiter between two concurrent writers, so retrying it would spin on a real
+    conflict. Other ``OperationalError``s (``no such table``) are permanent.
+
+    **A ``COMMIT`` that raises ``SQLITE_BUSY`` did not commit.** In rollback-journal
+    mode it failed to take the exclusive lock, the transaction stays open, and
+    ``transaction()`` rolls it back — so a retry cannot duplicate a write that
+    already landed.
+
+    **Not applied to migrations.** ``run_working_migrations()`` calls arbitrary
+    ``migration.apply(conn)`` and mutates Python state inside its ``with`` block,
+    which a rollback cannot undo. It also runs once, single-threaded, at startup.
+    """
+
+    @functools.wraps(fn)
+    def wrapper(*args: Any, **kwargs: Any) -> T:
+        deadline = config.db_write_retry_deadline_seconds()
+        base = config.db_write_retry_base_delay_seconds()
+        started = time.monotonic()
+        attempt = 0
+
+        while True:
+            try:
+                return fn(*args, **kwargs)
+            except sqlite3.OperationalError as exc:
+                if not _is_lock_error(exc):
+                    raise
+                elapsed = time.monotonic() - started
+                remaining = deadline - elapsed
+                if remaining <= 0:
+                    logger.warning(
+                        "%s gave up after %.1fs of lock contention (%d retries): %s",
+                        fn.__name__, elapsed, attempt, exc,
+                    )
+                    raise
+
+                attempt += 1
+                delay = min(base * (2 ** (attempt - 1)), _RETRY_DELAY_CAP)
+                delay *= 0.5 + random.random()          # +/-50% jitter
+                delay = min(delay, remaining)
+                logger.warning(
+                    "%s hit lock contention (attempt %d, %.1fs elapsed); "
+                    "retrying in %.2fs: %s",
+                    fn.__name__, attempt, elapsed, delay, exc,
+                )
+                time.sleep(delay)
+
+    return wrapper
+
+
+#: Longest single backoff sleep. JUDGMENT value — the common case is a lock
+#: about to free, so sleeping longer than this mostly adds latency.
+_RETRY_DELAY_CAP = 1.0
 
 
 # ---------------------------------------------------------------------------
@@ -164,6 +269,7 @@ def init_databases() -> None:
 # ---------------------------------------------------------------------------
 
 
+@retry_on_locked
 def create_user(name: str, role: str = "user", user_id: str | None = None) -> str:
     """Create a user in both stores atomically. Returns the user id."""
     if role not in ("admin", "user"):
@@ -221,6 +327,7 @@ def list_users() -> list[sqlite3.Row]:
 # ---------------------------------------------------------------------------
 
 
+@retry_on_locked
 def start_conversation(user_id: str, conversation_id: str | None = None) -> str:
     cid = conversation_id or new_id()
     with transaction() as conn:
@@ -238,6 +345,7 @@ def get_conversation(conversation_id: str) -> sqlite3.Row | None:
         ).fetchone()
 
 
+@retry_on_locked
 def end_conversation(conversation_id: str) -> None:
     with transaction() as conn:
         conn.execute(
@@ -251,6 +359,7 @@ def end_conversation(conversation_id: str) -> None:
 # ---------------------------------------------------------------------------
 
 
+@retry_on_locked
 def save_message(
     conversation_id: str,
     user_id: str,
@@ -340,6 +449,7 @@ def get_conversation_chunks(conversation_id: str) -> list[sqlite3.Row]:
         ).fetchall()
 
 
+@retry_on_locked
 def insert_chunk(
     *,
     chunk_id: str,
@@ -374,6 +484,7 @@ def insert_chunk(
         )
 
 
+@retry_on_locked
 def mark_conversation_chunked(conversation_id: str) -> None:
     """Record that a conversation has been chunked *in full*.
 

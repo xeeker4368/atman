@@ -222,10 +222,17 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   **Not introduced by the backup CLI**; it is a property of every
   `db.connection()` call, including `save_message()`. Backup only made it
   observable because it deliberately holds a lock across both stores.
-  **Currently dormant** — nothing in the codebase writes concurrently yet. It
-  becomes live risk at **task 2.2**, which introduces genuine concurrent write
-  paths: a chat turn writing messages while idle-close's sweep or a background
-  pass runs.
+  **Dormant in production code** — nothing in the application writes
+  concurrently yet. It becomes live risk at **task 2.2**, which introduces
+  genuine concurrent write paths: a chat turn writing messages while
+  idle-close's sweep or a background pass runs.
+  **Observed once, in the test suite, 2026-09-01.**
+  `test_a_write_during_the_snapshot_cannot_land_in_one_store_only` failed a
+  single full-suite run with `database is locked`, then passed in isolation and
+  on five consecutive reruns. That test spawns a real concurrent writer against
+  the backup snapshot's held lock, so the suite is itself a concurrent-writer
+  workload — this is the recorded issue firing, not a new one. It makes the
+  backup race test **intermittently flaky** until the Tier 3 fix lands.
   **Not fixed.** Resolving it means editing `program/memory/db.py` and choosing
   between `busy_timeout` tuning, a retry, and write serialisation — each with
   atomicity implications — so it needs its own **Tier 3** task rather than an
@@ -428,7 +435,52 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   Accepted; waiting 30 minutes to close a crashed turn costs nothing.
 
 ## Tools
-- *(nothing yet)*
+
+- `[built]` **Tool registry + dispatch** (`program/tools/registry.py`), task 2.1.
+  A `Tool` is a frozen record — `name`, `description`, `parameters` (JSON Schema
+  object schema), `handler` — in a module-level tuple looked up by name, the same
+  data-not-conditionals shape as `permissions.CAPABILITIES` and `store.SETTINGS`.
+  Invalid definitions raise at construction.
+- `[built]` **`TOOLS` is empty, deliberately.** `memory_search`, `web_search`,
+  `web_fetch` and file ingestion are each their own later task and each appends
+  itself here when built. **No placeholder tool was invented** — one would read
+  as built while being nothing. Two tests hold the line: `TOOLS == ()`, and every
+  test-scaffolding name dispatched against the *default* registry must come back
+  `UNKNOWN_TOOL`. The test file's four tools are labelled TEST-ONLY in their own
+  descriptions and only ever enter a locally constructed registry.
+- `[built]` **Central registration, not self-registration.** Tools are listed
+  explicitly rather than registering via import-time decorators, on `config.py`'s
+  own stated precedent — the full set must be greppable from one place rather
+  than depending on which modules happened to be imported, since a tool missing
+  because nothing imported it is a failure with no error message.
+- `[built]` **Dispatch always returns, never raises** for the three model-facing
+  failures — `UNKNOWN_TOOL`, `INVALID_ARGUMENTS`, `TOOL_ERROR` — because task 2.2
+  must feed all three back to the model rather than crash the turn. The
+  load-bearing distinction is `INVALID_ARGUMENTS` (the *call* was wrong, a
+  different retry may work) vs `TOOL_ERROR` (the call was fine, *execution*
+  failed); `ToolResult.ran` makes "did anything execute" answerable without
+  parsing an error string. Programmer errors — duplicate registration, invalid
+  definition — still raise.
+- `[built]` **`except Exception`, not `BaseException`** — `KeyboardInterrupt`,
+  `SystemExit` and the suite's `StoreIsolationViolation` propagate untouched,
+  asserted by a test.
+- `[built]` **Structured trace for task 3.1.** `ToolResult.to_trace_entry()`
+  returns a dict, not a log line, per BUILD_PLAN's requirement that the trace be
+  a first-class return value the fabrication gate reasons over structurally.
+  Every dispatch carries a `call_id`, turning 3.1's "invalid IDs, no matching
+  tool_result in trace" check into a lookup. Failed and unknown calls are traced
+  too, since a claim about a failed tool is only checkable if the failure is
+  recorded.
+- `[unverified]` **Argument validation is a deliberate subset** of JSON Schema —
+  required keys, unexpected keys, top-level primitive types. Enough to make the
+  malformed/failed distinction real; not a JSON Schema implementation, and no
+  `jsonschema` dependency added. A tool needing more validates in its handler.
+- `[unverified]` **Never exercised against a live model or a real tool.**
+  `to_ollama_schema()` produces the documented shape and `ollama.chat()` already
+  accepts `tools=`, but no model has been handed a schema from here — that is
+  task 2.2's proof. *Per-tool timeouts are deliberately absent: the registry
+  cannot enforce one, and an unenforced timeout field would read as protection
+  that exists. Task 2.2 owns the time budget and should add it with enforcement.*
 
 ## Media
 - *(nothing yet)*
@@ -582,7 +634,9 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
 
 ## Eval / observability
 
-- `[built]` **Test suite** — 349 tests passing (`pytest`), `ruff check` clean.
+- `[built]` **Test suite** — 380 tests passing (`pytest`), `ruff check` clean.
+  *One known intermittent failure: the backup race test, from the recorded
+  `db.py` write-contention issue above.*
   Verified order-independent across repeated full runs.
 - `[built]` **Store-isolation guard skeleton** (`tests/conftest.py`). Captures
   real paths at import before any test can patch them; `StoreIsolationViolation`

@@ -93,6 +93,44 @@ idle_close_minutes = 15
 # BUILD_PLAN.md against that task, not just here.
 in_flight_grace_minutes = 30
 
+[database]
+# Write contention. See docs/DB_CONTENTION_DESIGN.md for the measurements.
+#
+# MEASURED 2026-09-01, 4 concurrent writers against a held snapshot lock:
+#   lock held  2s (below busy_timeout)  ->  0 / 48 writes failed
+#   lock held 11s (above busy_timeout)  ->  4 / 48 writes failed  (8%)
+# The trigger is a lock held LONGER THAN busy_timeout, not writer-vs-writer
+# contention, which the timeout absorbs completely. ops/backup.py creates
+# exactly that shape: it holds a read transaction across both databases for the
+# duration of a snapshot.
+
+# How long one SQLite call waits for a lock before raising. It returns as soon
+# as the lock frees, so this is a ceiling, not a cost paid per call.
+busy_timeout_seconds = 10
+
+# How long a write may keep STARTING new attempts after a lock failure.
+#
+# A deadline rather than an attempt count, so the worst case is expressible in
+# seconds rather than in "however long N attempts happen to take".
+#
+# WORST CASE IS `write_retry_deadline_seconds + busy_timeout_seconds` = ~40s,
+# not 30s: the deadline gates whether a new attempt may *start*, and an attempt
+# beginning just under it can still wait a full busy_timeout. Stated plainly
+# because a "30" that means 40 would be worse than useless.
+#
+# JUDGMENT VALUE. 30s tolerates a backup snapshot holding its lock for ~30s,
+# which is far longer than the current measured hold on a small store, with room
+# as the database grows. Nothing has measured how long a large-store snapshot
+# actually takes.
+#
+# Set to 0 to disable retry entirely — which is how the reproduction test shows
+# the underlying failure is still there.
+write_retry_deadline_seconds = 30.0
+
+# First backoff sleep; doubles each retry, +/-50% jitter, capped at 1s.
+# JUDGMENT VALUE. Small because the common case is a lock about to free.
+write_retry_base_delay_seconds = 0.05
+
 [retrieval]
 # Hybrid retrieval: BM25 + vector, fused by RRF. Design: docs/RETRIEVAL_DESIGN.md.
 
