@@ -102,28 +102,37 @@ removed lines were the two headings.
 
 ## Known limitations
 
-- **`docs/DB_CONTENTION_DESIGN.md` still names settings that do not exist**, and
-  this change did not fix it. C4's policy table gives all three keys under a
-  `db.*` namespace (lines 168–170), and C6's body text refers to
-  `write_retry_attempts = 1` as the way to disable the fix (line 237). The
+- **`docs/DB_CONTENTION_DESIGN.md` named settings that do not exist — found
+  here, corrected since.** What was found: C4's policy table gave all three keys
+  under a `db.*` namespace (then lines 168–170), and C6's body text named
+  `write_retry_attempts = 1` as the way to disable the fix (then line 237), plus
+  a third spot found while drafting the fix — C6 said the fast test sets
+  `busy_timeout` to ~0.2s when the `fast_locks` fixture sets it to 0. The
   shipped configuration is `database.busy_timeout_seconds`,
   `database.write_retry_deadline_seconds` and
   `database.write_retry_base_delay_seconds` — the `database.*` namespace, and
-  **there is no `write_retry_attempts` setting at all**; `grep` finds that name
-  only inside this document. C6's real mechanism is setting the *deadline* to 0,
+  **there is no `write_retry_attempts` setting at all**; `grep` found that name
+  only inside that document. C6's real mechanism is setting the *deadline* to 0,
   which is what `test_without_retry_contention_actually_fails` does.
 
-  Not corrected here: the scope of this change was the open-questions markers,
-  and the correction is its own not-yet-scoped task. It is recorded in this
-  changelog specifically so the conversation that found it is not the only place
-  it exists. Note that marking the section resolved makes the document read as
-  freshly reviewed, which raises rather than lowers the chance a stale line
-  inside it gets trusted.
+  **Not corrected in this change**, whose scope was the open-questions markers.
+  It was recorded here specifically so the conversation that found it would not
+  be the only place it existed — the concern being that marking the section
+  resolved makes the document read as freshly reviewed, which raises rather than
+  lowers the chance a stale line inside it gets trusted.
 
-- **Line 299 is not part of that problem.** The contention #2 question text
-  quotes `write_retry_attempts = 4` because that is what was asked at the time,
-  and the question is retained verbatim above its marker by design. Historical
-  question text is a record of what was asked, not a claim about what exists.
+  **Closed** by the follow-up change that corrected all three spots: C4's table,
+  heading and surrounding paragraphs now describe the shipped deadline mechanism
+  under the `database.*` namespace and state plainly that the table originally
+  proposed an attempt count; C6 names the deadline-to-0 lever and the correct
+  test value. See that change's own changelog entry.
+
+- **The surviving `write_retry_attempts` reference is deliberate.** Open
+  question 2's question text still quotes `write_retry_attempts = 4` because
+  that is what was asked at the time, and the question is retained verbatim
+  above its marker by design. Historical question text is a record of what was
+  asked, not a claim about what exists. (It sat at line 299 when this entry was
+  written; the C4 correction shifted it down.)
 
 - **Retrieval #4 is marked RESOLVED but carries an unresolved consequence** —
   stopword-only matches earning an RRF contribution. That is stated inside the
@@ -139,7 +148,8 @@ removed lines were the two headings.
 
 ## Follow-up
 
-- Scope the C4 / C6 correction above as its own task.
+- ~~Scope the C4 / C6 correction above as its own task.~~ **Done** — drafted,
+  reviewed and applied as its own change covering all three spots.
 - D4's lexical floor stays in `NOW.md`'s "Retrieval floor calibration" backlog
   entry; the marker now points at it from the design doc.
 

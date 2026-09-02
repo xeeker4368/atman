@@ -161,21 +161,35 @@ The harness supports this — 4 failures, 44 succeeded, `archive == working == 4
 with one of those failures at the `COMMIT` line. A test will assert it directly
 rather than leaving it inferred (C6).
 
-### Proposed policy — judgment values, flagged
+### Policy as shipped — judgment values, flagged
 
-| Setting | Proposed | Basis |
+**This table originally proposed an attempt count — `db.write_retry_attempts =
+4` — under a `db.*` namespace. Both were superseded before implementation:** the
+shape by open question 2 below, answered in favour of a wall-clock deadline, and
+the namespace by the `database.*` prefix the settings actually shipped under.
+The table now records what is in `config/defaults.toml`. The original proposal
+is preserved verbatim in open question 2's question text, which is what was
+asked at the time.
+
+| Setting | Shipped | Basis |
 |---|---|---|
-| `db.busy_timeout_seconds` | 10 (unchanged) | current value, now made configurable so tests can lower it |
-| `db.write_retry_attempts` | 4 | **JUDGMENT** |
-| `db.write_retry_base_delay` | 0.05s, doubling, ±50% jitter, capped 1.0s | **JUDGMENT** |
+| `database.busy_timeout_seconds` | 10 (unchanged) | current value, now made configurable so tests can lower it |
+| `database.write_retry_deadline_seconds` | 30.0 | **JUDGMENT** — how long a write may keep *starting* new attempts; 0 disables retry entirely |
+| `database.write_retry_base_delay_seconds` | 0.05s, doubling, ±50% jitter, capped 1.0s | **JUDGMENT** |
 
-Total tolerance ≈ 4 × 10s ≈ **40s of lock hold** before a caller sees an error.
-`busy_timeout` returns as soon as the lock frees, so this costs nothing when
-there is no contention — the sleeps only accrue when a lock is genuinely held.
+**There is no attempt cap.** Retry loops until the deadline gates a new attempt
+from *starting*, so total tolerance is `write_retry_deadline_seconds +
+busy_timeout_seconds` ≈ **40s of lock hold** before a caller sees an error — not
+30s, because an attempt beginning just under the deadline can still wait a full
+busy timeout. `busy_timeout` returns as soon as the lock frees, so this costs
+nothing when there is no contention — the sleeps only accrue when a lock is
+genuinely held.
 
 **Stated plainly:** worst case is a caller blocked ~40s before raising. That is a
-long stall for a chat turn. The alternative shape — a total wall-clock deadline
-rather than an attempt count — is more predictable and is open question 2.
+long stall for a chat turn. Whether to express that tolerance as an attempt
+count or a deadline was open question 2; it was answered as a deadline, on the
+grounds that a worst case in seconds is more honest than one in "however long N
+attempts happen to take".
 
 ---
 
@@ -220,13 +234,13 @@ nothing when it passes.
 **Proposed: a deterministic contention test.**
 
 To make it fast and reliable, `busy_timeout` becomes configurable (it is
-currently a hardcoded `timeout=10`). The test sets it to ~0.2s, so a lock held
+currently a hardcoded `timeout=10`). The test sets it to 0, so a lock held
 for ~1s reliably exceeds it — the same condition as an 11s hold against a 10s
 timeout, in a fiftieth of the wall time.
 
 ```
 hold a snapshot-shaped lock (BEGIN + read both DBs) for ~1s
-  with busy_timeout ~0.2s
+  with busy_timeout 0
   4 writer threads calling save_message in a loop
 assert: zero OperationalErrors
 assert: archive count == working count
@@ -234,9 +248,10 @@ assert: every write that returned is actually present
 ```
 
 **What it does with the fix reverted** — this is the evidence it is a real test:
-with the decorator removed (or `write_retry_attempts = 1`), the same test
-produces a **non-zero** failure count. That is asserted directly as its own
-test — `test_without_retry_contention_actually_fails` sets attempts to 1 and
+with retry disabled — `database.write_retry_deadline_seconds` set to 0, which is
+the pre-fix behaviour — the same test produces a **non-zero** failure count. That
+is asserted directly as its own test —
+`test_without_retry_contention_actually_fails` sets the deadline to 0 and
 requires `OperationalError`, so the suite proves both that the bug exists and
 that the fix removes it. A test that only passes after the fix cannot
 distinguish "fixed" from "never reproduced".
