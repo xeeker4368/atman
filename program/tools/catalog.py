@@ -27,11 +27,12 @@ from __future__ import annotations
 
 from program.tools.memory_search import MEMORY_SEARCH
 from program.tools.registry import Tool
+from program.tools.web_fetch import WEB_FETCH
 from program.tools.web_search import WEB_SEARCH
 
 #: Every tool, in the order they were built.
 #:
-#: ``web_fetch`` and file ingestion are each their own task in Phase 2 and
-#: append themselves here when built. Nothing is placed here to have something
-#: to register — a placeholder tool would read as built while being nothing.
-TOOLS: tuple[Tool, ...] = (MEMORY_SEARCH, WEB_SEARCH)
+#: File ingestion is its own task in Phase 2 and appends itself here when built.
+#: Nothing is placed here to have something to register — a placeholder tool
+#: would read as built while being nothing.
+TOOLS: tuple[Tool, ...] = (MEMORY_SEARCH, WEB_SEARCH, WEB_FETCH)

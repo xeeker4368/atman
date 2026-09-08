@@ -481,17 +481,20 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   at module scope is a cycle; a bottom-of-file import only hides it until
   something imports a tool module first, which is how it was found (a real
   `ImportError`, see the task 2.3 changelog). `default_registry()` imports the
-  catalogue at call time. **A test spawns a subprocess for each of the three
+  catalogue at call time. **A test spawns a subprocess for each of the five
   import orders** and asserts the registry resolves in all of them, so this
   cannot regress into working-by-import-order.
-- `[built]` **`catalog.TOOLS` holds one tool: `memory_search`.** `web_search`,
-  `web_fetch` and file ingestion are each their own later task and each appends
-  itself there when built. **No placeholder tool was invented** — one would read
-  as built while being nothing. Two tests hold the line: the catalogue is
-  asserted to be exactly `("memory_search",)`, and every test-scaffolding name
-  dispatched against the *default* registry must come back `UNKNOWN_TOOL`. The
-  test file's four tools are labelled TEST-ONLY in their own descriptions and
-  only ever enter a locally constructed registry.
+- `[built]` **`catalog.TOOLS` holds three tools: `memory_search`, `web_search`
+  and `web_fetch`.** File ingestion is the one remaining Phase 2 tool task, and
+  appends itself there when built. **No placeholder tool was invented** — one
+  would read as built while being nothing. Two tests hold the line: the
+  catalogue is asserted to be exactly `("memory_search", "web_search",
+  "web_fetch")` — declaration order — while `default_registry().names` is
+  asserted separately as `("memory_search", "web_fetch", "web_search")`, since
+  `names` sorts; and every test-scaffolding name dispatched against the
+  *default* registry must come back `UNKNOWN_TOOL`. The test file's four tools
+  are labelled TEST-ONLY in their own descriptions and only ever enter a locally
+  constructed registry.
 - `[built]` **Central registration, not self-registration.** Tools are listed
   explicitly rather than registering via import-time decorators, on `config.py`'s
   own stated precedent — the full set must be greppable from one place rather
@@ -663,6 +666,93 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
 - **Flagged, not decided: `categories` and `time_range` are not exposed** — the
   same shape as `memory_search`'s `since`/`until`. `time_range` would let the
   model ask for recent-only results, which it currently cannot.
+
+### `web_fetch`
+
+- `[built]` **`web_fetch`** (`program/tools/web_fetch.py`), task 2.5 — retrieves
+  one public web page and renders its text. **One parameter, `url`.** Public
+  `http`/`https` only; it cannot reach this machine or the LAN.
+- `[built]` **The SSRF guard is five layers, each closing a hole the one before
+  leaves.** Verified by breaking each and re-running the suite, not by reading it:
+  - **0. `session.trust_env = False`.** Not housekeeping. With the default, an
+    `HTTP_PROXY` env var makes `requests` connect to the *proxy* instead of the
+    address we validated, and the whole IP check becomes decoration. Confirmed
+    by running it: with `HTTP_PROXY` at a dead port, a default session raises
+    `ProxyError` while a `trust_env=False` session connects normally.
+  - **1. Scheme allowlist** — `http`/`https` only, checked on the parsed URL.
+    `file://`, `ftp://`, `gopher://`, `data:`, `javascript:`, `ws://` refused by
+    name rather than left to the client to reject.
+  - **2. Resolve, then check every address.** `getaddrinfo()` explicitly, and
+    **all** returned addresses are validated — a name with one public and one
+    private A record would otherwise pass on whichever the resolver ordered
+    first. IPv4-mapped IPv6 (`::ffff:127.0.0.1`) is unwrapped first. An **IP
+    literal in the URL is validated as itself**, without consulting the
+    resolver at all.
+  - **3. Verify the address actually connected to, before any body is read.**
+    The response is streamed, the real peer is read off the socket and
+    re-validated. This is what closes DNS rebinding, which defeats
+    resolve-then-hope entirely. **Fails closed**: if the peer cannot be
+    determined, the fetch is refused rather than allowed.
+  - **4. Redirects followed by hand**, `allow_redirects=False`, every hop put
+    through layers 1–3 again, max 3.
+- `[built]` **Redirects are followed, deliberately** — up to 3. `http`→`https`
+  and apex→`www` are ubiquitous and refusing them would fail on ordinary URLs
+  for no security gain, since each hop is validated as strictly as the first.
+  Three covers those two plus a link shortener; each hop also spends the fetch's
+  deadline.
+- `[built]` **Proved against real local services, not just fixtures.** A test
+  first confirms SearXNG is genuinely answering on `127.0.0.1:8080`, then asserts
+  `web_fetch` refuses it — so the refusal cannot be "nothing was listening"
+  wearing a guard's clothes. The HTTP layer is replaced with something that
+  raises, so the tests prove the URL **never reached the wire**. Ollama on
+  `127.0.0.1:11434`, `169.254.169.254`, `192.168.0.1`, `::1` and every enumerated
+  RFC 1918 / loopback / link-local / unique-local range are covered, alongside
+  public addresses that must still be *allowed* — a guard that refuses everything
+  would pass every refusal test.
+- `[built]` **The guard layers were each broken and re-run**: disabling layer 3
+  fails the rebinding and fail-closed tests; checking only the first resolved
+  address fails the multi-record test; letting `requests` follow redirects fails
+  the redirect test.
+- `[built]` **A test found a real gap during the build**: an IP literal in the
+  URL was being validated via the resolver rather than as itself. Fixed in the
+  code, not the test.
+- `[built]` **Content type decides the treatment.** HTML → text extracted with a
+  stdlib `HTMLParser` that drops whole `script`/`style`/`nav`/`footer` subtrees
+  (no new dependency, matching the stdlib-first precedent set by `scrypt`);
+  `text/*`, JSON, XML → used as-is; **PDF → metadata only**, saying plainly that
+  this tool does not read PDFs (decision #11's extraction belongs to file
+  ingestion); images/binary/unknown → described, never dumped.
+- `[built]` **The render budget is measured, not fixed.** The header carries the
+  URL — twice when a redirect is reported — plus a page title, so a fixed body
+  cap plus an unbounded header can exceed `agent.max_tool_result_chars` and be
+  cut by the loop mid-sentence. The header is built and measured first and the
+  body takes the remainder, the order `prompt.assemble_turn()` uses for the same
+  reason. A pathological case (400-char URL printed twice, 300-char title,
+  truncated download) renders at **3,996 characters against the 4,000 cap** —
+  bounded by construction.
+- `[built]` **`timeout_seconds = 25`, derived.** Inside is
+  `web_fetch.total_timeout_seconds = 20`, a ceiling across all hops, so a wedged
+  fetch reports which host did not answer rather than an opaque `TIMEOUT`.
+  *Unlike the other two tools, nothing inside this one bounds itself* — the
+  remote server decides how long to take — so the ceiling comes from what a turn
+  can afford: a `web_search` (15) plus three fetches is 90 of the 120-second tool
+  budget. Measured real fetches took **0.04–0.29 s**, so the margin is entirely
+  for a slow remote.
+- `[built]` **Exercised live inside a real turn**: the model fetched
+  `https://www.sqlite.org/fts5.html` in **0.28 s of the 25 s allowed**, 210,915
+  bytes reduced to 3,751 rendered characters, and answered correctly.
+- `[unverified]` **A large page can be truncated before the part that matters,
+  and the model cannot page further.** Observed in that same live turn: it
+  fetched the page, did not find the section it needed inside the first 3,500
+  characters, **re-fetched the identical URL** (getting identical text), then
+  fell back to `web_search` and answered from that. Two things are visible in
+  that: no way to request a later part of a page, and no duplicate-call
+  detection in the loop — a known non-feature from task 2.2, now with a real
+  example behind it. **Flagged, not decided.**
+- **What is deliberately not claimed:** this blocks address-based SSRF. It does
+  not make fetched content trustworthy — the header frames it as content rather
+  than instruction, which is a framing and not a defence — and it does not do
+  egress filtering or stop a public host redirecting to another public host.
 
 ### SearXNG: where it runs, and how to recreate it
 
@@ -1020,7 +1110,7 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
 
 ## Eval / observability
 
-- `[built]` **Test suite** — 517 tests passing (`pytest`), `ruff check` clean.
+- `[built]` **Test suite** — 576 tests passing (`pytest`), `ruff check` clean.
   *One known intermittent failure: the backup race test, from the recorded
   `db.py` write-contention issue above.*
   Verified order-independent across repeated full runs.
