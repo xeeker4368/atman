@@ -283,3 +283,48 @@ max_input_chars = 5000
 
 [app]
 timezone = "America/New_York"
+
+[auth]
+# Chat-endpoint authentication. Design: docs/AUTH_DESIGN.md, A1-A11.
+#
+# THE SIGNING SECRET IS NOT HERE, AND MUST NOT BE ADDED HERE.
+# `auth.session_secret` is bootstrap-only and has no default: it belongs in
+# config/local.toml (gitignored) or ANAM_AUTH_SESSION_SECRET. A default in this
+# checked-in file would be a signing key every copy of this repo shares, which
+# is worse than none. An absent secret raises ConfigError and the server
+# refuses to start — deliberately, because serving chat unauthenticated
+# because a key was missing is the failure this whole mechanism prevents.
+#
+#   python -c "import secrets; print(secrets.token_urlsafe(32))"
+
+# How long a session token stays valid, from issue. ABSOLUTE, not sliding: a
+# sliding window renews on every request, so a stolen token would stay valid
+# indefinitely as long as it was used.
+#
+# JUDGMENT VALUE, NOTHING MEASURED IT — same standing as chunking.max_turns.
+# 30 days is a guess about household friction: long enough that nobody types a
+# password on a phone weekly, short enough that a lost device's access expires
+# on its own without anyone remembering to act.
+session_lifetime_days = 30
+
+# scrypt cost. MEASURED on this machine (Mac mini, Python 3.14.5, r=8 p=1):
+#   n = 2**14 (16384)  ->  27.4 ms
+#   n = 2**15 (32768)  ->  47.2 ms
+#   n = 2**16 (65536)  ->  92.4 ms
+# 65536 is chosen for ~92 ms, paid once per login rather than per request.
+#
+# GOTCHA, found by running it: Python's default maxmem is too small for
+# n >= 2**15 — hashlib.scrypt raises "memory limit exceeded" at 2**15 and
+# 2**16 while 2**14 succeeds. program/auth.py passes maxmem explicitly.
+# Memory used is roughly 128 * n * r, about 67 MB at these values.
+#
+# Changing these does NOT invalidate existing passwords: a stored hash carries
+# the parameters it was written with, and these apply to the next hash written.
+scrypt_n = 65536
+scrypt_r = 8
+scrypt_p = 1
+
+# Failed logins tolerated per NAME per rolling minute. In-process: it resets on
+# restart and does not exist across processes, and it cannot slow an attacker
+# spreading guesses across names. JUDGMENT VALUE.
+login_max_attempts_per_minute = 5

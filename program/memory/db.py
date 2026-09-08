@@ -299,6 +299,45 @@ def get_user_by_name(name: str) -> sqlite3.Row | None:
         return conn.execute("SELECT * FROM users WHERE name = ?", (name,)).fetchone()
 
 
+@retry_on_locked
+def set_password_hash(user_id: str, password_hash: str) -> None:
+    """Store a password hash for a user. Working store only.
+
+    ``password_hash`` lives only in working: the archive holds the append-only
+    record of who existed and when, not their credentials, so this is a
+    single-store write with no cross-store atomicity to preserve.
+
+    Written by ``scripts/set_password.py`` and by nothing else. There is no
+    self-service reset flow and no password-change endpoint — for a two-person
+    household the operator setting a new password *is* the reset path
+    (docs/AUTH_DESIGN.md A9).
+    """
+    if not password_hash:
+        raise ValueError("refusing to store an empty password hash")
+
+    with transaction() as conn:
+        cursor = conn.execute(
+            "UPDATE users SET password_hash = ? WHERE id = ?",
+            (password_hash, user_id),
+        )
+        if cursor.rowcount == 0:
+            raise ValueError(f"no such user: {user_id}")
+
+
+@retry_on_locked
+def touch_last_seen(user_id: str) -> None:
+    """Record that a user just authenticated.
+
+    Called on login only, never per request. A write on the request path would
+    put database contention on every chat turn, which the retry decorator
+    exists to survive rather than to invite (A6).
+    """
+    with transaction() as conn:
+        conn.execute(
+            "UPDATE users SET last_seen_at = ? WHERE id = ?", (now_iso(), user_id)
+        )
+
+
 def get_actor(user_id: str):
     """Load a user row as an :class:`~program.settings.permissions.Actor`.
 

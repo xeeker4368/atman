@@ -15,7 +15,8 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from program.api.routes import health
+from program import config
+from program.api.routes import auth, health
 from program.memory import vectors
 
 
@@ -27,7 +28,14 @@ async def lifespan(app: FastAPI):
     use, so nothing strictly needs this — but without it, a broken or unwritable
     ChromaDB directory would first surface partway through a conversation
     instead of at startup. Same error, far better moment.
+
+    Also **fails closed on a missing ``auth.session_secret``** (AUTH_DESIGN A1.3).
+    Reading it here rather than in ``create_app()`` is deliberate: this is the
+    real startup path — ``run_server.py`` and uvicorn both run it — while
+    ``create_app()`` is also called by tests that never serve a request. An
+    unconfigured secret must stop the server, not merely stop it being imported.
     """
+    config.auth_session_secret()
     vectors.get_vector_store()
     yield
 
@@ -42,6 +50,7 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
     app.include_router(health.router)
+    app.include_router(auth.router)
     return app
 
 

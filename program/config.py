@@ -94,6 +94,16 @@ _FALLBACK: dict[str, Any] = {
         "expected_dimension": 768,
         "max_input_chars": 5000,
     },
+    "auth": {
+        # No session_secret here on purpose: it is bootstrap-only and has no
+        # default. An absent secret must fail startup, not fall back to a
+        # value every checkout of this repo would share (A1.3).
+        "session_lifetime_days": 30,
+        "scrypt_n": 65536,
+        "scrypt_r": 8,
+        "scrypt_p": 1,
+        "login_max_attempts_per_minute": 5,
+    },
     "app": {
         "timezone": "America/New_York",
     },
@@ -137,6 +147,14 @@ _ENV_MAP: dict[str, tuple[str, str, str]] = {
     ),
     "ANAM_HISTORY_SAFETY_MARGIN_TOKENS": (
         "history", "safety_margin_tokens", "int",
+    ),
+    "ANAM_AUTH_SESSION_SECRET": ("auth", "session_secret", "str"),
+    "ANAM_AUTH_SESSION_LIFETIME_DAYS": ("auth", "session_lifetime_days", "int"),
+    "ANAM_AUTH_SCRYPT_N": ("auth", "scrypt_n", "int"),
+    "ANAM_AUTH_SCRYPT_R": ("auth", "scrypt_r", "int"),
+    "ANAM_AUTH_SCRYPT_P": ("auth", "scrypt_p", "int"),
+    "ANAM_AUTH_LOGIN_MAX_ATTEMPTS_PER_MINUTE": (
+        "auth", "login_max_attempts_per_minute", "int",
     ),
     "ANAM_TIMEZONE": ("app", "timezone", "str"),
 }
@@ -558,3 +576,95 @@ def expected_embedding_dimension() -> int:
 
 def embedding_max_input_chars() -> int:
     return int(get("embedding", "max_input_chars", 5000))
+
+
+# --- Authentication (docs/AUTH_DESIGN.md) -----------------------------------
+#
+# Every key here is BOOTSTRAP-ONLY: none is registered in settings.store, so
+# none is editable from the admin panel. That is deliberate for the secret —
+# a signing key a panel can edit is a signing key a panel can rotate by
+# accident, logging everyone out with no explanation — and conservative for
+# the rest, which change the cost of a login rather than a display value.
+
+
+def auth_session_secret() -> str:
+    """The HMAC key session tokens are signed with. **Required.**
+
+    Raises rather than defaulting or generating. A generated-on-first-use secret
+    rotates silently whenever it is lost — a fresh checkout, a wiped store — and
+    every device is logged out with nothing to point at. An absent secret is an
+    unconfigured system, and this is the one setting whose absence must stop the
+    application rather than degrade it: serving chat unauthenticated because a
+    key was missing is the exact failure this whole task exists to prevent.
+
+    Generate one with::
+
+        python -c "import secrets; print(secrets.token_urlsafe(32))"
+    """
+    value = get("auth", "session_secret")
+    if value is None or not str(value).strip():
+        raise ConfigError(
+            "auth.session_secret is not set. Generate one with "
+            "`python -c \"import secrets; print(secrets.token_urlsafe(32))\"` "
+            "and put it in config/local.toml under [auth] or in "
+            "ANAM_AUTH_SESSION_SECRET. There is no default, and none is "
+            "generated: an unconfigured system must not serve chat."
+        )
+    text = str(value).strip()
+    if len(text) < 32:
+        raise ConfigError(
+            f"auth.session_secret is {len(text)} characters; it must be at "
+            f"least 32. A short signing key fails silently rather than loudly."
+        )
+    return text
+
+
+def auth_session_lifetime_days() -> int:
+    """How long a token stays valid. Absolute, never extended by use.
+
+    JUDGMENT VALUE — nothing measured it. See docs/AUTH_DESIGN.md A5.
+    """
+    value = int(get("auth", "session_lifetime_days", 30))
+    if value <= 0:
+        raise ConfigError(
+            f"auth.session_lifetime_days is {value}; it must be greater than "
+            f"zero. Use a short lifetime to expire sessions quickly; there is "
+            f"no value that means 'never expires'."
+        )
+    return value
+
+
+def auth_scrypt_n() -> int:
+    """scrypt cost parameter. Measured ~92 ms at 65536 on this machine."""
+    value = int(get("auth", "scrypt_n", 65536))
+    if value < 2 or value & (value - 1):
+        raise ConfigError(
+            f"auth.scrypt_n is {value}; scrypt requires a power of two greater "
+            f"than one."
+        )
+    return value
+
+
+def auth_scrypt_r() -> int:
+    value = int(get("auth", "scrypt_r", 8))
+    if value < 1:
+        raise ConfigError(f"auth.scrypt_r is {value}; it must be at least 1.")
+    return value
+
+
+def auth_scrypt_p() -> int:
+    value = int(get("auth", "scrypt_p", 1))
+    if value < 1:
+        raise ConfigError(f"auth.scrypt_p is {value}; it must be at least 1.")
+    return value
+
+
+def auth_login_max_attempts_per_minute() -> int:
+    """Failed logins tolerated per name per minute. JUDGMENT VALUE (A8)."""
+    value = int(get("auth", "login_max_attempts_per_minute", 5))
+    if value < 1:
+        raise ConfigError(
+            f"auth.login_max_attempts_per_minute is {value}; it must be at "
+            f"least 1. Zero would lock everyone out permanently."
+        )
+    return value

@@ -585,12 +585,12 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
 - `[built]` **Role is fixed at creation.** No `set_role()`/promote path — a test
   asserts none exists on `db`. *Code-level only: `UPDATE users SET role` still
   works from `sqlite3`; a trigger would be a Tier 3 schema change.*
-- `[unverified]` **This is authorization, not authentication.**
-  `users.password_hash` is written by nothing and read by nothing, so an `Actor`
-  is whatever the caller says it is and gating is only as strong as the caller's
-  honesty. Fine for a single-process operator-run backend with no HTTP write
-  surface; **not security**, and inadequate the moment task 2.2 lets an
-  untrusted caller construct an `Actor` — recorded against it in `BUILD_PLAN.md`.
+- `[built]` **Authentication now exists — this is no longer authorization
+  alone.** `users.password_hash` was written by nothing and read by nothing when
+  role gating landed, so an `Actor` was whatever the caller said it was. As of
+  2026-09-08 an `Actor` reaching a route is **proven**: see "Authentication"
+  below. The capability registry itself is unchanged — authentication says who
+  is asking, gating says what they may do, and they remain separate.
 - `[unverified]` **No loopback gate is built**, deliberately: there is no admin
   route to mount one on, and an unmounted gate reads as protection that exists.
   The full contract (trust `request.client.host` only, never `X-Forwarded-For`;
@@ -603,6 +603,77 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   and they are deliberately separate axes. No filter was added to retrieval and
   no `memory.read_all_users`-style capability registered — either would presume
   the open `NOW.md` decision's answer. Two tests enforce this.*
+
+## Authentication
+
+- `[built]` **Password login issuing a stateless session token**
+  (`program/auth.py`, `program/api/routes/auth.py`), 2026-09-08. Design of
+  record: `docs/AUTH_DESIGN.md`, A1–A11, all seven open questions resolved
+  before implementation. `POST /api/login` takes a name and password and returns
+  a token; `require_actor` turns an `Authorization: Bearer` header into the
+  `Actor` role gating already consumes. **No schema change, no migration, no new
+  dependency.**
+- `[built]` **The token is signed, stateless, and carries no role.**
+  `v1.<user_id>.<expires_at>.<HMAC-SHA256>`, verified with
+  `hmac.compare_digest`. There is no sessions table, so no migration and no
+  database write on the request path. `role` is deliberately *not* in the token:
+  it is read from the database per request, so a role change takes effect on the
+  next request and a token can never assert a role the database disagrees with.
+  A test changes a role in SQL and asserts the next request sees it without a
+  new login.
+- `[built]` **The server refuses to start without `auth.session_secret`.**
+  Bootstrap-only — `ANAM_AUTH_SESSION_SECRET` or `config/local.toml`, never
+  settings-backed, never generated. Verified against the real server, not only
+  `TestClient`: `run_server.py` with the variable unset prints the `ConfigError`
+  and `Application startup failed. Exiting.` A 32-character minimum is enforced
+  (a judgment addition beyond the design — see the changelog).
+- `[built]` **`hashlib.scrypt`, standard library, `n=65536 r=8 p=1 dklen=32`.**
+  Measured **98 ms for a real end-to-end login** on this machine against the
+  design's predicted 92.4 ms. `maxmem` is passed explicitly because Python's
+  default is too small at `n >= 2**15` — `ValueError: memory limit exceeded` at
+  2^15 and 2^16 while 2^14 succeeds, so testing only at the low cost hides it.
+  A test runs the shipped parameters for exactly that reason.
+- `[built]` **Stored hashes are self-describing** —
+  `scrypt$n=65536$r=8$p=1$<salt>$<derived>`. Parameters are read from the stored
+  string, never from config, so tuning the cost cannot invalidate existing rows;
+  a test writes a hash at 2^14, moves config to 2^16, and asserts it still
+  verifies.
+- `[built]` **A `NULL` `password_hash` never authenticates**, which is what makes
+  the system fail closed on arrival: both seed users start unable to log in
+  until an operator sets a password with `scripts/set_password.py` (`getpass`,
+  never argv). That CLI is also the only password-reset path — no self-service
+  flow, no email, by design.
+- `[built]` **Every failure is one 401 with one body.** Unknown name, wrong
+  password, no password set, throttled, missing/malformed/expired/badly-signed
+  token, deleted user — same status, same `{"detail": "authentication failed"}`,
+  same `WWW-Authenticate: Bearer`. An unknown name still runs a full KDF against
+  a dummy hash so latency does not reveal whether it exists.
+- `[built]` **Header only, never a query parameter** — request paths reach
+  `logs/anam.log` and uvicorn's access log. Verified live rather than asserted:
+  after a real login, `grep -c "v1\." server.log` returns **0**, and the access
+  log holds `POST /api/login` with no credential.
+- `[built]` **Per-name login throttle**, `auth.login_max_attempts_per_minute = 5`
+  over a rolling minute. A throttled attempt returns the same 401 as a wrong
+  password and logs at WARNING — verified live: five failures, then the correct
+  password refused, with `login throttled for name 'Lyle'` in the log.
+- `[built]` **Five guards proven to bite.** Each new check was deliberately
+  broken and the suite re-run: the startup secret check, signature comparison,
+  expiry, the throttle, and the `NULL`-hash rule each produced a failing test,
+  then were restored. A test that only passes after a fix cannot distinguish
+  "fixed" from "never reproduced".
+- `[unverified]` **No TLS, accepted deliberately** (A10). The password crosses
+  the LAN in plaintext on login and the token on every request after. A
+  household member has the wifi key by assumption, so this sits *inside* the
+  stated threat model. Upgrade path recorded, not built: self-signed cert, or a
+  WireGuard/Tailscale overlay.
+- `[unverified]` **No per-device revocation.** Stateless tokens cannot be
+  revoked individually; rotating the secret invalidates everyone's at once and
+  needs a restart, since it is bootstrap-only. The upgrade is a sessions table.
+  The throttle is likewise in-process only — it resets on restart and is keyed
+  by submitted name.
+- **Nothing consumes `require_actor` in production yet.** Task 2.2 is its
+  consumer; the only authenticated route today is a TEST-ONLY one that exists
+  inside `tests/test_auth.py`, the pattern `tests/test_tools.py` already uses.
 
 ## Development fixtures
 
@@ -643,7 +714,7 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
 
 ## Eval / observability
 
-- `[built]` **Test suite** — 380 tests passing (`pytest`), `ruff check` clean.
+- `[built]` **Test suite** — 426 tests passing (`pytest`), `ruff check` clean.
   *One known intermittent failure: the backup race test, from the recorded
   `db.py` write-contention issue above.*
   Verified order-independent across repeated full runs.
