@@ -204,11 +204,21 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   `output_reserve_tokens = 2048` (~92s at the measured 22.2 tok/s, but no chat
   endpoint exists to measure real answer lengths), `safety_margin_tokens = 512`.
   All configurable, all raising `ConfigError` on nonsense rather than defaulting.
-- `[unverified]` **Never verified end to end against a live `num_ctx`.** Nothing
-  has yet sent a windowed history to Ollama and confirmed the real token count
-  came in under the window — that needs task 2.2's chat endpoint and is the only
-  thing that will prove the margin rather than reason about it. Tool-call traces
-  are also not priced yet; `_normalise()` keeps only role and content.
+- `[built]` **Verified end to end against a live `num_ctx`** (2026-09-08, task
+  2.2). A real assembled prompt — soul.md plus 14 windowed prose turns, 15
+  messages — was sent to Ollama and its own `prompt_eval_count` read back:
+  **estimated 3,847 tokens against an actual 3,065**, an over-count of 25.5%.
+  That is the safe direction, measured rather than reasoned about, and it is the
+  first time the margin has been checked against a real tokenizer rather than
+  against the 4.63 chars/token figure it was derived from.
+- `[built]` **Tool messages are priced and preserved** (task 2.2).
+  `_normalise()` keeps `tool_calls`/`tool_name` when present and
+  `estimate_message_tokens()` charges for them; it no longer keeps only role and
+  content.
+- `[unverified]` **The dense-content case is still unmeasured.** The 25.5%
+  over-count above is over *prose*. Code, JSON and tool traces run nearer 3
+  chars/token, where the 4.0 divisor under-counts — and tool-call payloads are
+  exactly that kind of text, so the gap now has a live consumer.
 
 ## Memory / retrieval
 
@@ -419,26 +429,41 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   conversation never closing. Plus a live run outside the suite against a real
   store with real embeddings: 1 idle + 1 fresh seeded, dry run changed nothing,
   real run closed and chunked exactly the idle one.
-- `[unverified]` **The 15 / 30 / 20-minute values are placeholders.**
-  `idle_close_minutes = 15`, `in_flight_grace_minutes = 30`, floor 20. They come
-  from a real measurement (~197s for one worst-case turn, from the figures under
-  "Model plumbing" above) multiplied by an **assumed** 5-iteration agent loop
-  that does not exist yet — giving ~15–16 minutes, of which 30 is roughly 2x.
-  Tool execution time is not in the arithmetic at all, because there are no
-  tools; the reference build's 300s image-generation timeout would have exceeded
-  a per-iteration budget on its own. **Task 2.2 owes a re-derivation** from its
-  actual iteration limit and actual tool timeouts, recorded against that task in
-  `BUILD_PLAN.md` rather than only here.
-- **Nothing triggers this automatically.** There is no chat endpoint, no daemon
-  and no timer — the design is lazy on purpose, since conversation state only
-  changes when a message arrives. The only callers today are
-  `scripts/close_idle_conversations.py` and the tests. The per-request sweep
-  arrives with **task 2.2**, which will pass the active conversation as
-  `exclude_conversation_id` so a sweep can never close the turn that triggered
-  it. Task 2.2 additionally owes persisting the user's message *before*
-  generation begins: without that, an in-flight turn is indistinguishable from a
-  completed one and the short window would apply mid-generation. That is a
-  correctness dependency, not just crash-safety.
+- `[built]` **The grace window and its floor are re-derived and landed**
+  (2026-09-08): `in_flight_grace_minutes = 40`, `IN_FLIGHT_GRACE_FLOOR_MINUTES
+  = 34`. The floor is arithmetic, not a choice — 40s to persist the user
+  message + 300s for the retrieval embedding + 5 x 300s of model calls + 120s of
+  tool execution + 40s to persist the reply = 2000s = 33.3 min. Every term is a
+  ceiling another setting enforces (`database.write_retry_deadline_seconds` +
+  `busy_timeout_seconds`, `ollama.timeout_seconds`, `agent.max_iterations`,
+  `agent.tool_budget_seconds`), because a slow-but-not-timed-out turn still has
+  to fit underneath. The idle sweep contributes 0: it runs after the response.
+  40 is the floor plus ~18% for un-modelled overhead, and that last step is the
+  only judgment in the chain.
+- `[built]` **The derivation is pinned by tests that recompute it from live
+  config**, not by asserting the constants. Proven to bite, each by breaking it:
+  raising `agent.max_iterations` to 6 fails with `2300.0 == 2000`; reverting the
+  floor to 20 fails twice; reverting `defaults.toml` to 30 fails on the
+  layer-agreement test. That last check exists because this exact drift
+  happened — the constant stayed 20 and `defaults.toml` stayed 30 while the
+  loop's real limits landed around them, and "the config loads" would not have
+  caught it.
+- `[built]` **The replaced 30/20 pair was under even on measured timings**, not
+  only on enforced ceilings — a test asserts it. Measured worst case for an
+  L=5 turn is 21.4 min (first call 19.1 + 132.8 + 2048/22.2 = 244.2s, four more
+  at 225.1s, plus 120s of tools and ~22s of embedding and writes), against the
+  old 20-minute floor. `idle_close_minutes` stays 15: no correctness floor
+  applies to a completed turn.
+- `[built]` **The per-request sweep exists** (task 2.2, 2026-09-08). `POST
+  /api/chat` schedules `close_idle_conversations(exclude_conversation_id=...)`
+  as a **background task after the response**, so a sweep can never close the
+  turn that triggered it and its duration is not charged to the user or to the
+  in-flight-grace floor. Still no daemon and no timer — lazy on purpose, since
+  conversation state only changes when a message arrives.
+  `scripts/close_idle_conversations.py` remains the manual path. **Task 2.2's
+  other obligation is met too**: the user's message is persisted before
+  generation begins, so an in-flight turn is distinguishable from a completed
+  one and the short window cannot apply mid-generation.
 - **Known gap:** an abandoned turn and a running turn are indistinguishable —
   both show a user message with no reply and both wait the full grace period.
   Accepted; waiting 30 minutes to close a crashed turn costs nothing.
@@ -450,13 +475,23 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   object schema), `handler` — in a module-level tuple looked up by name, the same
   data-not-conditionals shape as `permissions.CAPABILITIES` and `store.SETTINGS`.
   Invalid definitions raise at construction.
-- `[built]` **`TOOLS` is empty, deliberately.** `memory_search`, `web_search`,
+- `[built]` **The catalogue lives in `program/tools/catalog.py`**, not in
+  `registry.py` — the mechanism and the contents are separate modules. A tool
+  module imports `Tool` from the registry, so the registry importing tool modules
+  at module scope is a cycle; a bottom-of-file import only hides it until
+  something imports a tool module first, which is how it was found (a real
+  `ImportError`, see the task 2.3 changelog). `default_registry()` imports the
+  catalogue at call time. **A test spawns a subprocess for each of the three
+  import orders** and asserts the registry resolves in all of them, so this
+  cannot regress into working-by-import-order.
+- `[built]` **`catalog.TOOLS` holds one tool: `memory_search`.** `web_search`,
   `web_fetch` and file ingestion are each their own later task and each appends
-  itself here when built. **No placeholder tool was invented** — one would read
-  as built while being nothing. Two tests hold the line: `TOOLS == ()`, and every
-  test-scaffolding name dispatched against the *default* registry must come back
-  `UNKNOWN_TOOL`. The test file's four tools are labelled TEST-ONLY in their own
-  descriptions and only ever enter a locally constructed registry.
+  itself there when built. **No placeholder tool was invented** — one would read
+  as built while being nothing. Two tests hold the line: the catalogue is
+  asserted to be exactly `("memory_search",)`, and every test-scaffolding name
+  dispatched against the *default* registry must come back `UNKNOWN_TOOL`. The
+  test file's four tools are labelled TEST-ONLY in their own descriptions and
+  only ever enter a locally constructed registry.
 - `[built]` **Central registration, not self-registration.** Tools are listed
   explicitly rather than registering via import-time decorators, on `config.py`'s
   own stated precedent — the full set must be greppable from one place rather
@@ -484,12 +519,196 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   required keys, unexpected keys, top-level primitive types. Enough to make the
   malformed/failed distinction real; not a JSON Schema implementation, and no
   `jsonschema` dependency added. A tool needing more validates in its handler.
-- `[unverified]` **Never exercised against a live model or a real tool.**
-  `to_ollama_schema()` produces the documented shape and `ollama.chat()` already
-  accepts `tools=`, but no model has been handed a schema from here — that is
-  task 2.2's proof. *Per-tool timeouts are deliberately absent: the registry
-  cannot enforce one, and an unenforced timeout field would read as protection
-  that exists. Task 2.2 owns the time budget and should add it with enforcement.*
+- `[built]` **Exercised against a live model** (2026-09-08, task 2.2). Against
+  `gemma4:26b` with one TEST-ONLY tool registered, the model emitted
+  `read_thermostat(room="study")`, dispatch ran the handler — which recorded
+  being called with `"study"` — and the model answered from the result. 2
+  iterations, 5.4s. 2.1's standing "no model has been handed a schema from here"
+  no longer applies.
+- `[built]` **Per-tool timeouts, enforced** (task 2.2, which 2.1 deferred them
+  to). `Tool.timeout_seconds` defaults to `tools.default_timeout_seconds` (30);
+  `None` means *take the default*, and there is deliberately **no unbounded
+  option** — a non-positive value raises at construction. `dispatch()` runs the
+  handler in a daemon thread and waits exactly that long, and accepts a
+  `timeout_seconds` override so the agent loop can pass what remains of the
+  turn's budget.
+- `[built]` **`TIMEOUT` is its own outcome and reports `ran=True`.** The handler
+  was entered and may have completed after the wait was abandoned — a timed-out
+  `web_fetch` may well have fetched. For task 3.1 "this did not happen" and
+  "whether this happened cannot be determined" are different claims, and
+  folding a timeout into `TOOL_ERROR` would make the second unsayable.
+  `SKIPPED` (`ran=False`) is the opposite state, produced by the loop when the
+  turn's tool budget is spent before a call starts.
+- `[unverified]` **What the timeout bounds is how long the turn waits, not how
+  long the tool runs.** Python cannot safely kill a running thread, so an
+  overrunning handler keeps going in the background; the daemon flag stops it
+  holding up interpreter exit. Side effects after a timeout are possible and
+  unrecorded. Subprocess isolation would make the kill real and was judged not
+  worth its cost for tools needing in-process database and vector-store access.
+
+### `memory_search`
+
+- `[built]` **`memory_search`** (`program/tools/memory_search.py`), task 2.3 — a
+  thin wrapper over `retrieval.search()` that adds no ranking, no filtering and
+  no second retrieval path. **One parameter, `query`.** `top_k`,
+  `expand_siblings` and the relevance floors are deliberately not exposed: they
+  are tuned internals with a calibration story, and a model that could raise
+  `top_k` could spend the turn's whole context budget on one search.
+- `[built]` **Rendering reuses `prompt.render_retrieved()`**, the passive-context
+  renderer — including its "these are stored records, not the current
+  conversation" header and the per-chunk timestamps task 1.3 kept out of chunk
+  text. A test asserts the tool's output is **identical** to the passive
+  rendering for the same query, so one chunk cannot read two ways depending on
+  how it was retrieved. Two states are added around it, not formats: an empty
+  result gets an explicit sentence (a blank tool result invites fabrication), and
+  a search with a leg down says so (nothing found with the vector leg down is a
+  different claim from nothing found).
+- `[built]` **Not filtered by the calling actor** — `NOW.md` decision #20,
+  checked rather than re-decided. The handler takes `query` and nothing else;
+  there is no actor to scope by, asserted against the handler's own signature.
+  Shown live: Lyle asked about pour-over gear and the record returned was
+  **Jodie's** conversation. The tool description says so to the model, matching
+  what `soul.md` already states.
+- `[built]` **`timeout_seconds = 45`, derived.** A query-only search opens three
+  SQLite connections, each able to wait `busy_timeout_seconds` (10s) for a lock,
+  so the code's own ceiling is 30s — and a shorter tool timeout would abandon the
+  call before SQLite gave up, replacing a precise "database is locked" with an
+  uninformative timeout. It also stays under `agent.tool_budget_seconds` (120) so
+  it is reachable rather than clipped on every call. A test pins both directions.
+- `[built]` **Measured, and it corrects an assumption**: cold embedding with
+  `gemma4:26b` resident at 100% GPU is **0.31s**, warm 0.03s; a full
+  `retrieval.search()` is 0.66s on first call and 0.04s warm. The 19.1s cold load
+  and 300s ceiling elsewhere in this build are the **26B chat model's** —
+  `nomic-embed-text` is ~137M parameters. A cold embedding call is not what makes
+  this tool slow; lock contention is.
+- `[built]` **Tests use real retrieval throughout** — real chunks through the
+  real chunking pipeline, real FTS5, real Chroma, real RRF, real rendering. Only
+  the embedding is substituted (a deterministic 768-wide vector) so the suite
+  runs without Ollama. One test uses **real embeddings against real Ollama** and
+  asserts the vector leg specifically ran and contributed, skipping rather than
+  failing when Ollama is absent. It ran and passed on 2026-09-08.
+- `[built]` **Exercised live inside a real turn**: the model formulated its own
+  query, `memory_search({"query": "pour-over coffee gear"})` dispatched in 0.692s
+  of the 45s allowed, and the answer came from the rendered records.
+- `[unverified]` **The trace holds rendered text, not chunk ids.** The handler
+  returns the rendered string, so a claim can be checked against the text the
+  model was shown but not by id lookup. If task 3.1 wants ids, the seam is a
+  small protocol in `loop.render_tool_result`; not built speculatively.
+- **Flagged, not decided: `since`/`until` are not exposed.** They are a query
+  capability rather than a tuned internal — task 1.5 built the structured time
+  filter because task 1.3 stripped date strings out of both indexes — so with no
+  parameter the model cannot reach it. Adding two optional ISO-8601 parameters
+  would be small. Left to the reviewer.
+- **Flagged, not decided: passive retrieval already runs every turn**, so
+  `memory_search` is largely redundant for the user's *current* message and earns
+  its keep when the model needs a different query. Observed live: the same
+  question answered correctly in one iteration with no tool call when passive
+  retrieval was on, and via the tool when it was off. Its schema costs context on
+  every tool-bearing call.
+
+## Agent loop / chat
+
+- `[built]` **The iterate-and-dispatch turn** (`program/engine/loop.py`), task
+  2.2. Call the model, dispatch its tool calls, feed the results back, repeat.
+  No database writes and no HTTP — `program/engine/turn.py` wraps it with
+  persistence and `program/api/routes/chat.py` with the HTTP shape, the same
+  substance/shell split `program/auth.py` has against `routes/auth.py`.
+- `[built]` **The loop cannot end on an unanswered tool call.** Iteration `L`
+  (`agent.max_iterations`) is sent with **no tools attached**, so the only thing
+  it can return is an answer. `L` counts model calls; tool rounds are `L - 1`.
+  Tool calls emitted anyway on that final iteration are recorded as `SKIPPED`
+  rather than dropped — the model asked and nothing ran, and a trace omitting
+  the request could not say so later.
+- `[built]` **Two bounds, both enforced.** `agent.max_iterations` bounds model
+  calls; `agent.tool_budget_seconds` bounds tool wall-clock **in aggregate
+  across the turn**, since one iteration may emit several calls and a per-tool
+  timeout alone would leave the turn unbounded. Each dispatch gets `min(its own
+  timeout, what remains)`. A test proves the aggregate bites: two calls, each
+  inside its own 5s timeout, together past a 0.1s turn budget — the first is cut
+  to the remaining budget, the second never starts.
+- `[built]` **The turn's tool-call trace is a first-class return value**, built
+  from `ToolResult.to_trace_entry()` with the iteration number added, and stored
+  as JSON on the assistant message's existing `tool_trace` column. Every call
+  appears — ok, failed, unknown, malformed, timed out, skipped. A test asserts
+  the count of tool messages the model saw equals the count of trace entries,
+  which is the symmetry task 3.1 reasons over.
+- `[built]` **The history window is re-planned every iteration.** Tool results
+  are appended and the whole prompt re-assembled, so they are priced against the
+  same budget as everything else and old history is evicted for them. Budgeting
+  once and then appending freely would hand the overflow to the model server,
+  which drops the oldest content silently — the failure `history.py` exists to
+  prevent. Verified with `num_ctx` at 4096.
+- `[built]` **`history._normalise()` now preserves `tool_calls`/`tool_name`, and
+  `estimate_message_tokens()` prices them** by serialising to the JSON actually
+  sent. Stripping an assistant message's tool calls while keeping the tool result
+  that answered it leaves the model a reply to a question it cannot see it
+  asked; charging them zero is the under-count direction. *`history.py`'s note
+  that tool traces "are not priced yet" no longer applies — but they are the
+  densest text this system sends, so the known 4.0-chars/token gap bites them
+  hardest.*
+- `[built]` **Degrades on tool failure, propagates on model failure**, on the
+  criterion `prompt.py` records. A failed, unknown, malformed, timed-out or
+  skipped tool is fed back for the model to answer around; a failed retrieval
+  degrades to no retrieved records; an unreachable model raises and surfaces as
+  503 carrying the specific exception's text.
+
+### The chat endpoint
+
+- `[built]` **`POST /api/chat`** — the **first authenticated route in the
+  application**. It depends on `require_actor`, so the `Actor` reaching the turn
+  was built by `db.get_actor()` from a verified token. `Actor.operator()`
+  appears nowhere in this path. A test posts a body carrying another user's
+  `user_id` and asserts attribution still follows the token.
+- `[built]` **The user's message is persisted before generation begins**
+  (task 2.2's obligation (b)). Proven from *inside* the model call rather than by
+  reading the order of two lines: the fake model queries
+  `db.get_open_conversations_with_activity()` mid-generation and asserts the
+  conversation reports `last_role = "user"` and therefore selects
+  `in_flight_grace_minutes`. A failed turn leaving a user message with no reply
+  is tested too — an accurate record, and what the grace window covers.
+- `[built]` **Ownership is enforced; a capability is not registered.** A user may
+  only speak into their own conversation, and an unknown conversation is refused
+  **identically** to an unowned one so the difference cannot enumerate ids.
+  Nothing is registered in `permissions.CAPABILITIES` for chat, on that module's
+  own rule — what this enforces keys on `conversations.user_id`, not on `role`.
+  Retrieval stays unfiltered by actor per decision #20.
+- `[built]` **A closed conversation starts a new one rather than reopening**, with
+  `new_conversation` in the response saying so. Appending to a conversation
+  already chunked in full would leave the new turns indexed by nothing.
+- `[built]` **The idle sweep runs after the response**, as a background task with
+  the active conversation excluded. Inline it would put an embedding call per
+  idle conversation inside the user's wait, and an unbounded number of them
+  inside the in-flight-grace floor's arithmetic. A test backdates a conversation,
+  posts a turn, and asserts the stale one closed and the active one did not.
+  *The cost is a sweep overlapping the next turn's writes — the contention
+  `db.py`'s retry already handles.*
+- `[built]` **Verified live against a real server**, not only `TestClient`:
+  `POST /api/login` then `POST /api/chat` over HTTP, answered 200 with content,
+  and `grep -c "v1\."` over the server log returns **0**.
+- `[unverified]` **The current-situation block does not exist**, so `situation`
+  is `""` and the entity gets no timestamp and no elapsed-time statement yet. It
+  is a parameter on `handle_user_message()` so the Phase 1 task that builds it
+  drops in without touching the loop; the pairing enforcement in
+  `build_system_prompt()` is untouched and still raises.
+- `[unverified]` **No tool is registered**, so a production turn never calls one
+  today. The tool path is exercised by TEST-ONLY tools and by the live run above.
+- **Tool exchanges are not message rows.** The schema's role is `user` or
+  `assistant`; what the tools did lives in the trace on the assistant row. The
+  consequence is that on the *next* turn the model sees its own answer but not
+  the tool calls behind it. Changing that means a schema change, which is Tier 3.
+- **No streaming.** `ollama.chat_stream()` exists and nothing calls it; tool-call
+  detection needs the complete message anyway. Phase 8 owns it.
+- `[unverified]` **Four judgment values, flagged not measured**, all
+  bootstrap-only and deliberately not settings-backed because the in-flight
+  grace floor is derived from two of them: `agent.max_iterations = 5`,
+  `agent.tool_budget_seconds = 120` (derived as `(L-1) x 30`),
+  `agent.max_tool_result_chars = 4000`, `tools.default_timeout_seconds = 30`.
+  Reasoning is in `config/defaults.toml` and the changelog.
+- `[built]` **The idle-close re-derivation landed** (2026-09-08, after review):
+  `IN_FLIGHT_GRACE_FLOOR_MINUTES = 34` and `in_flight_grace_minutes = 40`,
+  computed from `agent.max_iterations` and `agent.tool_budget_seconds` above.
+  See "Conversation lifecycle — idle-close" for the arithmetic and the tests
+  that recompute it.
 
 ## Media
 - *(nothing yet)*
@@ -671,9 +890,11 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   needs a restart, since it is bootstrap-only. The upgrade is a sessions table.
   The throttle is likewise in-process only — it resets on restart and is keyed
   by submitted name.
-- **Nothing consumes `require_actor` in production yet.** Task 2.2 is its
-  consumer; the only authenticated route today is a TEST-ONLY one that exists
-  inside `tests/test_auth.py`, the pattern `tests/test_tools.py` already uses.
+- `[built]` **`require_actor` has a production consumer as of 2026-09-08**:
+  `POST /api/chat` (task 2.2) is the first authenticated route in the
+  application, and the `Actor` it produces is the one attributed on every
+  message the turn writes. `tests/test_auth.py`'s TEST-ONLY route remains, since
+  it exercises the dependency in isolation.
 
 ## Development fixtures
 
@@ -714,7 +935,7 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
 
 ## Eval / observability
 
-- `[built]` **Test suite** — 426 tests passing (`pytest`), `ruff check` clean.
+- `[built]` **Test suite** — 492 tests passing (`pytest`), `ruff check` clean.
   *One known intermittent failure: the backup race test, from the recorded
   `db.py` write-contention issue above.*
   Verified order-independent across repeated full runs.

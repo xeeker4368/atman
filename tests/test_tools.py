@@ -2,17 +2,22 @@
 
 **Every `Tool` in this file is test-only scaffolding, not a real tool.** They
 exist to give dispatch something to dispatch to. None is registered into
-`registry.TOOLS` or the default registry, and
-`test_the_default_registry_is_empty_because_no_tools_exist_yet` fails if one
-ever is — a placeholder tool would read as built while being nothing, the same
-category of problem as a permission gate mounted on no route.
+`catalog.TOOLS` or the default registry, and
+`test_no_scaffolding_tool_is_reachable_from_the_default_registry` fails if one
+ever is — a placeholder tool would read as built while being nothing.
+
+The real catalogue is asserted here too, so a tool appearing in it is a
+deliberate edit to this file rather than something that arrives unnoticed.
 """
 
 from __future__ import annotations
 
+import threading
+import time
+
 import pytest
 
-from program.tools import registry
+from program.tools import catalog, registry
 from program.tools.registry import (
     DuplicateToolError,
     Tool,
@@ -75,19 +80,39 @@ def bench() -> ToolRegistry:
     return ToolRegistry([SCAFFOLD_ECHO, SCAFFOLD_ADD, SCAFFOLD_RAISES, SCAFFOLD_OPTIONAL])
 
 
-# --- No real tools exist -----------------------------------------------------
+# --- What is actually registered ---------------------------------------------
 
 
-def test_the_default_registry_is_empty_because_no_tools_exist_yet():
-    """memory_search, web_search, web_fetch and ingestion are later tasks.
+def test_the_catalogue_is_exactly_the_tools_that_have_been_built():
+    """web_search, web_fetch and ingestion are still later tasks.
 
-    If this fails, either a real tool landed (update it) or scaffolding leaked
-    out of a test file (fix that) — a placeholder would read as built.
+    Updating this list is part of building a tool, not an afterthought: if it
+    fails, either a real tool landed (add it here) or scaffolding leaked out of
+    a test file (fix that) — a placeholder would read as built.
     """
     registry.reset_default_registry()
-    assert registry.TOOLS == ()
-    assert len(registry.default_registry()) == 0
-    assert registry.default_registry().names == ()
+    assert tuple(tool.name for tool in catalog.TOOLS) == ("memory_search",)
+    assert registry.default_registry().names == ("memory_search",)
+
+
+def test_the_catalogue_is_reachable_from_every_import_direction():
+    """A tool module imports `Tool` from the registry, so the registry cannot
+    import tool modules at module scope. This is the cycle that shape creates,
+    pinned: importing the tool module first must work too."""
+    import importlib
+    import subprocess
+    import sys
+
+    for first in ("program.tools.memory_search", "program.tools.registry",
+                  "program.tools.catalog"):
+        proc = subprocess.run(
+            [sys.executable, "-c",
+             f"import {first}; from program.tools import registry; "
+             f"assert registry.default_registry().names == ('memory_search',)"],
+            capture_output=True, text=True,
+        )
+        assert proc.returncode == 0, f"importing {first} first failed:\n{proc.stderr}"
+    importlib.import_module("program.tools.catalog")
 
 
 def test_no_scaffolding_tool_is_reachable_from_the_default_registry():
@@ -299,7 +324,7 @@ def test_the_trace_entry_is_structured_not_a_string(bench):
     assert isinstance(entry, dict)
     assert set(entry) == {
         "call_id", "tool", "arguments", "outcome", "ran", "value", "error",
-        "duration_seconds",
+        "duration_seconds", "timeout_seconds",
     }
     assert entry["tool"] == "scaffold_echo"
     assert entry["outcome"] == "ok"
@@ -325,6 +350,117 @@ def test_failed_calls_appear_in_the_trace_too(bench):
         entry = bench.dispatch(name, args).to_trace_entry()
         assert entry["outcome"] != "ok"
         assert entry["error"]
+
+
+# --- Per-tool timeouts (added by task 2.2) -----------------------------------
+
+
+def test_a_tool_that_overruns_its_timeout_is_abandoned_not_awaited():
+    """The turn stops waiting. The handler is not killed — nothing can kill it."""
+    finished = threading.Event()
+
+    def slow():
+        time.sleep(0.4)
+        finished.set()
+        return "eventually"
+
+    bench = ToolRegistry([
+        Tool(
+            name="scaffold_slow",
+            description="TEST-ONLY scaffolding.",
+            parameters={"type": "object", "properties": {}},
+            handler=slow,
+            timeout_seconds=0.05,
+        )
+    ])
+
+    started = time.monotonic()
+    result = bench.dispatch("scaffold_slow", {})
+    elapsed = time.monotonic() - started
+
+    assert result.outcome is ToolOutcome.TIMEOUT
+    assert elapsed < 0.3, "dispatch waited for the handler instead of timing out"
+    assert result.value is None
+    assert not finished.is_set(), "the handler had not finished when we gave up"
+
+
+def test_a_timeout_reports_that_it_ran_because_its_side_effects_are_unknown():
+    """`timeout` is not a flavour of `tool_error`: one ran and failed, the
+    other was entered and may have succeeded after we stopped looking."""
+    bench = ToolRegistry([
+        Tool(
+            name="scaffold_slow",
+            description="TEST-ONLY scaffolding.",
+            parameters={"type": "object", "properties": {}},
+            handler=lambda: time.sleep(0.3),
+            timeout_seconds=0.05,
+        )
+    ])
+
+    timed_out = bench.dispatch("scaffold_slow", {})
+    assert timed_out.ran is True
+    assert timed_out.outcome.value == "timeout"
+    assert timed_out.to_trace_entry()["timeout_seconds"] == 0.05
+
+
+def test_a_caller_can_shorten_a_tools_timeout_but_the_tool_declares_the_default():
+    """The agent loop passes what remains of the turn's budget."""
+    bench = ToolRegistry([
+        Tool(
+            name="scaffold_slow",
+            description="TEST-ONLY scaffolding.",
+            parameters={"type": "object", "properties": {}},
+            handler=lambda: time.sleep(0.3),
+            timeout_seconds=5.0,
+        )
+    ])
+
+    result = bench.dispatch("scaffold_slow", {}, timeout_seconds=0.05)
+
+    assert result.outcome is ToolOutcome.TIMEOUT
+    assert result.timeout_seconds == 0.05
+
+
+def test_a_tool_declaring_no_timeout_takes_the_configured_default(bench):
+    from program import config
+
+    assert SCAFFOLD_ECHO.timeout_seconds is None
+    assert SCAFFOLD_ECHO.resolved_timeout() == config.tool_default_timeout_seconds()
+    assert bench.dispatch("scaffold_echo", {"text": "hi"}).timeout_seconds == (
+        config.tool_default_timeout_seconds()
+    )
+
+
+@pytest.mark.parametrize("bad", [0, -1, -0.5])
+def test_a_non_positive_timeout_is_rejected_at_construction(bad):
+    """There is deliberately no way to declare an unbounded tool."""
+    with pytest.raises(ToolError, match="positive"):
+        Tool(
+            name="scaffold_unbounded",
+            description="TEST-ONLY scaffolding.",
+            parameters={"type": "object", "properties": {}},
+            handler=lambda: None,
+            timeout_seconds=bad,
+        )
+
+
+def test_no_remaining_time_skips_the_call_rather_than_running_it_unbounded(bench):
+    result = bench.dispatch("scaffold_echo", {"text": "hi"}, timeout_seconds=0)
+
+    assert result.outcome is ToolOutcome.SKIPPED
+    assert result.ran is False
+    assert result.value is None
+
+
+def test_a_skipped_result_is_a_first_class_trace_entry():
+    """So that every tool message fed back has a matching record."""
+    entry = registry.skipped_result("web_fetch", {"url": "x"}, "budget spent")
+    trace = entry.to_trace_entry()
+
+    assert trace["outcome"] == "skipped"
+    assert trace["ran"] is False
+    assert trace["error"] == "budget spent"
+    assert trace["call_id"]
 
 
 # --- The Ollama schema -------------------------------------------------------

@@ -12,16 +12,17 @@ through one function that raises on an unknown name. This is the same shape
 ``config.py``'s ``_ENV_MAP`` gives its reason: *"named explicitly rather than
 derived, so the full set of overrides is greppable from one place."*
 
-**There are no tools.** ``TOOLS`` is empty, deliberately. ``memory_search``,
-``web_search``, ``web_fetch`` and file ingestion are each their own later task
-in this phase, and each registers itself here when it is built. A placeholder
-tool would be the same category of problem as an unmounted permission gate:
-something that reads as built and is not.
+**The list of tools lives in** ``program/tools/catalog.py``, not here. A tool
+module imports :class:`Tool` from this module to declare itself, so this module
+importing tool modules would be a cycle — and a bottom-of-file import only hides
+that until something imports a tool module first. ``catalog.py`` holds the
+contents, this module holds the mechanism, and ``default_registry()`` reaches for
+the catalogue at call time.
 
 Central registration, not self-registration
 -------------------------------------------
-Tools are listed explicitly in ``TOOLS`` rather than registering themselves via
-an import-time decorator.
+Tools are listed explicitly in ``catalog.TOOLS`` rather than registering
+themselves via an import-time decorator.
 
 The tradeoff is real. Self-registration keeps a tool's declaration next to its
 implementation and means adding one touches a single file. But it makes the
@@ -565,20 +566,22 @@ class ToolRegistry:
         )
 
 
-#: **The central declaration. Empty on purpose — no tools are built yet.**
-#:
-#: ``memory_search``, ``web_search``, ``web_fetch`` and file ingestion are each
-#: their own task in this phase; each appends its :class:`Tool` here when it is
-#: built. Nothing is placed here to have something to register.
-TOOLS: tuple[Tool, ...] = ()
-
 _default: ToolRegistry | None = None
 
 
 def default_registry() -> ToolRegistry:
-    """The registry built from :data:`TOOLS`, constructed once."""
+    """The registry built from ``catalog.TOOLS``, constructed once.
+
+    The import is deferred into the function body rather than placed at module
+    scope, because every tool module imports :class:`Tool` from here: importing
+    the catalogue at the top would be a cycle, and importing it at the bottom
+    would be one whenever a tool module is imported first. By the time this runs,
+    this module is fully initialised and the direction is unambiguous.
+    """
     global _default
     if _default is None:
+        from program.tools.catalog import TOOLS
+
         _default = ToolRegistry(TOOLS)
     return _default
 
