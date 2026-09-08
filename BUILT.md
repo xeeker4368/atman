@@ -507,7 +507,7 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   store's registry and the schema are verified to agree rather than assumed to.
 - `[built]` **Settings store** (`program/settings/store.py`), decision #8. Typed
   read/write over that table, an in-memory cache invalidated on every write, and
-  a fallback to `config.py` for any key with no row. Seven registered keys.
+  a fallback to `config.py` for any key with no row. Six registered keys.
 - `[built]` **The read path is settings-table-first, through the accessors that
   already existed.** `config.py`'s scope comment claimed this before task 1.11;
   it is now the behaviour. `config.chat_model()` and friends delegate via

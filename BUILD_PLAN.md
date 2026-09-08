@@ -145,6 +145,7 @@ Goal: the entity can act, not just talk.
 |---|---|---|
 | Tool registry + dispatch framework | 1 | Sonnet |
 | **Fix `db.py` write contention** — `db.connection()` can raise `database is locked` under sustained write contention (found and reproduced during task 1.14's backup work, not introduced by it — a property of every write path, dormant until this phase introduces genuine concurrent writes: a live chat turn writing messages while idle-close's sweep, or a background pass, runs against the same database). Not a data-integrity risk — every write already goes through explicit `BEGIN`/`COMMIT`/`ROLLBACK`, so a caller that loses the race raises cleanly with nothing written, rather than leaving a partial state. Real choices with atomicity implications: raise `busy_timeout`, retry with backoff, or serialize writes through a single writer. Whichever is chosen must not weaken the cross-database atomicity guarantee `db.py`'s docstring already establishes — verify against that constraint explicitly, not just against the lock-timeout symptom. | **3** | Sonnet |
+| **Chat endpoint authentication** — `POST /api/login` exchanging a name and password for a signed, stateless session token; `require_actor` dependency turning an `Authorization: Bearer` header into the `Actor` role gating already consumes. Design of record `docs/AUTH_DESIGN.md` (A1–A11). No sessions table and no schema change: the token is HMAC-SHA256 signed and carries only `user_id` and an absolute expiry, so `role` is read fresh per request and cannot go stale. `hashlib.scrypt` from the standard library — no new dependency. `auth.session_secret` is bootstrap-only and the server **refuses to start without it**. **The agent loop depends on this**: it is what makes 2.2's obligation (c) — construct a real `Actor` rather than reaching for `Actor.operator()` — satisfiable rather than waived. **A network-position check is not authentication**; the loopback gate (`docs/ROLE_GATING_DESIGN.md` R2) is separate and still owed by the admin-panel task. | **3** | Opus |
 | **Agent loop**: the actual iterate-and-dispatch turn — call model, check
   for tool calls, dispatch, feed results back, repeat until a terminal
   response or iteration limit. Nothing in Phase 0/1 builds this; the
@@ -178,9 +179,10 @@ Goal: the entity can act, not just talk.
   sentinel is an unauthenticated always-allowed path — correct while nothing
   untrusted can call Python in this process, which is true today and **false
   the moment this task lands**. Build the actor via `db.get_actor(user_id)`.
-  Note authentication itself does not exist: `users.password_hash` is written by
-  nothing and read by nothing, so this task either depends on an authentication
-  task or must state plainly that the actor is asserted, not proven. | 1 | Sonnet |
+  Authentication now exists: this task depends on the **chat endpoint
+  authentication** row above, which supplies `require_actor` for exactly this
+  purpose — depend on it rather than constructing an `Actor` inline, and the
+  actor is then proven rather than asserted. | 1 | Sonnet |
 | `memory_search` tool | 1 | Sonnet |
 | Stand up local SearXNG instance; `web_search` tool against it | 1 | Sonnet |
 | `web_fetch` tool (public HTTP/HTTPS only, no localhost/private network access) | 1 | Sonnet |

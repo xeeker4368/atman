@@ -55,6 +55,8 @@ implementation feels:
 - Retrieval changes that implement the supersedes/correction link
 - Provenance/source-trust semantics
 - `soul.md` content and prompt assembly
+- Authentication: credential verification, session-token issue and expiry, and
+  anything that decides which `Actor` a request produces
 - Database concurrency and locking semantics in `program/memory/db.py` —
   `busy_timeout` tuning, write retry, or write serialisation. These read as
   operational tuning and are not: the cross-database atomicity guarantee
