@@ -63,7 +63,15 @@ _FALLBACK: dict[str, Any] = {
     },
     "conversations": {
         "idle_close_minutes": 15,
-        "in_flight_grace_minutes": 30,
+        "in_flight_grace_minutes": 40,
+    },
+    "agent": {
+        "max_iterations": 5,
+        "tool_budget_seconds": 120.0,
+        "max_tool_result_chars": 4000,
+    },
+    "tools": {
+        "default_timeout_seconds": 30.0,
     },
     "chunking": {
         "target_chars": 2500,
@@ -126,6 +134,10 @@ _ENV_MAP: dict[str, tuple[str, str, str]] = {
     "ANAM_MODEL_THINK": ("model_options", "think", "bool"),
     "ANAM_IDLE_CLOSE_MINUTES": ("conversations", "idle_close_minutes", "int"),
     "ANAM_IN_FLIGHT_GRACE_MINUTES": ("conversations", "in_flight_grace_minutes", "int"),
+    "ANAM_AGENT_MAX_ITERATIONS": ("agent", "max_iterations", "int"),
+    "ANAM_AGENT_TOOL_BUDGET_SECONDS": ("agent", "tool_budget_seconds", "float"),
+    "ANAM_AGENT_MAX_TOOL_RESULT_CHARS": ("agent", "max_tool_result_chars", "int"),
+    "ANAM_TOOL_DEFAULT_TIMEOUT_SECONDS": ("tools", "default_timeout_seconds", "float"),
     "ANAM_CHUNK_TARGET_CHARS": ("chunking", "target_chars", "int"),
     "ANAM_CHUNK_MAX_TURNS": ("chunking", "max_turns", "int"),
     "ANAM_DB_BUSY_TIMEOUT_SECONDS": ("database", "busy_timeout_seconds", "int"),
@@ -368,12 +380,23 @@ def model_options() -> dict[str, Any]:
     }
 
 
-#: Hard floor on the in-flight grace, in minutes. Derived from a measured
-#: worst-case turn (see config/defaults.toml). Configuring below it raises
-#: rather than clamping: a silently clamped value hides that the operator asked
-#: for something unsafe, and this is the setting where unsafe means closing a
-#: conversation while the model is still answering.
-IN_FLIGHT_GRACE_FLOOR_MINUTES = 20
+#: Hard floor on the in-flight grace, in minutes.
+#:
+#: **Derived, not chosen.** 40 s to persist the user message + 300 s for the
+#: retrieval embedding + 5 x 300 s of model calls + 120 s of tool execution +
+#: 40 s to persist the reply = 2000 s = 33.3 min, rounded up. Every term is a
+#: ceiling some other setting enforces — ``database.write_retry_deadline_seconds``
+#: plus ``database.busy_timeout_seconds``, ``ollama.timeout_seconds``,
+#: ``agent.max_iterations`` and ``agent.tool_budget_seconds`` — because a
+#: slow-but-not-timed-out turn still has to fit underneath. The full derivation,
+#: including the measured-timings cross-check, is in ``config/defaults.toml``
+#: under ``[conversations]``, and ``tests/test_idle.py`` recomputes it from the
+#: live values so it cannot drift from the loop's limits.
+#:
+#: Configuring below it raises rather than clamping: a silently clamped value
+#: hides that the operator asked for something unsafe, and this is the setting
+#: where unsafe means closing a conversation while the model is still answering.
+IN_FLIGHT_GRACE_FLOOR_MINUTES = 34
 
 
 def idle_close_minutes() -> int:
@@ -386,14 +409,84 @@ def in_flight_grace_minutes() -> int:
 
     Raises rather than clamping when configured below the floor.
     """
-    value = int(get("conversations", "in_flight_grace_minutes", 30))
+    value = int(get("conversations", "in_flight_grace_minutes", 40))
     if value < IN_FLIGHT_GRACE_FLOOR_MINUTES:
         raise ConfigError(
             f"conversations.in_flight_grace_minutes is {value}, below the "
             f"{IN_FLIGHT_GRACE_FLOOR_MINUTES}-minute floor. That floor is a "
-            f"correctness constraint, not a preference: a worst-case turn on "
-            f"this hardware takes minutes, and a shorter window would close a "
+            f"correctness constraint, not a preference: a worst-case agent-loop "
+            f"turn is bounded at {IN_FLIGHT_GRACE_FLOOR_MINUTES} minutes by "
+            f"agent.max_iterations, ollama.timeout_seconds and "
+            f"agent.tool_budget_seconds, and a shorter window would close a "
             f"conversation while the model was still answering it."
+        )
+    return value
+
+
+# --- Agent loop (task 2.2) --------------------------------------------------
+#
+# BOOTSTRAP-ONLY, deliberately: none of these is registered in settings.store,
+# for the reason chunking, history and idle-close values are not. The
+# in-flight-grace floor above is *derived* from max_iterations and
+# tool_budget_seconds, so a panel that could raise either at runtime could
+# invalidate the floor without touching it — and the floor is the thing that
+# stops a conversation being closed mid-turn.
+
+
+def agent_max_iterations() -> int:
+    """Model calls allowed in one turn, the ``L`` in the idle-close floor.
+
+    The last of them is always made with no tools attached, so it cannot ask
+    for another round: the loop is guaranteed to end in an answer rather than
+    in a truncated tool call.
+    """
+    value = int(get("agent", "max_iterations", 5))
+    if value < 1:
+        raise ConfigError(
+            f"agent.max_iterations is {value}; it must be at least 1. A turn "
+            f"with no model call produces no answer."
+        )
+    return value
+
+
+def agent_tool_budget_seconds() -> float:
+    """Total wall-clock a turn may spend waiting on tools, across all calls.
+
+    A per-tool timeout alone does not bound a turn — a model may emit many
+    calls per iteration. This is the aggregate the idle-close floor uses.
+    """
+    value = float(get("agent", "tool_budget_seconds", 120.0))
+    if value <= 0:
+        raise ConfigError(
+            f"agent.tool_budget_seconds is {value}; it must be positive. Zero "
+            f"would make every tool call fail as skipped, which is not the "
+            f"same thing as disabling tools."
+        )
+    return value
+
+
+def agent_max_tool_result_chars() -> int:
+    """Ceiling on one tool result's text as fed back to the model.
+
+    The full value is kept in the trace; only what re-enters the prompt is
+    trimmed, and the trim is stated in the message rather than silent.
+    """
+    value = int(get("agent", "max_tool_result_chars", 4000))
+    if value < 1:
+        raise ConfigError(
+            f"agent.max_tool_result_chars is {value}; it must be at least 1."
+        )
+    return value
+
+
+def tool_default_timeout_seconds() -> float:
+    """How long a turn waits on a tool that declares no timeout of its own."""
+    value = float(get("tools", "default_timeout_seconds", 30.0))
+    if value <= 0:
+        raise ConfigError(
+            f"tools.default_timeout_seconds is {value}; it must be positive. "
+            f"There is no unbounded setting: an unbounded tool makes the turn "
+            f"unbounded, and the idle-close floor assumes a bounded turn."
         )
     return value
 

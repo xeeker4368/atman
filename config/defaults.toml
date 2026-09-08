@@ -80,18 +80,110 @@ idle_close_minutes = 15
 # A turn may be in flight. This one is a correctness constraint: below the
 # duration of a worst-case turn, the janitor closes a conversation mid-turn.
 #
-# Measured 2026-09-01, gemma4:26b at num_ctx=32768 on this machine:
-#   cold model load            19.1 s
-#   prompt eval, 30,167 tokens 132.8 s  (227.2 tok/s)
-#   generation at full context 22.2 tok/s  -> ~45 s for a 1,000-token answer
-#   one worst-case turn        ~197 s
-# With an agent loop of L iterations the bound is L x (prompt eval + generation)
-# plus tool execution; at L=5 that is ~15-16 minutes. 30 is roughly 2x that.
+# RE-DERIVED 2026-09-08 against the agent loop that now exists (task 2.2). The
+# earlier 30/20 pair was explicitly a placeholder, computed from an ASSUMED
+# 5-iteration loop before one was built. These numbers replace it.
 #
-# PLACEHOLDER. The agent loop does not exist yet and has not chosen an
-# iteration limit or tool timeouts. Task 2.2 owes a re-derivation — recorded in
-# BUILD_PLAN.md against that task, not just here.
-in_flight_grace_minutes = 30
+# Built on ENFORCED CEILINGS, not on measured timings. The floor is the value
+# below which idle-close closes a conversation mid-generation, so what bounds it
+# has to be what the code actually enforces — a slow-but-not-timed-out call
+# still has to fit underneath. Every term below is a limit some other setting
+# imposes:
+#
+#   persist the user message      40 s  database.write_retry_deadline_seconds
+#                                       + database.busy_timeout_seconds
+#   retrieval embedding          300 s  ollama.timeout_seconds
+#   L model calls               1500 s  agent.max_iterations x ollama.timeout_seconds
+#   tool execution, aggregate    120 s  agent.tool_budget_seconds
+#   persist the assistant reply   40 s  as above
+#   idle sweep                     0 s  runs AFTER the response, in the background
+#                              -------
+#                               2000 s  = 33.3 min  -> floor 34
+#
+# The floor lives in program/config.py as IN_FLIGHT_GRACE_FLOOR_MINUTES, and
+# tests/test_idle.py recomputes this arithmetic from the live config values
+# rather than hard-coding 34 alone — so raising agent.max_iterations without
+# raising the floor fails the suite instead of silently invalidating it.
+#
+# Sanity check on MEASURED rather than enforced timings (2026-09-01, gemma4:26b
+# at num_ctx=32768): first call 19.1 + 132.8 + 2048/22.2 = 244.2 s, four more at
+# 225.1 s, plus 120 s of tools and ~22 s of embedding and writes = ~21.4 min.
+# NOTE what that says about the old value: 21.4 min was ALREADY above the
+# previous 20-minute floor. The placeholder was under even on measured numbers,
+# not only on ceilings.
+#
+# 40 is the floor plus ~18% for un-modelled overhead (HTTP, JSON, thread
+# scheduling). Less headroom than the old 1.5x ratio because the floor is now
+# built from ceilings rather than from a measurement, so it is already
+# pessimistic. JUDGMENT VALUE at that last step; the 34 underneath it is not.
+in_flight_grace_minutes = 40
+
+[agent]
+# The agent loop (task 2.2): call the model, dispatch any tool calls, feed the
+# results back, repeat. Everything here is BOOTSTRAP-ONLY and deliberately not
+# settings-backed: conversations.in_flight_grace_minutes' floor is DERIVED from
+# max_iterations and tool_budget_seconds, so a runtime edit to either could
+# invalidate that floor without touching it.
+
+# Model calls allowed in one turn. The "L" in the idle-close floor arithmetic.
+#
+# JUDGMENT VALUE. Derived from the deepest tool chain this build can actually
+# produce rather than from a round number: memory_search -> web_search ->
+# web_fetch -> answer is four model calls, and the fifth is headroom for one
+# retry after a malformed call. Phase 2 registers no other model-callable tools.
+#
+# THE LAST ITERATION IS ALWAYS MADE WITH NO TOOLS ATTACHED. The loop cannot end
+# on an unanswered tool call: iteration L is sent without a tools= payload, so
+# the only thing it can return is an answer. That is why L counts model calls
+# and not tool rounds - L=5 means at most 4 rounds of tools.
+#
+# Raising this raises the in-flight grace floor by roughly 5 minutes per
+# iteration (one ollama.timeout_seconds). The two move together or the floor
+# stops being a bound.
+max_iterations = 5
+
+# Total wall-clock a turn may spend WAITING on tools, summed across every call
+# in every iteration.
+#
+# JUDGMENT VALUE, derived: (max_iterations - 1) x tools.default_timeout_seconds
+# = 4 x 30. A per-tool timeout alone does not bound a turn, because one
+# iteration may emit several calls; this is what makes the aggregate finite and
+# therefore what the idle-close floor can be computed from. Each dispatch is
+# given min(its own timeout, what remains), and calls made after the budget is
+# spent are recorded as `skipped` and fed back to the model as such.
+#
+# CONSEQUENCE, FLAGGED: a tool needing 300s - image generation carried exactly
+# that in the reference build - cannot complete inside a turn under this budget.
+# That is a real constraint on Phase 4, not an oversight: either image
+# generation becomes asynchronous (submit, return a handle, notify) or this
+# budget rises knowingly and the grace floor rises with it.
+tool_budget_seconds = 120.0
+
+# Ceiling on one tool result's text where it re-enters the prompt.
+#
+# JUDGMENT VALUE. ~1000 tokens at the 4.0 chars/token in [history]. The full
+# value is kept in the trace regardless - only the copy fed back to the model is
+# trimmed, and the trim says so in the text rather than being silent. The
+# history window is re-planned every iteration, so tool results are priced
+# against the same budget as everything else; this cap stops a single large
+# result from evicting the whole conversation to make room for itself.
+max_tool_result_chars = 4000
+
+[tools]
+# How long a turn waits for a tool that declares no timeout of its own.
+#
+# JUDGMENT VALUE. 30s covers the slowest thing a Phase 2 tool does - a
+# memory_search whose embedding model is cold - with margin, while being short
+# enough that four of them fit the turn budget above. A tool that genuinely
+# needs longer declares its own timeout_seconds; there is deliberately no way
+# to declare an unbounded one.
+#
+# WHAT THIS BOUNDS is how long the TURN waits, not how long the tool runs.
+# Python cannot safely kill a running thread, so an overrunning handler keeps
+# going in a daemon thread; the outcome is recorded as `timeout`, which means
+# "entered, outcome unknown, side effects possible" - deliberately distinct
+# from `tool_error`, which means it ran and failed.
+default_timeout_seconds = 30.0
 
 [database]
 # Write contention. See docs/DB_CONTENTION_DESIGN.md for the measurements.

@@ -67,6 +67,33 @@ A raising tool is caught and converted to ``TOOL_ERROR``. ``KeyboardInterrupt``,
 from ``BaseException`` precisely so that ``except Exception`` cannot swallow it —
 propagate untouched.
 
+Per-tool timeouts, enforced
+---------------------------
+Task 2.1 left this field out deliberately, on the grounds that *"an unenforced
+timeout field would read as protection that exists."* Task 2.2 adds it **with**
+enforcement: every :class:`Tool` carries a ``timeout_seconds``, and the handler
+runs in a daemon thread that :meth:`dispatch` waits on for exactly that long.
+
+**What the timeout bounds is how long the turn waits, not how long the tool
+runs.** Python has no safe way to kill a running thread, so a handler that
+overruns keeps going in the background until it returns on its own; the daemon
+flag keeps it from holding up interpreter exit. Subprocess isolation would make
+the kill real, and is not worth its cost for tools that need in-process access
+to the database and the vector store.
+
+That is why a timeout is its own outcome rather than a flavour of
+``TOOL_ERROR``. ``TIMEOUT`` means *the handler was entered and its outcome is
+unknown* — a ``web_fetch`` that timed out may well have fetched, and a posting
+tool may well have posted. ``ToolResult.ran`` is therefore **True** for a
+timeout: something happened that a later claim could legitimately refer to, and
+task 3.1 must be able to see that it cannot be checked.
+
+``SKIPPED`` is the opposite state and is produced by the agent loop rather than
+here: the turn's aggregate tool budget was spent, so the call was never started.
+It exists so that every tool message fed back to the model has a matching trace
+entry — a tool result with no trace entry is exactly the asymmetry task 3.1
+cannot reason over.
+
 Feeding the fabrication gate
 ----------------------------
 BUILD_PLAN requires the turn's tool-call trace to be *"a first-class return
@@ -80,11 +107,14 @@ from __future__ import annotations
 
 import logging
 import re
+import threading
 import time
 import uuid
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Callable, Iterable, Mapping
+
+from program import config
 
 logger = logging.getLogger(__name__)
 
@@ -132,6 +162,12 @@ class Tool:
     description: str
     parameters: dict[str, Any]
     handler: Callable[..., Any]
+    #: How long a turn will wait for this handler. ``None`` means *use
+    #: ``tools.default_timeout_seconds``* — it does **not** mean "no limit".
+    #: There is deliberately no way to declare an unbounded tool: an unbounded
+    #: handler makes the turn unbounded, and the idle-close floor is derived
+    #: from a bounded turn.
+    timeout_seconds: float | None = None
 
     def __post_init__(self) -> None:
         if not _NAME.match(self.name):
@@ -153,6 +189,12 @@ class Tool:
             )
         if not callable(self.handler):
             raise ToolError(f"tool {self.name!r} handler is not callable.")
+        if self.timeout_seconds is not None and self.timeout_seconds <= 0:
+            raise ToolError(
+                f"tool {self.name!r} has timeout_seconds="
+                f"{self.timeout_seconds!r}. It must be positive, or None to "
+                f"take tools.default_timeout_seconds."
+            )
 
     @property
     def properties(self) -> dict[str, Any]:
@@ -161,6 +203,12 @@ class Tool:
     @property
     def required(self) -> tuple[str, ...]:
         return tuple(self.parameters.get("required", ()) or ())
+
+    def resolved_timeout(self) -> float:
+        """This tool's timeout, falling back to the configured default."""
+        if self.timeout_seconds is not None:
+            return float(self.timeout_seconds)
+        return config.tool_default_timeout_seconds()
 
     def to_ollama_schema(self) -> dict[str, Any]:
         """This tool in the shape ``ollama.chat(tools=...)`` accepts."""
@@ -181,6 +229,12 @@ class ToolOutcome(str, Enum):
     UNKNOWN_TOOL = "unknown_tool"
     INVALID_ARGUMENTS = "invalid_arguments"
     TOOL_ERROR = "tool_error"
+    #: Entered, then abandoned. Whether it finished is unknown; side effects
+    #: are possible. See the module docstring.
+    TIMEOUT = "timeout"
+    #: Never started — the turn's aggregate tool budget was spent. Produced by
+    #: the agent loop, not by dispatch.
+    SKIPPED = "skipped"
 
 
 @dataclass(frozen=True)
@@ -194,6 +248,9 @@ class ToolResult:
     value: Any = None
     error: str | None = None
     duration_seconds: float = 0.0
+    #: The bound that was in force for this call, in seconds. Recorded so the
+    #: trace answers "how long was it given" as well as "how long did it take".
+    timeout_seconds: float | None = None
 
     @property
     def ok(self) -> bool:
@@ -203,10 +260,20 @@ class ToolResult:
     def ran(self) -> bool:
         """Whether the handler was actually entered.
 
-        False for ``UNKNOWN_TOOL`` and ``INVALID_ARGUMENTS`` — nothing executed,
-        so nothing happened that a later claim could legitimately refer to.
+        False for ``UNKNOWN_TOOL``, ``INVALID_ARGUMENTS`` and ``SKIPPED`` —
+        nothing executed, so nothing happened that a later claim could
+        legitimately refer to.
+
+        **True for ``TIMEOUT``.** The handler was entered and may have completed
+        after the wait was abandoned, so its side effects are unknown rather
+        than absent. Task 3.1 needs that distinction: "this did not happen" and
+        "whether this happened cannot be determined" are different claims.
         """
-        return self.outcome in (ToolOutcome.OK, ToolOutcome.TOOL_ERROR)
+        return self.outcome in (
+            ToolOutcome.OK,
+            ToolOutcome.TOOL_ERROR,
+            ToolOutcome.TIMEOUT,
+        )
 
     def to_trace_entry(self) -> dict[str, Any]:
         """Structured record for the turn's tool-call trace.
@@ -223,6 +290,7 @@ class ToolResult:
             "value": self.value,
             "error": self.error,
             "duration_seconds": round(self.duration_seconds, 6),
+            "timeout_seconds": self.timeout_seconds,
         }
 
 
@@ -271,6 +339,54 @@ def _validate_arguments(tool: Tool, arguments: Mapping[str, Any]) -> str | None:
                 f"{type(value).__name__}"
             )
     return None
+
+
+def _run_in_thread(
+    tool: Tool, kwargs: dict[str, Any], timeout: float
+) -> tuple[Any, BaseException | None, bool]:
+    """Run ``tool.handler`` and wait at most ``timeout`` seconds for it.
+
+    Returns ``(value, exception, timed_out)``. The thread is a daemon, so a
+    handler that never returns cannot keep the interpreter alive at exit.
+
+    ``BaseException`` is captured rather than only ``Exception`` because the
+    calling thread must re-raise it to preserve dispatch's contract: a
+    ``KeyboardInterrupt``, ``SystemExit`` or the suite's
+    ``StoreIsolationViolation`` raised inside the worker would otherwise vanish
+    with the thread and read here as a timeout.
+    """
+    box: dict[str, Any] = {}
+
+    def target() -> None:
+        try:
+            box["value"] = tool.handler(**kwargs)
+        except BaseException as exc:  # noqa: BLE001 - re-raised or converted below
+            box["exception"] = exc
+
+    thread = threading.Thread(target=target, name=f"tool-{tool.name}", daemon=True)
+    thread.start()
+    thread.join(timeout)
+    if thread.is_alive():
+        return None, None, True
+    return box.get("value"), box.get("exception"), False
+
+
+def skipped_result(
+    name: str, arguments: Mapping[str, Any] | None, reason: str
+) -> ToolResult:
+    """A call the caller refused to start, as a first-class trace entry.
+
+    The agent loop uses this when the turn's aggregate tool budget is spent.
+    It is a real :class:`ToolResult` rather than a bare message so that every
+    tool result fed back to the model has a matching entry in the trace.
+    """
+    return ToolResult(
+        call_id=uuid.uuid4().hex,
+        tool_name=name,
+        arguments=dict(arguments or {}),
+        outcome=ToolOutcome.SKIPPED,
+        error=reason,
+    )
 
 
 class ToolRegistry:
@@ -331,10 +447,19 @@ class ToolRegistry:
         return [tool.to_ollama_schema() for tool in self]
 
     def dispatch(
-        self, name: str, arguments: Mapping[str, Any] | None = None
+        self,
+        name: str,
+        arguments: Mapping[str, Any] | None = None,
+        timeout_seconds: float | None = None,
     ) -> ToolResult:
-        """Invoke a tool by name. Always returns; never raises for the three
+        """Invoke a tool by name. Always returns; never raises for the
         model-facing failure modes. See the module docstring for the contract.
+
+        ``timeout_seconds`` overrides the tool's own declared timeout for this
+        one call. The agent loop passes the turn's *remaining* tool budget, so
+        a tool declaring 30 seconds gets 8 when 8 are left — the aggregate
+        bound the idle-close floor is derived from holds regardless of how many
+        calls the model makes.
         """
         call_id = uuid.uuid4().hex
 
@@ -378,11 +503,46 @@ class ToolRegistry:
                 error=problem,
             )
 
+        limit = (
+            float(timeout_seconds)
+            if timeout_seconds is not None
+            else tool.resolved_timeout()
+        )
+        if limit <= 0:
+            return skipped_result(
+                name,
+                supplied,
+                f"no time remained in the turn's tool budget (limit {limit}s)",
+            )
+
         started = time.monotonic()
-        try:
-            value = tool.handler(**supplied)
-        except Exception as exc:  # noqa: BLE001 - converted to TOOL_ERROR
-            elapsed = time.monotonic() - started
+        value, exc, timed_out = _run_in_thread(tool, supplied, limit)
+        elapsed = time.monotonic() - started
+
+        if timed_out:
+            logger.warning(
+                "tool %s exceeded its %.1fs timeout; the turn stopped waiting. "
+                "The handler is still running and may still complete.",
+                name,
+                limit,
+            )
+            return ToolResult(
+                call_id=call_id,
+                tool_name=name,
+                arguments=supplied,
+                outcome=ToolOutcome.TIMEOUT,
+                error=(
+                    f"timed out after {limit:g}s; the call was abandoned and "
+                    f"whether it completed is unknown"
+                ),
+                duration_seconds=elapsed,
+                timeout_seconds=limit,
+            )
+
+        if exc is not None:
+            if not isinstance(exc, Exception):
+                # KeyboardInterrupt, SystemExit, StoreIsolationViolation.
+                raise exc
             logger.warning("tool %s raised: %s: %s", name, type(exc).__name__, exc)
             return ToolResult(
                 call_id=call_id,
@@ -391,6 +551,7 @@ class ToolRegistry:
                 outcome=ToolOutcome.TOOL_ERROR,
                 error=f"{type(exc).__name__}: {exc}",
                 duration_seconds=elapsed,
+                timeout_seconds=limit,
             )
 
         return ToolResult(
@@ -399,7 +560,8 @@ class ToolRegistry:
             arguments=supplied,
             outcome=ToolOutcome.OK,
             value=value,
-            duration_seconds=time.monotonic() - started,
+            duration_seconds=elapsed,
+            timeout_seconds=limit,
         )
 
 
@@ -427,6 +589,10 @@ def reset_default_registry() -> None:
     _default = None
 
 
-def dispatch(name: str, arguments: Mapping[str, Any] | None = None) -> ToolResult:
+def dispatch(
+    name: str,
+    arguments: Mapping[str, Any] | None = None,
+    timeout_seconds: float | None = None,
+) -> ToolResult:
     """Dispatch against the default registry."""
-    return default_registry().dispatch(name, arguments)
+    return default_registry().dispatch(name, arguments, timeout_seconds)

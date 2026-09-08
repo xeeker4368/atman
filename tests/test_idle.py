@@ -9,6 +9,7 @@ embedding. Time is injected rather than slept.
 
 from __future__ import annotations
 
+import math
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -132,7 +133,12 @@ def test_unanswered_message_is_not_closed_at_the_short_window(env):
 
 
 def test_unanswered_message_closes_at_the_grace_window(env):
-    conversation_id = conversation_at(env, minutes_ago=35, last_role="user")
+    # Derived from the setting rather than written in: the grace window is a
+    # computed value (see the floor tests below), so a literal here would fail
+    # every time the derivation legitimately moves.
+    conversation_id = conversation_at(
+        env, minutes_ago=config.in_flight_grace_minutes() + 5, last_role="user"
+    )
 
     result = idle.close_idle_conversations(now=NOW)
 
@@ -324,6 +330,95 @@ def test_grace_at_the_floor_is_accepted(monkeypatch):
     finally:
         monkeypatch.delenv("ANAM_IN_FLIGHT_GRACE_MINUTES", raising=False)
         config.reload()
+
+
+# --- The floor is a derivation, and these pin it to one ----------------------
+#
+# The 30/20 pair these replaced was a placeholder derived from an ASSUMED
+# 5-iteration loop, and it survived the task that was supposed to replace it —
+# the constant stayed 20 and defaults.toml stayed 30 while the loop's real
+# limits landed around them. Asserting "the config loads" would not have caught
+# that. Asserting the arithmetic does.
+
+
+def test_the_floor_is_recomputed_from_the_loops_own_limits(monkeypatch):
+    """34 is not a chosen number: it is 2000 seconds rounded up.
+
+        persist the user message      40 s   write_retry_deadline + busy_timeout
+        retrieval embedding          300 s   ollama.timeout_seconds
+        L model calls               1500 s   max_iterations x ollama.timeout_seconds
+        tool execution, aggregate    120 s   agent.tool_budget_seconds
+        persist the assistant reply   40 s   as above
+        idle sweep                     0 s   runs after the response
+                                   -------
+                                    2000 s   = 33.3 min -> 34
+
+    Every term is read from live config rather than written in, so raising
+    agent.max_iterations or ollama.timeout_seconds without raising the floor
+    fails here instead of silently invalidating it.
+    """
+    monkeypatch.delenv("ANAM_IN_FLIGHT_GRACE_MINUTES", raising=False)
+    config.reload()
+
+    persist = (
+        config.db_write_retry_deadline_seconds() + config.db_busy_timeout_seconds()
+    )
+    per_model_call = config.ollama_timeout_seconds()
+    derived_seconds = (
+        persist
+        + per_model_call
+        + config.agent_max_iterations() * per_model_call
+        + config.agent_tool_budget_seconds()
+        + persist
+    )
+
+    assert derived_seconds == 2000
+    assert math.ceil(derived_seconds / 60) == 34
+    assert config.IN_FLIGHT_GRACE_FLOOR_MINUTES == 34
+
+
+def test_the_shipped_grace_is_above_the_floor_in_every_layer(monkeypatch):
+    """Catches the drift that actually happened: two layers disagreeing.
+
+    `config.py`'s hard-coded fallback and `defaults.toml`'s value are read in
+    different situations — a checkout with no config directory takes the first,
+    everything else takes the second. One being stale is invisible until the
+    other is missing, so both are checked.
+    """
+    monkeypatch.delenv("ANAM_IN_FLIGHT_GRACE_MINUTES", raising=False)
+    config.reload()
+
+    assert config.in_flight_grace_minutes() == 40
+    assert config.in_flight_grace_minutes() >= config.IN_FLIGHT_GRACE_FLOOR_MINUTES
+    assert config._FALLBACK["conversations"]["in_flight_grace_minutes"] == 40
+
+
+def test_the_floor_also_clears_the_measured_worst_case_not_only_the_ceilings():
+    """The floor is built from enforced ceilings; measured timings must fit too.
+
+    Measured 2026-09-01 on this machine (gemma4:26b, num_ctx=32768): cold load
+    19.1 s, prompt eval 132.8 s at 30,167 tokens, generation 22.2 tok/s. A first
+    model call is load + eval + a full output reserve; later calls skip the load.
+
+    This also records why the old floor was wrong rather than merely
+    superseded: the measured worst case was already above it.
+    """
+    output_seconds = config.history_output_reserve_tokens() / 22.2
+    first_call = 19.1 + 132.8 + output_seconds
+    later_call = 132.8 + output_seconds
+    measured_turn_minutes = (
+        first_call
+        + (config.agent_max_iterations() - 1) * later_call
+        + config.agent_tool_budget_seconds()
+        + 22  # embedding and two dual-store writes, at their observed cost
+    ) / 60
+
+    assert 21 < measured_turn_minutes < 22
+    assert measured_turn_minutes < config.IN_FLIGHT_GRACE_FLOOR_MINUTES
+    assert measured_turn_minutes > 20, (
+        "the 20-minute placeholder this replaced was already below the measured "
+        "worst case, not merely below the enforced one"
+    )
 
 
 def test_short_window_has_no_floor(monkeypatch):

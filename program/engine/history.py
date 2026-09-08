@@ -46,6 +46,22 @@ overflow direction. See ``config/defaults.toml`` under ``[history]`` for the
 arithmetic and for how this margin relates to the embedding-input margin, which
 is deliberately much more conservative.
 
+Tool messages (task 2.2)
+------------------------
+An agent-loop turn adds two message shapes this module did not originally see:
+an assistant message carrying ``tool_calls`` and no content, and a ``tool``
+message carrying a result. Both are **priced and preserved**.
+
+Preserved, because dropping ``tool_calls`` while keeping the ``tool`` result
+that answers it leaves the model an orphaned result — a reply to a question it
+cannot see it asked. Priced, because a tool call's arguments and a tool result
+are real tokens in the window: charging them zero is the under-count direction,
+which is the one that overflows.
+
+They are also the densest text this system sends — JSON runs nearer 3
+chars/token than the 4.63 measured on prose — so the known estimator gap above
+applies to them most sharply.
+
 Per-message overhead
 --------------------
 A message costs more than its content: the chat template wraps every turn in
@@ -56,6 +72,7 @@ an unmeasured judgment value — see the changelog.
 
 from __future__ import annotations
 
+import json
 import logging
 import math
 from dataclasses import dataclass, field
@@ -101,8 +118,36 @@ def estimate_message_tokens(message: Mapping[str, Any]) -> int:
     return (
         estimate_tokens(_field(message, "content"))
         + estimate_tokens(_field(message, "role"))
+        + estimate_tokens(_serialised_tool_calls(message))
+        + estimate_tokens(_field(message, "tool_name"))
         + config.history_message_overhead_tokens()
     )
+
+
+def _tool_calls(message: Mapping[str, Any]) -> Any:
+    """A message's ``tool_calls``, or None. Tolerates ``sqlite3.Row``."""
+    try:
+        value = message["tool_calls"]
+    except (KeyError, IndexError):
+        return None
+    return value or None
+
+
+def _serialised_tool_calls(message: Mapping[str, Any]) -> str:
+    """Tool calls as the text they cost, for pricing only.
+
+    Serialised rather than measured structurally because what reaches the model
+    is JSON, and its punctuation and key names are tokens too. Falls back to
+    ``repr`` for anything JSON cannot render, so an exotic value is
+    over-counted rather than counted as free.
+    """
+    calls = _tool_calls(message)
+    if calls is None:
+        return ""
+    try:
+        return json.dumps(calls)
+    except (TypeError, ValueError):
+        return repr(calls)
 
 
 @dataclass(frozen=True)
@@ -258,10 +303,25 @@ def _normalise(message: Mapping[str, Any]) -> dict[str, Any]:
 
     Accepts ``sqlite3.Row`` as readily as a dict, so a caller can pass
     ``db.get_conversation_messages()`` straight in. Everything else on the row —
-    ids, timestamps, tool traces — is deliberately dropped: this is the payload
-    sent to the model, not the record.
+    ids, timestamps, the stored tool trace — is deliberately dropped: this is
+    the payload sent to the model, not the record.
+
+    **``tool_calls`` and ``tool_name`` survive when present**, and only then, so
+    an ordinary turn is shaped exactly as before. They are part of the payload
+    rather than part of the record: an assistant message whose tool calls were
+    stripped leaves the tool result that follows it answering nothing.
     """
-    return {"role": _field(message, "role"), "content": _field(message, "content")}
+    normalised = {
+        "role": _field(message, "role"),
+        "content": _field(message, "content"),
+    }
+    calls = _tool_calls(message)
+    if calls:
+        normalised["tool_calls"] = calls
+    tool_name = _field(message, "tool_name")
+    if tool_name:
+        normalised["tool_name"] = tool_name
+    return normalised
 
 
 def window_history(
