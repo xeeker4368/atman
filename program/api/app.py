@@ -16,7 +16,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from program import config
-from program.api.routes import auth, health
+from program.api.routes import auth, chat, health
 from program.memory import vectors
 
 
@@ -51,6 +51,7 @@ def create_app() -> FastAPI:
     )
     app.include_router(health.router)
     app.include_router(auth.router)
+    app.include_router(chat.router)
     return app
 
 
