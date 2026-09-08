@@ -1,0 +1,65 @@
+# SearXNG — the local search proxy behind the `web_search` tool (task 2.4).
+#
+# THIS FILE IS THE RECORD OF HOW THE INSTANCE SHOULD BE RUN. It is not where the
+# instance currently runs from: the live containers were stood up before this
+# repo existed, from `/Volumes/Dock Storage/searxng/`, and were left there rather
+# than migrated mid-task. See BUILT.md under "Tools / web_search" for the actual
+# location. That divergence is a known cost: a change made there does not show up
+# here, and vice versa. Migrating is a small, separate job.
+#
+# Run it:
+#     docker compose -f ops/searxng/docker-compose.yml up -d
+#     curl "http://127.0.0.1:8080/search?q=test&format=json"
+#
+# The config directory it mounts (`core-config/`, containing settings.yml) is not
+# checked in — SearXNG generates it on first run, and it is ~2,700 lines of
+# upstream defaults. Two values in it matter to this build and are NOT defaults:
+#
+#     search.formats:  must include `json`, or every request returns HTML and
+#                      the tool cannot parse anything. Upstream ships html only.
+#     server.limiter:  false. It is a public-instance defence; with it on, an
+#                      automated local caller gets 429s.
+#
+# `outgoing.request_timeout` (3.0s per upstream engine, queried in parallel) is
+# the upstream default and is what `searxng.timeout_seconds` = 10 is derived
+# from — see config/defaults.toml. If you change it there, the derivation moves.
+
+name: searxng
+
+services:
+  core:
+    container_name: searxng-core
+    # PINNED, deliberately. The instance found running on 2026-09-08 was on an
+    # unpinned `latest` from 2026-05-21 — 3.5 months stale — and every engine
+    # had silently stopped returning results: HTTP 200, valid JSON, `results:
+    # []`, with brave/duckduckgo/startpage all reporting CAPTCHA or suspension.
+    # Pulling the current image fixed it immediately. `latest` is what let it
+    # rot unnoticed, and this project pins num_ctx and model names for the same
+    # reason. Bump this deliberately, and re-run the live test afterwards.
+    image: docker.io/searxng/searxng:2026.9.8-3fdc6d753
+    restart: always
+    ports:
+      # LOOPBACK ONLY. Not `8080:8080` and not `0.0.0.0:8080:8080`, both of which
+      # publish on every interface — which is how the pre-existing instance was
+      # running, verified reachable from another device's view of this machine at
+      # 192.168.0.82:8080. Nothing outside this host needs this service.
+      # PROJECT.md's LAN-only scope covers the Anam frontend; it is not a licence
+      # for every supporting service to be LAN-reachable too.
+      - "127.0.0.1:8080:8080"
+    environment:
+      - SEARXNG_BASE_URL=http://127.0.0.1:8080/
+    volumes:
+      - ./core-config/:/etc/searxng/:Z
+      - core-data:/var/cache/searxng/
+
+  valkey:
+    container_name: searxng-valkey
+    image: docker.io/valkey/valkey:9-alpine
+    command: valkey-server --save 30 1 --loglevel warning
+    restart: always
+    volumes:
+      - valkey-data:/data/
+
+volumes:
+  core-data:
+  valkey-data:

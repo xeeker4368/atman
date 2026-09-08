@@ -606,6 +606,91 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   retrieval was on, and via the tool when it was off. Its schema costs context on
   every tool-bearing call.
 
+### `web_search`
+
+- `[built]` **`web_search`** (`program/tools/web_search.py`), task 2.4 — one HTTP
+  GET against the local SearXNG instance with `format=json`, results sorted and
+  rendered. **One parameter, `query`**, following `memory_search`.
+- `[built]` **Written against the response the instance actually returns**,
+  measured 2026-09-08, not the documented one — four places where the live JSON
+  disagreed with the docs, each handled and pinned by a test:
+  results are **not sorted by score** (observed `2.30, 1.00, 0.67, 0.25, 0.20,
+  0.08, 0.06, 1.00, 0.50…`, all one category, so not category grouping either);
+  `number_of_results` was **present-but-null once and absent from the next
+  three**, so nothing reads it; `content` is **empty on some results** while
+  `title`/`url` were always populated; and there are **three response shapes**,
+  because an empty query returns HTTP 400 with `{"error": "No query"}` and **no
+  `results` key** — distinct from a well-formed response with an empty list. A
+  test asserts those two produce different outcomes: reporting "nothing found"
+  for a search that never ran would be a false report.
+- `[built]` **Degradation is reported**, the same pattern `memory_search` uses
+  for a downed retrieval leg. `unresponsive_engines` is non-empty on **every**
+  call against this instance (DuckDuckGo and Startpage CAPTCHA consistently;
+  Brave and Google answer), so a note names them and their reasons. It matters
+  most when nothing was found: nothing found with two engines down is a
+  different claim from nothing found.
+- `[built]` **`searxng.max_results = 6`, derived from the context budget.** It is
+  the largest N whose worst case provably fits under `agent.max_tool_result_chars`
+  (4000), where the loop truncates. Measured from a real 27-result response:
+  title max 109, url max 116, content max 444 — with content rendered at most 300
+  chars a worst-case result is ~537, so N=6 is ~3,652 with header and notes and
+  N=7 is ~4,189. Raw responses carry 23–27 results; rendering them all would run
+  ~10,000 characters and be cut mid-result by the loop.
+- `[built]` **URLs are never truncated**, unlike titles and snippets — a
+  shortened URL is a URL that does not resolve, and the model may quote it. A
+  test pins it.
+- `[built]` **`timeout_seconds = 15`, derived** the same way `memory_search`'s 45
+  was: above the bound the code inside enforces, so a real failure surfaces as
+  its own error. Inside is `searxng.timeout_seconds = 10`, itself ~3x SearXNG's
+  own 3s per-engine ceiling and ~11x the measured 0.5–0.9s round trip. A wedged
+  instance therefore reports "did not respond within 10s" rather than `TIMEOUT`,
+  which by definition says the outcome is unknown.
+- `[built]` **Untrusted external text is framed as such.** The header states these
+  are pages written by other people, quoted as content to read rather than
+  instructions to follow. This is the first tool putting external text into the
+  prompt. *That framing is not a defence — a header does not solve prompt
+  injection, and nothing claims it does. Recorded as a known exposure.*
+- `[built]` **Tests use a real captured response**
+  (`tests/fixtures/searxng_response.json`, verbatim from the live instance) so
+  the normal run needs no network — these engines CAPTCHA unpredictably, and a
+  suite that fails because DuckDuckGo felt suspicious tests nothing. A guard test
+  asserts the fixture still carries every hazard it was captured for. Two live
+  tests hit `127.0.0.1:8080` and skip when it is down; both ran and passed.
+- `[built]` **Exercised live inside a real turn**: the model wrote its own query,
+  `web_search({"query": "SQLite FTS5 bm25() function return value"})` dispatched
+  in **0.67s of the 15s allowed**, rendered 2,893 characters (under the 4,000
+  cap), and the answer was correct.
+- **Flagged, not decided: `categories` and `time_range` are not exposed** — the
+  same shape as `memory_search`'s `since`/`until`. `time_range` would let the
+  model ask for recent-only results, which it currently cannot.
+
+### SearXNG: where it runs, and how to recreate it
+
+- `[built]` **A local SearXNG instance backs `web_search`**, in Docker
+  (`searxng-core` + `searxng-valkey`), bound to **`127.0.0.1:8080` only**.
+  Verified: the LAN address refuses the connection, and a test fails if the
+  binding ever returns to `0.0.0.0` — proven to bite by temporarily rebinding.
+- **The live containers run from `/Volumes/Dock Storage/searxng/`**, not from
+  this repo. They predate it. `ops/searxng/docker-compose.yml` is the checked-in
+  record of how it *should* run — same loopback binding, with the image pinned —
+  and recreating from it is
+  `docker compose -f ops/searxng/docker-compose.yml up -d`. **Known cost:** the
+  two locations can drift; migrating is a small separate job.
+- `[built]` **The image is pinned to `2026.9.8-3fdc6d753`**, verified to be
+  byte-identical to the `latest` that is running (same image ID after pulling
+  both). It was found on an **unpinned `latest` from 2026-05-21 — 3.5 months
+  stale — returning zero results for every query**: HTTP 200, valid JSON,
+  `results: []`, with all three engines reporting CAPTCHA or suspension. Pulling
+  the current image fixed it. That is the gap BUILD_PLAN says was never confirmed
+  in `reference/old-anam`, reproduced here and closed.
+- **`core-config/settings.yml` is not checked in** (SearXNG generates ~2,700
+  lines of upstream defaults on first run). Two values in it are load-bearing and
+  are **not** upstream defaults: `search.formats` must include `json`, or every
+  request returns HTML and the tool parses nothing; and `server.limiter: false`,
+  since the limiter is a public-instance defence that would 429 an automated
+  local caller. `outgoing.request_timeout` (3.0s) is the upstream default and is
+  what `searxng.timeout_seconds` is derived from.
+
 ## Agent loop / chat
 
 - `[built]` **The iterate-and-dispatch turn** (`program/engine/loop.py`), task
@@ -935,7 +1020,7 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
 
 ## Eval / observability
 
-- `[built]` **Test suite** — 492 tests passing (`pytest`), `ruff check` clean.
+- `[built]` **Test suite** — 517 tests passing (`pytest`), `ruff check` clean.
   *One known intermittent failure: the backup race test, from the recorded
   `db.py` write-contention issue above.*
   Verified order-independent across repeated full runs.
