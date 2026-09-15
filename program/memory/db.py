@@ -447,6 +447,51 @@ def get_conversation_messages(conversation_id: str) -> list[sqlite3.Row]:
         ).fetchall()
 
 
+def get_previous_user_message_time(
+    user_id: str, exclude_message_id: str | None = None
+) -> str | None:
+    """When this person last spoke, before the message being answered now.
+
+    Returns an ISO-8601 timestamp, or ``None`` when they have never spoken
+    before — which is a real answer and must not be confused with zero elapsed
+    time (the current-situation block renders the two differently).
+
+    **Across all conversations, not scoped to one.** The question the elapsed
+    figure answers is "how long since I last spoke with this person", which is a
+    property of the person rather than the thread. Conversation-scoping would
+    also be actively wrong here: ``idle_close_minutes`` is 15, so conversations
+    close automatically after a short quiet period, and nearly every session
+    would report "no prior message" — a discontinuity manufactured by a janitor
+    setting rather than one that happened.
+
+    **Scoped strictly to this user, and to what they said.** ``role = 'user'``
+    because the entity's own replies are not the person speaking, and
+    ``user_id`` because one household member's activity must never appear in
+    another's figure. This is a different axis from decision #20, which governs
+    what *retrieval* may surface and deliberately stays unfiltered by actor.
+
+    ``exclude_message_id`` is not optional in practice, and the reason is a trap
+    rather than a preference: ``turn.py`` persists the user's message *before*
+    generation (task 2.2's obligation (b)), so by the time this is called the
+    message being answered is already the most recent row. Without excluding it
+    every turn would report a gap of roughly zero — plausible, constant, and
+    always wrong. Passing the id makes the exclusion explicit and testable
+    rather than making correctness depend on the order of two statements.
+    """
+    sql = (
+        "SELECT MAX(timestamp) AS last FROM messages "
+        "WHERE user_id = ? AND role = 'user'"
+    )
+    params: list[str] = [user_id]
+    if exclude_message_id is not None:
+        sql += " AND id != ?"
+        params.append(exclude_message_id)
+
+    with connection() as conn:
+        row = conn.execute(sql, params).fetchone()
+    return row["last"] if row else None
+
+
 def get_archive_message(message_id: str) -> sqlite3.Row | None:
     with connection() as conn:
         return conn.execute(

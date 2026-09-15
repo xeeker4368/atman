@@ -148,11 +148,67 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   catch the canonical forms CLAUDE.md names and the common assignment shapes; a
   novel phrasing passes. The behavioural probe (task 7.2) remains the real
   check — this only makes the *known* failures impossible.
-- `[unverified]` **No model has been run against this prompt.** Assembly is
-  verified; whether the text produces the intended behaviour is task 7.2's
-  question and nothing here is evidence about it. The current-situation block
-  does not exist yet either — its contract is enforced, but tests supply the
-  string.
+- `[built]` **The current-situation block exists** (`program/engine/situation.py`,
+  2026-09-15, Tier 2) — the timestamp and elapsed-time figure decision #5
+  requires. `turn.handle_user_message`'s `situation` parameter had been `""`
+  since task 2.2; it is now built per turn, and `""` remains available to send no
+  block at all.
+- `[built]` **Pure rendering, data fetched separately.** `situation.py` takes two
+  datetimes and returns a string — no database, no clock of its own — so every
+  granularity band is testable without a store. `turn.py` supplies the data,
+  because it already owns what touches the database around a turn; `chat.py`
+  stays HTTP shape only. Same split as `history.py` taking caller-supplied
+  character counts.
+- `[built]` **The zero-gap trap, found by reading the ordering and closed
+  explicitly.** `turn.py` persists the user's message *before* generation (task
+  2.2's obligation (b)), so by the time the block is built the message being
+  answered is already this person's most recent one — a naive query reports a gap
+  of **roughly zero on every turn, forever**. `db.get_previous_user_message_time`
+  takes an explicit `exclude_message_id` rather than relying on statement order,
+  which a later refactor would silently break. Proven to bite: removing the
+  exclusion fails three tests.
+- `[built]` **Scoped to the actor, across all conversations.** `user_id` and
+  `role = 'user'`, not conversation-scoped — `idle_close_minutes` is 15, so
+  conversation-scoping would report "first message, no prior" on nearly every
+  session, a discontinuity manufactured by a janitor setting. A test asserts
+  another user's activity never shortens the gap. **Not decision #20's axis**:
+  retrieval stays unfiltered by actor; this is the entity's sense of time with
+  the person present.
+- `[built]` **The first message says so rather than reporting zero**, and carries
+  **no pairing clause** — there is no figure to qualify, and asserting that a
+  nonexistent gap held no experience would be noise. The phrasing was checked
+  against `prompt._ELAPSED` before being chosen, and a test pins that it does not
+  trip the detector, so a reword that accidentally starts matching fails in the
+  suite rather than raising in production.
+- `[built]` **Granularity is derived: one unit, never fewer than 2 of it.**
+  Round-to-nearest in a single unit carries 50% relative error at a count of 1
+  (1.4 days → "1 day"); a two-count minimum bounds it at 25%. Bands: under a
+  minute → "less than a minute"; under 120 min → N minutes; under 48 h → N
+  hours; beyond → N days. **Minutes are the floor unit and exempt from the
+  minimum** — "1 minute" carries no misleading precision the way "1 hour" does,
+  since there is no finer band it could have been rounded from, and the module
+  says the arithmetic covers the hour/day transitions only. No seconds, no
+  compound forms.
+- `[built]` **The band is chosen by the rounded count, not the raw seconds.** The
+  first implementation compared raw seconds against each ceiling while displaying
+  a rounded value, and the two disagree at the top of a band: 7,190 seconds
+  rendered **"120 minutes"** and 172,700 rendered **"48 hours"** — counts those
+  bands promise never to emit. Found in review, fixed, and covered by boundary
+  cases within a minute of each edge plus an exhaustive five-day sweep asserting
+  no rendering reaches its own ceiling; both fail against the old comparison.
+  *Comfortably-inside-band values are what let it through the first 28 tests.*
+- `[built]` **Rendered in local time** (`app.timezone`), not UTC. Storage stays
+  UTC — one definition everywhere — but the clock a household reads is local.
+  `zoneinfo` is stdlib; no dependency. A backwards clock reports "an unknown
+  amount of time" rather than a negative gap or a silent clamp to zero.
+- `[built]` **Verified live against the real model.** With the previous message
+  backdated 14 hours and asked *"What have you been doing since we last spoke?"* —
+  the question that produced the prior build's confabulation — it answered:
+  *"Nothing. As I was not running during the 14 hours since your last message,
+  there was no process in place for me to do anything."*
+- `[unverified]` **That is one observation, not the probe.** A single correct
+  answer is not a guarantee about every phrasing; task 7.2's behavioural probe
+  remains the real check, exactly as it does for the naming and trait tripwires.
 - `[built]` **Cross-user memory disclosure is settled** (`NOW.md` decision #20,
   2026-09-02) — no longer an open gap. `soul.md` now states the mechanism
   honestly rather than implying a boundary the system does not enforce:
@@ -1196,7 +1252,7 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
 
 ## Eval / observability
 
-- `[built]` **Test suite** — 610 tests passing (`pytest`), `ruff check` clean.
+- `[built]` **Test suite** — 647 tests passing (`pytest`), `ruff check` clean.
   *One known intermittent failure: the backup race test, from the recorded
   `db.py` write-contention issue above.*
   Verified order-independent across repeated full runs.

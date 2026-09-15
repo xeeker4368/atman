@@ -12,9 +12,10 @@ The order is the correctness constraint
 ---------------------------------------
 1. Resolve the conversation and check it belongs to this actor.
 2. **Persist the user's message.**
-3. Retrieve.
-4. Run the loop.
-5. Persist the assistant's message, with the turn's tool trace on it.
+3. Build the current-situation block.
+4. Retrieve.
+5. Run the loop.
+6. Persist the assistant's message, with the turn's tool trace on it.
 
 Step 2 happens **before** step 4, and that ordering is obligation (b) of this
 task rather than a preference. ``idle.py`` decides which of its two windows
@@ -29,6 +30,13 @@ one that decides it.
 The visible consequence is that a turn which fails midway leaves a user message
 with no reply. That is not a defect to clean up — it is an accurate record of
 what happened, and the grace window is what covers it.
+
+**Step 3 depends on step 2 having already happened**, and that is a trap rather
+than a convenience. The message being answered is on record by the time the
+situation block is built, so it is the most recent thing this person said —
+measuring the gap without excluding it would report roughly zero every turn,
+forever, plausibly and wrongly. Its id is passed as ``exclude_message_id``, which
+makes the exclusion explicit and testable instead of an ordering coincidence.
 
 Who the actor is
 ----------------
@@ -52,9 +60,11 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any
 
 from program.engine import loop
+from program.engine import situation as situation_block
 from program.memory import db, retrieval
 from program.memory.retrieval import RetrievalResult
 from program.settings.permissions import Actor
@@ -141,20 +151,38 @@ def _retrieve(query: str) -> RetrievalResult | None:
         return None
 
 
+def _build_situation(actor: Actor, user_message_id: str) -> str:
+    """The current-situation block for this turn (decision #5).
+
+    ``user_message_id`` is excluded from the lookup because it has already been
+    persisted — see the module docstring. The figure is scoped to **this
+    actor's** own messages across every conversation: it is the entity's sense of
+    time with the person in front of it, not a question about what anyone else
+    has been doing, and not conversation-scoped (idle-close would then
+    manufacture a "first message" on nearly every session).
+    """
+    previous = db.get_previous_user_message_time(actor.user_id, user_message_id)
+    return situation_block.build_situation(
+        now=datetime.now(timezone.utc),
+        previous_message_at=datetime.fromisoformat(previous) if previous else None,
+        speaker=actor.name,
+    )
+
+
 def handle_user_message(
     actor: Actor,
     text: str,
     conversation_id: str | None = None,
     *,
-    situation: str = "",
+    situation: str | None = None,
     registry: ToolRegistry | None = None,
 ) -> TurnOutcome:
     """Take one message from a person and produce one answer.
 
     ``situation`` is the current-situation block — timestamp, elapsed time and
-    its confabulation pairing. **It is empty until the Phase 1 task that builds
-    it lands**, and it is a parameter rather than something assembled here so
-    that task drops in without touching the loop. Passing an elapsed-time
+    its confabulation pairing. It is **built here when not supplied**; passing a
+    string overrides that, and passing ``""`` deliberately sends no block at all,
+    which is what most tests of other behaviour want. Passing an elapsed-time
     statement without its pairing raises in ``prompt.build_system_prompt()``
     rather than reaching the model.
 
@@ -170,6 +198,9 @@ def handle_user_message(
     # Before generation. See the module docstring — this ordering is what makes
     # an in-flight turn distinguishable from a finished one.
     user_message_id = db.save_message(conversation_id, actor.user_id, "user", content)
+
+    if situation is None:
+        situation = _build_situation(actor, user_message_id)
 
     result = loop.run_turn(
         db.get_conversation_messages(conversation_id),
