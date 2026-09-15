@@ -75,7 +75,10 @@ def make_pdf(body_text: str | None) -> bytes:
 
 def test_the_migration_creates_the_artifacts_table_and_the_chunk_link(store):
     with db.connection() as conn:
-        assert migrations.current_version(conn) == 2
+        # >= 2, not == 2: later migrations legitimately land on top, and this
+        # test is about migration 2 having applied, not about it being the
+        # latest. Pinning the number made this fail when migration 3 arrived.
+        assert migrations.current_version(conn) >= 2
         names = {r["name"] for r in conn.execute("SELECT name FROM main.sqlite_master")}
         assert "artifacts" in names
         columns = {r[1] for r in conn.execute("PRAGMA table_info(chunks)")}

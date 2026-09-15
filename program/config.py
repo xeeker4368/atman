@@ -64,7 +64,7 @@ _FALLBACK: dict[str, Any] = {
     },
     "conversations": {
         "idle_close_minutes": 15,
-        "in_flight_grace_minutes": 40,
+        "in_flight_grace_minutes": 46,
     },
     "agent": {
         "max_iterations": 5,
@@ -424,10 +424,11 @@ def model_options() -> dict[str, Any]:
 #: Hard floor on the in-flight grace, in minutes.
 #:
 #: **Derived, not chosen.** 40 s to persist the user message + 300 s for the
-#: retrieval embedding + 5 x 300 s of model calls + 120 s of tool execution +
-#: 40 s to persist the reply = 2000 s = 33.3 min, rounded up. Every term is a
-#: ceiling some other setting enforces — ``database.write_retry_deadline_seconds``
-#: plus ``database.busy_timeout_seconds``, ``ollama.timeout_seconds``,
+#: retrieval embedding + 5 x 300 s of model calls + **300 s for the fabrication
+#: gate's classifier call** + 120 s of tool execution + 40 s to persist the reply
+#: = 2300 s = 38.3 min, rounded up. Every term is a ceiling some other setting
+#: enforces — ``database.write_retry_deadline_seconds`` plus
+#: ``database.busy_timeout_seconds``, ``ollama.timeout_seconds``,
 #: ``agent.max_iterations`` and ``agent.tool_budget_seconds`` — because a
 #: slow-but-not-timed-out turn still has to fit underneath. The full derivation,
 #: including the measured-timings cross-check, is in ``config/defaults.toml``
@@ -437,7 +438,7 @@ def model_options() -> dict[str, Any]:
 #: Configuring below it raises rather than clamping: a silently clamped value
 #: hides that the operator asked for something unsafe, and this is the setting
 #: where unsafe means closing a conversation while the model is still answering.
-IN_FLIGHT_GRACE_FLOOR_MINUTES = 34
+IN_FLIGHT_GRACE_FLOOR_MINUTES = 39
 
 
 def idle_close_minutes() -> int:
@@ -450,7 +451,7 @@ def in_flight_grace_minutes() -> int:
 
     Raises rather than clamping when configured below the floor.
     """
-    value = int(get("conversations", "in_flight_grace_minutes", 40))
+    value = int(get("conversations", "in_flight_grace_minutes", 46))
     if value < IN_FLIGHT_GRACE_FLOOR_MINUTES:
         raise ConfigError(
             f"conversations.in_flight_grace_minutes is {value}, below the "

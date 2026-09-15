@@ -342,16 +342,17 @@ def test_grace_at_the_floor_is_accepted(monkeypatch):
 
 
 def test_the_floor_is_recomputed_from_the_loops_own_limits(monkeypatch):
-    """34 is not a chosen number: it is 2000 seconds rounded up.
+    """39 is not a chosen number: it is 2300 seconds rounded up.
 
         persist the user message      40 s   write_retry_deadline + busy_timeout
         retrieval embedding          300 s   ollama.timeout_seconds
         L model calls               1500 s   max_iterations x ollama.timeout_seconds
+        fabrication gate classifier  300 s   ollama.timeout_seconds (Phase 3)
         tool execution, aggregate    120 s   agent.tool_budget_seconds
         persist the assistant reply   40 s   as above
         idle sweep                     0 s   runs after the response
                                    -------
-                                    2000 s   = 33.3 min -> 34
+                                    2300 s   = 38.3 min -> 39
 
     Every term is read from live config rather than written in, so raising
     agent.max_iterations or ollama.timeout_seconds without raising the floor
@@ -366,15 +367,16 @@ def test_the_floor_is_recomputed_from_the_loops_own_limits(monkeypatch):
     per_model_call = config.ollama_timeout_seconds()
     derived_seconds = (
         persist
-        + per_model_call
-        + config.agent_max_iterations() * per_model_call
+        + per_model_call                                    # retrieval embedding
+        + config.agent_max_iterations() * per_model_call    # the agent loop
+        + per_model_call                                    # the fabrication gate
         + config.agent_tool_budget_seconds()
         + persist
     )
 
-    assert derived_seconds == 2000
-    assert math.ceil(derived_seconds / 60) == 34
-    assert config.IN_FLIGHT_GRACE_FLOOR_MINUTES == 34
+    assert derived_seconds == 2300
+    assert math.ceil(derived_seconds / 60) == 39
+    assert config.IN_FLIGHT_GRACE_FLOOR_MINUTES == 39
 
 
 def test_the_shipped_grace_is_above_the_floor_in_every_layer(monkeypatch):
@@ -388,9 +390,9 @@ def test_the_shipped_grace_is_above_the_floor_in_every_layer(monkeypatch):
     monkeypatch.delenv("ANAM_IN_FLIGHT_GRACE_MINUTES", raising=False)
     config.reload()
 
-    assert config.in_flight_grace_minutes() == 40
+    assert config.in_flight_grace_minutes() == 46
     assert config.in_flight_grace_minutes() >= config.IN_FLIGHT_GRACE_FLOOR_MINUTES
-    assert config._FALLBACK["conversations"]["in_flight_grace_minutes"] == 40
+    assert config._FALLBACK["conversations"]["in_flight_grace_minutes"] == 46
 
 
 def test_the_floor_also_clears_the_measured_worst_case_not_only_the_ceilings():
@@ -413,6 +415,8 @@ def test_the_floor_also_clears_the_measured_worst_case_not_only_the_ceilings():
         + 22  # embedding and two dual-store writes, at their observed cost
     ) / 60
 
+    # The gate adds a measured 0.45 s warm, which does not move this figure —
+    # the enforced ceiling moved the floor, the measurement did not.
     assert 21 < measured_turn_minutes < 22
     assert measured_turn_minutes < config.IN_FLIGHT_GRACE_FLOOR_MINUTES
     assert measured_turn_minutes > 20, (

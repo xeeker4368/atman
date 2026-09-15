@@ -15,7 +15,9 @@ The order is the correctness constraint
 3. Build the current-situation block.
 4. Retrieve.
 5. Run the loop.
-6. Persist the assistant's message, with the turn's tool trace on it.
+6. **Run the fabrication gate** over the answer.
+7. Persist the assistant's message, with the turn's tool trace and the gate's
+   verdict on it.
 
 Step 2 happens **before** step 4, and that ordering is obligation (b) of this
 task rather than a preference. ``idle.py`` decides which of its two windows
@@ -37,6 +39,23 @@ situation block is built, so it is the most recent thing this person said —
 measuring the gap without excluding it would report roughly zero every turn,
 forever, plausibly and wrongly. Its id is passed as ``exclude_message_id``, which
 makes the exclusion explicit and testable instead of an ordering coincidence.
+
+The gate runs before the save, not after
+----------------------------------------
+Step 6 sits between generation and persistence deliberately (design F3). A
+classification call measured **0.45 s warm** against a turn that runs 5–20
+seconds, and running it here means the verdict exists before the answer becomes a
+permanent record. Run it after step 7 and the only possible response to a
+fabrication is to annotate something already said and already read.
+
+**Stage 1 is flag-only**: the verdict is recorded and nothing about the answer
+changes. See ``program/integrity/gate.py`` for why that is the shipping
+behaviour rather than a placeholder.
+
+**The gate never fails the turn.** An unreachable classifier produces a verdict
+of ``unavailable`` — recorded as such, never as clean — and the answer is
+returned. A checker being down is not a reason to withhold an answer that was
+already generated.
 
 Who the actor is
 ----------------
@@ -65,6 +84,7 @@ from typing import Any
 
 from program.engine import loop
 from program.engine import situation as situation_block
+from program.integrity import gate
 from program.memory import db, retrieval
 from program.memory.retrieval import RetrievalResult
 from program.settings.permissions import Actor
@@ -101,6 +121,9 @@ class TurnOutcome:
     #: fresh one was started. The caller's own id is then stale, so this is
     #: reported rather than left to be noticed.
     new_conversation: bool = False
+    #: The fabrication gate's verdict. Carried so the route and the eval harness
+    #: can read it without re-querying; stage 1 does not act on it.
+    integrity: gate.GateVerdict | None = None
 
 
 def _resolve_conversation(actor: Actor, conversation_id: str | None) -> tuple[str, bool]:
@@ -221,6 +244,18 @@ def handle_user_message(
             result.stop_reason,
         )
 
+    # Before the save. Both users go through this identically — see the gate's
+    # own docstring on why fabrication is not a permissions question.
+    verdict = gate.check(result.text, result.trace, situation)
+    if not verdict.clean:
+        logger.warning(
+            "integrity gate: turn in conversation %s recorded as %s (%d finding(s): %s)",
+            conversation_id[:8],
+            verdict.status.value,
+            len(verdict.findings),
+            ", ".join(f.rule for f in verdict.findings) or verdict.semantic_error,
+        )
+
     assistant_message_id = db.save_message(
         conversation_id,
         actor.user_id,
@@ -228,6 +263,7 @@ def handle_user_message(
         result.text,
         tool_trace=json.dumps(result.trace) if result.trace else None,
     )
+    db.set_message_integrity_check(assistant_message_id, verdict.to_json())
 
     return TurnOutcome(
         conversation_id=conversation_id,
@@ -238,4 +274,5 @@ def handle_user_message(
         iterations=result.iterations,
         stop_reason=result.stop_reason,
         new_conversation=is_new,
+        integrity=verdict,
     )

@@ -439,6 +439,21 @@ def save_message(
     return mid
 
 
+@retry_on_locked
+def set_message_integrity_check(message_id: str, verdict_json: str) -> None:
+    """Record the fabrication gate's verdict for one assistant message.
+
+    Working store only. The archive's shape is frozen, and a verdict is a
+    derived judgment about a message rather than part of the message itself —
+    which is `migrations.py`'s own test for what belongs in working.
+    """
+    with transaction() as conn:
+        conn.execute(
+            "UPDATE messages SET integrity_check = ? WHERE id = ?",
+            (verdict_json, message_id),
+        )
+
+
 def get_conversation_messages(conversation_id: str) -> list[sqlite3.Row]:
     with connection() as conn:
         return conn.execute(
