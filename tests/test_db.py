@@ -55,6 +55,7 @@ def test_working_has_the_expected_tables(store):
             )
         }
     assert names == {
+        "artifacts",
         "schema_version",
         "users",
         "conversations",
@@ -69,16 +70,19 @@ def test_later_phase_tables_are_absent(store):
     """Tables deferred to a later phase of this build.
 
     Distinct from `test_deferred_features_have_no_tables`, which covers features
-    that are out of this build entirely. These two are expected back — `artifacts`
-    in Phase 2, a research-candidate table in Phase 5 — just not designed here.
-    Asserted so re-adding either is a deliberate act with a failing test attached
-    rather than something that drifts back in.
+    that are out of this build entirely. Both were expected back — `artifacts`
+    in Phase 2, a research-candidate table in Phase 5 — just not designed at
+    Phase 1. `artifacts` has now landed (task 2.6, migration 2, designed in
+    `docs/INGESTION_DESIGN.md`); updating this assertion was part of that task.
+    `research_candidates` is still Phase 5's to design fresh.
     """
     with db.connection() as conn:
         names = {
             row["name"] for row in conn.execute("SELECT name FROM main.sqlite_master")
         }
-    assert "artifacts" not in names
+    # `artifacts` arrived on schedule with task 2.6 (migration 2), which is what
+    # this test was waiting to see happen deliberately rather than by drift.
+    assert "artifacts" in names
     assert "research_candidates" not in names
 
 
@@ -125,11 +129,22 @@ def test_foreign_keys_are_enforced(store):
 
 
 def test_init_is_idempotent(store):
+    """Re-running init must not re-record anything.
+
+    Asserts the count does not *grow*, rather than that it equals one: it equals
+    one plus the number of migrations, and pinning that number would make every
+    future migration fail this test for no reason.
+    """
+    def versions():
+        with db.connection() as conn:
+            return conn.execute(
+                "SELECT COUNT(*) AS n FROM schema_version"
+            ).fetchone()["n"]
+
+    before = versions()
     db.init_databases()
     db.init_databases()
-    with db.connection() as conn:
-        rows = conn.execute("SELECT COUNT(*) AS n FROM schema_version").fetchone()["n"]
-    assert rows == 1
+    assert versions() == before
 
 
 # ---------------------------------------------------------------------------

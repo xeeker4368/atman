@@ -940,8 +940,94 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   owns that. The cache is per-process, with no cross-process invalidation.*
 
 ## Artifacts
-- *(nothing yet — the `artifacts` table moves to Phase 2, where the ingestion
-  design drives its shape)*
+
+- `[built]` **`artifacts` table, migration 2** — task 2.6, design of record
+  `docs/INGESTION_DESIGN.md`. Columns per I3, plus `chunks.artifact_id` (O2) so a
+  retrieved document chunk can say which file it came from; `conversation_id` and
+  the message-id columns are NULL for it.
+- `[built]` **Not added to `working.sql`.** That file stays the version 1
+  definition: a change in both places would apply twice on a fresh store, and
+  `ALTER TABLE ADD COLUMN` is not idempotent. `init_databases()` runs
+  `working.sql` then the migrations, so a new database and an existing one reach
+  the same schema by the same path — and **the migration is exercised on every
+  fresh store, including every test run**, rather than once in production. A test
+  asserts `artifacts` never appears in `working.sql`.
+- `[built]` **`extraction_status` is CHECK-constrained** to
+  `extracted | metadata_only | failed`. This is the column task 3.1 needs: "was
+  this file read?" is answerable structurally rather than inferred from whether
+  `extracted_text` happens to be empty — the same distinction `ToolResult` draws
+  between `TIMEOUT` and `TOOL_ERROR`.
+- `[built]` **File ingestion** (`program/artifacts/ingest.py`,
+  `program/artifacts/extract.py`, `POST /api/upload`). Store the bytes, extract
+  what can be read, index what was read.
+- `[built]` **Its own chunking path, the same `chunks` table.**
+  `chunking.py` is turn-shaped and a document has no turns, so `splitting.py`
+  does boundaries, packing goes to `chunking.target_chars` (**not** the 5000
+  embedding budget — document chunks twice the size of conversation chunks would
+  compete for the same retrieval slots as a bigger lexical target and a more
+  diluted embedding), and **embed precedes every write** so an unreachable model
+  leaves nothing half-indexed. Retrieval needed no change: `_attach_siblings`
+  already guards on the message-id columns, so file chunks are skipped rather
+  than mishandled.
+- `[built]` **`source_type="file"`, `source_trust="secondhand"`** (O1). An
+  uploaded document is not the entity's own experience. Nothing assumes
+  otherwise — every consumer was traced, there is no CHECK constraint, and
+  `test_source_trust_does_not_change_ranking` rewrites every chunk's trust and
+  asserts ranking is byte-identical. *`working.sql` names
+  `program/memory/provenance.py` as the vocabulary's owner and that module does
+  not exist; these sit beside `chunking.py`'s pair in the same shape for the
+  unlanded task 1.7 to collect.*
+- `[built]` **A PDF with no text layer is `metadata_only`, never `extracted`
+  with an empty string.** A scan is an image of a page and OCR is out of scope;
+  recording it as extracted-but-empty would make a file that was never read look
+  read. Tested with PDFs **built in the test file**, so "has a text layer" and
+  "has none" are exactly what they claim rather than whatever a download
+  contained.
+- `[built]` **Content type is detected from the bytes, never the upload header**,
+  and **the client's filename never becomes a path** (I6). Tests upload a real
+  PDF named `photo.png` declared `image/png`, and a file called
+  `../../program/integrity/soul.md`; the first is treated as a PDF, the second
+  lands under the artifact directory with no `..` in its path.
+- `[built]` **No capability is registered for uploading**, deliberately. Both
+  household users may upload — `PROJECT.md` and decision #17 exclude settings and
+  research triggering from Jodie, not uploads — so `role` draws no line and
+  `artifacts.upload` would always return True: a gate mounted on nothing.
+  **Ownership is enforced instead**, the axis `turn.py` uses: the uploader is the
+  token's actor. Retrieval stays unfiltered by actor per decision #20.
+- `[built]` **Size limits derived, not guessed.** `max_extracted_chars =
+  1,000,000` is the binding one — 400 chunks x 0.075 s measured embedding =
+  30 s — and `max_upload_bytes = 10,000,000` bounds extraction at the measured
+  0.66 MB/s (~15 s) and 13.5x peak memory (~135 MB). Worst case ~46 s. Two
+  limits because measured text-per-byte differs ~55x between a PDF (1.8%) and
+  plain text (~100%). Over the character limit, extraction **truncates and
+  records that it did** rather than refusing.
+- `[built]` **Backup covers the artifact directory** (O5). Marked `best-effort` —
+  a directory copy outside the databases' read lock — but carrying a note the
+  vector store's does not: **not rebuildable**. Vectors regenerate from `chunks`;
+  an uploaded file exists nowhere else, so its absence would leave a row pointing
+  at nothing. The row's sha256 makes that detectable.
+- `[built]` **The isolation guard covers the artifact directory** — the same trap
+  the backup directory sprang at task 1.14: it resolves from its own config key,
+  so repointing `ANAM_DATA_DIR` does not move it.
+- `[built]` **Verified live end to end**: real server, real login, a real upload
+  indexed into 1 chunk with real embeddings, then `POST /api/chat` answering
+  *"The espresso machine needs descaling every two months, as the water in your
+  location is hard"* from the uploaded file — retrieved with `source_type=file`,
+  `source_trust=secondhand`.
+- `[built]` **pypdf**, the one new dependency. BSD-3, 4.1 MB, one transitive
+  package. Measured against pdfplumber on the same 15-page PDF: **6,022 words
+  against 2,033**, because pdfplumber's default extraction collapses inter-word
+  spacing — and extracted text feeds FTS5 and the embedder, which both tokenise
+  on words. PyMuPDF excluded on licensing (AGPL-3.0 against a public repository)
+  before quality was reached.
+- `[unverified]` **Ingested files have no archive presence** (O4, in `NOW.md`'s
+  backlog). The table is working-db only, because `migrations.py` says a change
+  that seems to need the frozen archive belongs in working instead. "Provenance
+  is sacred" therefore holds more weakly for a document than for a conversation
+  message.
+- **Not built here: the governance blocklist.** Its own BUILD_PLAN row, and it
+  must match by resolved directory rather than filename. Nothing currently stops
+  `soul.md` being uploaded as ordinary memory.
 
 ## Users / households
 
@@ -1110,7 +1196,7 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
 
 ## Eval / observability
 
-- `[built]` **Test suite** — 576 tests passing (`pytest`), `ruff check` clean.
+- `[built]` **Test suite** — 610 tests passing (`pytest`), `ruff check` clean.
   *One known intermittent failure: the backup race test, from the recorded
   `db.py` write-contention issue above.*
   Verified order-independent across repeated full runs.

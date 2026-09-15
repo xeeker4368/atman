@@ -84,15 +84,19 @@ def bench() -> ToolRegistry:
 
 
 def test_the_catalogue_is_exactly_the_tools_that_have_been_built():
-    """web_fetch and ingestion are still later tasks.
+    """File ingestion is still a later task.
 
     Updating this list is part of building a tool, not an afterthought: if it
     fails, either a real tool landed (add it here) or scaffolding leaked out of
     a test file (fix that) — a placeholder would read as built.
     """
     registry.reset_default_registry()
-    assert tuple(tool.name for tool in catalog.TOOLS) == ("memory_search", "web_search")
-    assert registry.default_registry().names == ("memory_search", "web_search")
+    assert tuple(tool.name for tool in catalog.TOOLS) == (
+        "memory_search", "web_search", "web_fetch",
+    )
+    assert registry.default_registry().names == (
+        "memory_search", "web_fetch", "web_search",
+    )
 
 
 def test_the_catalogue_is_reachable_from_every_import_direction():
@@ -103,9 +107,10 @@ def test_the_catalogue_is_reachable_from_every_import_direction():
     import subprocess
     import sys
 
-    expected = "('memory_search', 'web_search')"
+    expected = "('memory_search', 'web_fetch', 'web_search')"
     for first in ("program.tools.memory_search", "program.tools.web_search",
-                  "program.tools.registry", "program.tools.catalog"):
+                  "program.tools.web_fetch", "program.tools.registry",
+                  "program.tools.catalog"):
         proc = subprocess.run(
             [sys.executable, "-c",
              f"import {first}; from program.tools import registry; "

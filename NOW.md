@@ -172,6 +172,17 @@ Interpretation Trace Runtime, Temporal Runtime Headers (beyond the
 elapsed-time statement), Web Source Runtime, orchestrator/contradiction-
 detection agent, public internet exposure.
 
+**Ingested files have no archive presence** (INGESTION_DESIGN O4, 2026-09-08).
+The `artifacts` table lives in `working.db` only, because `migrations.py` says
+the archive's shape is frozen and *"if a change seems to require altering the
+archive, that is a signal the field belongs in working.db instead."* The
+consequence, recorded rather than left implied: an uploaded file's row does not
+get the archive's append-only protection the way a conversation message does.
+The durable original is the file on disk (now covered by backup), and the
+extracted text is reproducible from it — but "provenance is sacred" holds more
+weakly here than elsewhere. Revisit if ingested documents turn out to carry the
+kind of history the archive exists to protect.
+
 **Retrieval floor calibration** — floors ship permissive/uncalibrated by
 design (see `BUILD_PLAN.md` Phase 1 notes). Once real conversation history
 exists in meaningful volume, calibrate actual threshold values and verify

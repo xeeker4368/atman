@@ -501,6 +501,7 @@ def insert_chunk(
     chunk_index: int | None = None,
     first_message_id: str | None = None,
     last_message_id: str | None = None,
+    artifact_id: str | None = None,
 ) -> None:
     """Write one chunk row. The FTS index follows via trigger, same transaction.
 
@@ -514,13 +515,89 @@ def insert_chunk(
             """INSERT INTO chunks
                    (id, conversation_id, user_id, text, source_type, source_trust,
                     chunk_index, first_message_id, last_message_id, text_sha256,
-                    created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    artifact_id, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 chunk_id, conversation_id, user_id, text, source_type, source_trust,
-                chunk_index, first_message_id, last_message_id, text_sha256, now, now,
+                chunk_index, first_message_id, last_message_id, text_sha256,
+                artifact_id, now, now,
             ),
         )
+
+
+# ---------------------------------------------------------------------------
+# Artifacts (task 2.6). Design of record: docs/INGESTION_DESIGN.md.
+# ---------------------------------------------------------------------------
+
+
+@retry_on_locked
+def insert_artifact(
+    *,
+    artifact_id: str,
+    user_id: str,
+    filename: str,
+    content_type: str,
+    size_bytes: int,
+    sha256: str,
+    storage_path: str,
+    artifact_type: str,
+    extraction_status: str,
+    extracted_text: str | None = None,
+    extraction_note: str | None = None,
+) -> None:
+    """Record one ingested file. Working store only — see INGESTION_DESIGN I2.
+
+    Keyword-only for the same reason ``insert_chunk`` is: eleven columns, several
+    of them strings that would be silently interchangeable positionally.
+    """
+    with transaction() as conn:
+        conn.execute(
+            """INSERT INTO artifacts
+                   (id, user_id, filename, content_type, size_bytes, sha256,
+                    storage_path, artifact_type, extraction_status,
+                    extracted_text, extraction_note, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (artifact_id, user_id, filename, content_type, size_bytes, sha256,
+             storage_path, artifact_type, extraction_status, extracted_text,
+             extraction_note, now_iso()),
+        )
+
+
+def get_artifact(artifact_id: str) -> sqlite3.Row | None:
+    with connection() as conn:
+        return conn.execute(
+            "SELECT * FROM artifacts WHERE id = ?", (artifact_id,)
+        ).fetchone()
+
+
+def get_artifact_by_hash(sha256: str, user_id: str) -> sqlite3.Row | None:
+    """An identical file already uploaded by this user, if there is one."""
+    with connection() as conn:
+        return conn.execute(
+            "SELECT * FROM artifacts WHERE sha256 = ? AND user_id = ? "
+            "ORDER BY created_at LIMIT 1",
+            (sha256, user_id),
+        ).fetchone()
+
+
+def list_artifacts(user_id: str | None = None) -> list[sqlite3.Row]:
+    with connection() as conn:
+        if user_id is None:
+            return conn.execute(
+                "SELECT * FROM artifacts ORDER BY created_at DESC"
+            ).fetchall()
+        return conn.execute(
+            "SELECT * FROM artifacts WHERE user_id = ? ORDER BY created_at DESC",
+            (user_id,),
+        ).fetchall()
+
+
+def get_artifact_chunks(artifact_id: str) -> list[sqlite3.Row]:
+    with connection() as conn:
+        return conn.execute(
+            "SELECT * FROM chunks WHERE artifact_id = ? ORDER BY chunk_index",
+            (artifact_id,),
+        ).fetchall()
 
 
 @retry_on_locked

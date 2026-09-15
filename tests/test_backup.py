@@ -8,7 +8,7 @@ import time
 
 import pytest
 
-from program.memory import db
+from program.memory import db, migrations
 from program.ops import backup
 
 
@@ -167,7 +167,9 @@ def test_the_manifest_records_counts_hashes_and_guarantees(populated):
 
     assert manifest["row_counts"]["working.messages"] == 12
     assert manifest["row_counts"]["archive.messages"] == 12
-    assert manifest["schema_version"] == 1
+    # The current version, not a literal: a migration legitimately moves it,
+    # and what matters is that the manifest records what was captured.
+    assert manifest["schema_version"] == migrations.current_version()
     assert manifest["source"]["working_db"] == str(db.working_path())
 
     artifacts = {a["name"]: a for a in manifest["artifacts"]}
@@ -250,3 +252,35 @@ def test_writers_are_only_blocked_for_the_snapshot_not_afterwards(populated):
     db.save_message(cid, uid, "user", "after the backup")
 
     assert db.count_messages() == (13, 13)
+
+
+# --- Uploaded files (task 2.6, INGESTION_DESIGN O5) --------------------------
+
+
+def test_the_artifact_directory_is_captured(populated):
+    """Unlike the vector store, an uploaded file is not rebuildable.
+
+    Without this, a restore produces artifacts rows whose storage_path points at
+    nothing — rows claiming a file the restored system does not have.
+    """
+    from program import config
+
+    artifact_dir = config.artifact_dir()
+    (artifact_dir / "ab").mkdir(parents=True, exist_ok=True)
+    (artifact_dir / "ab" / "abcdef").write_bytes(b"an uploaded file")
+
+    result = backup.create_backup()
+
+    captured = {a.name for a in result.artifacts}
+    assert "artifacts" in captured, f"artifact directory not captured: {captured}"
+    entry = next(a for a in result.artifacts if a.name == "artifacts")
+    assert entry.consistency == backup.BEST_EFFORT
+    assert "NOT rebuildable" in entry.note
+
+
+def test_a_backup_without_an_artifact_directory_warns_rather_than_fails(populated):
+    """Expected until the first upload; it must not fail the backup."""
+    result = backup.create_backup()
+
+    assert "artifacts" not in {a.name for a in result.artifacts}
+    assert any("artifact directory" in w for w in result.warnings)

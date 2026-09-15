@@ -43,6 +43,7 @@ _FALLBACK: dict[str, Any] = {
         "data_dir": "data",
         "workspace_dir": "workspace",
         "backup_dir": "backups",
+        "artifact_dir": "data/artifacts",
     },
     "api": {
         "host": "127.0.0.1",
@@ -72,6 +73,21 @@ _FALLBACK: dict[str, Any] = {
     },
     "tools": {
         "default_timeout_seconds": 30.0,
+    },
+    "searxng": {
+        "url": "http://127.0.0.1:8080",
+        "timeout_seconds": 10.0,
+        "max_results": 6,
+    },
+    "ingestion": {
+        "max_upload_bytes": 10_000_000,
+        "max_extracted_chars": 1_000_000,
+    },
+    "web_fetch": {
+        "total_timeout_seconds": 20.0,
+        "max_redirects": 3,
+        "max_download_bytes": 2_000_000,
+        "max_text_chars": 3500,
     },
     "chunking": {
         "target_chars": 2500,
@@ -123,6 +139,11 @@ _ENV_MAP: dict[str, tuple[str, str, str]] = {
     "ANAM_DATA_DIR": ("paths", "data_dir", "str"),
     "ANAM_WORKSPACE_DIR": ("paths", "workspace_dir", "str"),
     "ANAM_BACKUP_DIR": ("paths", "backup_dir", "str"),
+    "ANAM_ARTIFACT_DIR": ("paths", "artifact_dir", "str"),
+    "ANAM_INGESTION_MAX_UPLOAD_BYTES": ("ingestion", "max_upload_bytes", "int"),
+    "ANAM_INGESTION_MAX_EXTRACTED_CHARS": (
+        "ingestion", "max_extracted_chars", "int",
+    ),
     "ANAM_API_HOST": ("api", "host", "str"),
     "ANAM_API_PORT": ("api", "port", "int"),
     "ANAM_OLLAMA_HOST": ("ollama", "host", "str"),
@@ -138,6 +159,15 @@ _ENV_MAP: dict[str, tuple[str, str, str]] = {
     "ANAM_AGENT_TOOL_BUDGET_SECONDS": ("agent", "tool_budget_seconds", "float"),
     "ANAM_AGENT_MAX_TOOL_RESULT_CHARS": ("agent", "max_tool_result_chars", "int"),
     "ANAM_TOOL_DEFAULT_TIMEOUT_SECONDS": ("tools", "default_timeout_seconds", "float"),
+    "ANAM_SEARXNG_URL": ("searxng", "url", "str"),
+    "ANAM_SEARXNG_TIMEOUT_SECONDS": ("searxng", "timeout_seconds", "float"),
+    "ANAM_SEARXNG_MAX_RESULTS": ("searxng", "max_results", "int"),
+    "ANAM_WEB_FETCH_TOTAL_TIMEOUT_SECONDS": (
+        "web_fetch", "total_timeout_seconds", "float",
+    ),
+    "ANAM_WEB_FETCH_MAX_REDIRECTS": ("web_fetch", "max_redirects", "int"),
+    "ANAM_WEB_FETCH_MAX_DOWNLOAD_BYTES": ("web_fetch", "max_download_bytes", "int"),
+    "ANAM_WEB_FETCH_MAX_TEXT_CHARS": ("web_fetch", "max_text_chars", "int"),
     "ANAM_CHUNK_TARGET_CHARS": ("chunking", "target_chars", "int"),
     "ANAM_CHUNK_MAX_TURNS": ("chunking", "max_turns", "int"),
     "ANAM_DB_BUSY_TIMEOUT_SECONDS": ("database", "busy_timeout_seconds", "int"),
@@ -293,6 +323,17 @@ def data_dir() -> Path:
 def workspace_dir() -> Path:
     """Workspace root for artifacts. Bootstrap-only."""
     return _resolve_path(get("paths", "workspace_dir", "workspace"))
+
+
+def artifact_dir() -> Path:
+    """Where uploaded files are stored. Separate from workspace/ on purpose.
+
+    ``workspace/`` is the entity's own output (decision #10's creative writing);
+    this holds files people hand it. Keeping them apart means the go-live wipe
+    and the governance blocklist can treat them differently without unpicking
+    one directory.
+    """
+    return _resolve_path(get("paths", "artifact_dir", "data/artifacts"))
 
 
 def backup_dir() -> Path:
@@ -487,6 +528,120 @@ def tool_default_timeout_seconds() -> float:
             f"tools.default_timeout_seconds is {value}; it must be positive. "
             f"There is no unbounded setting: an unbounded tool makes the turn "
             f"unbounded, and the idle-close floor assumes a bounded turn."
+        )
+    return value
+
+
+# --- SearXNG (task 2.4) -----------------------------------------------------
+#
+# ``searxng.url`` is BOOTSTRAP-ONLY, for the same reason ``ollama.host`` is: it
+# is a service endpoint, not a tuning value. It is also the setting decision #9
+# describes as wanting a Check/Verify button once an admin panel exists — that
+# is the panel task's to build, and it is recorded here rather than half-built.
+
+
+def searxng_url() -> str:
+    """Base URL of the local SearXNG instance. Loopback by design."""
+    return str(get("searxng", "url", "http://127.0.0.1:8080")).rstrip("/")
+
+
+def searxng_timeout_seconds() -> float:
+    """How long one HTTP request to SearXNG may take before it is abandoned."""
+    value = float(get("searxng", "timeout_seconds", 10.0))
+    if value <= 0:
+        raise ConfigError(
+            f"searxng.timeout_seconds is {value}; it must be positive. A search "
+            f"with no timeout makes the turn unbounded."
+        )
+    return value
+
+
+def searxng_max_results() -> int:
+    """How many results are rendered for the model, after our own score sort."""
+    value = int(get("searxng", "max_results", 6))
+    if value < 1:
+        raise ConfigError(
+            f"searxng.max_results is {value}; it must be at least 1. Zero would "
+            f"make every search report nothing found, which is not the same "
+            f"thing as disabling the tool."
+        )
+    return value
+
+
+# --- Ingestion (task 2.6) ---------------------------------------------------
+
+
+def ingestion_max_upload_bytes() -> int:
+    """Largest file accepted. Bounds extraction time and peak memory."""
+    value = int(get("ingestion", "max_upload_bytes", 10_000_000))
+    if value < 1:
+        raise ConfigError(
+            f"ingestion.max_upload_bytes is {value}; it must be at least 1."
+        )
+    return value
+
+
+def ingestion_max_extracted_chars() -> int:
+    """Ceiling on extracted text. Bounds how many chunks one upload embeds.
+
+    The binding constraint, not the byte limit: extracted characters per byte
+    differ by ~55x between a PDF and a plain text file, so this is what actually
+    bounds the work. See config/defaults.toml for the arithmetic.
+    """
+    value = int(get("ingestion", "max_extracted_chars", 1_000_000))
+    if value < 1:
+        raise ConfigError(
+            f"ingestion.max_extracted_chars is {value}; it must be at least 1."
+        )
+    return value
+
+
+# --- web_fetch (task 2.5) ---------------------------------------------------
+#
+# None of these is settings-backed. The two that bound a turn feed the tool's
+# declared timeout, and the two that bound content feed a render that
+# agent.max_tool_result_chars must not have to truncate.
+
+
+def web_fetch_total_timeout_seconds() -> float:
+    """Wall-clock ceiling for one fetch, redirects included."""
+    value = float(get("web_fetch", "total_timeout_seconds", 20.0))
+    if value <= 0:
+        raise ConfigError(
+            f"web_fetch.total_timeout_seconds is {value}; it must be positive. "
+            f"A fetch with no ceiling makes the turn unbounded, and the remote "
+            f"server is the only other thing that would end it."
+        )
+    return value
+
+
+def web_fetch_max_redirects() -> int:
+    """Redirect hops followed. Every hop is re-validated; 0 disables following."""
+    value = int(get("web_fetch", "max_redirects", 3))
+    if value < 0:
+        raise ConfigError(
+            f"web_fetch.max_redirects is {value}; it must not be negative. Use 0 "
+            f"to refuse redirects entirely."
+        )
+    return value
+
+
+def web_fetch_max_download_bytes() -> int:
+    """Ceiling on bytes read from a response body."""
+    value = int(get("web_fetch", "max_download_bytes", 2_000_000))
+    if value < 1:
+        raise ConfigError(
+            f"web_fetch.max_download_bytes is {value}; it must be at least 1."
+        )
+    return value
+
+
+def web_fetch_max_text_chars() -> int:
+    """Ceiling on extracted text handed to the model."""
+    value = int(get("web_fetch", "max_text_chars", 3500))
+    if value < 1:
+        raise ConfigError(
+            f"web_fetch.max_text_chars is {value}; it must be at least 1."
         )
     return value
 

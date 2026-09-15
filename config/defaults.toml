@@ -185,6 +185,93 @@ max_tool_result_chars = 4000
 # from `tool_error`, which means it ran and failed.
 default_timeout_seconds = 30.0
 
+[searxng]
+# The local SearXNG instance behind the `web_search` tool (task 2.4).
+#
+# LOOPBACK, DELIBERATELY. This is a search proxy for the backend on this
+# machine; no other device needs it. The running instance was found bound to
+# 0.0.0.0 and reachable from every device on the LAN (verified with a real
+# request from 192.168.0.82, not inferred from the binding) and was rebound.
+# PROJECT.md's LAN-only scope is about the Anam frontend; it is not a licence
+# for every service this build stands up to be LAN-reachable too.
+#
+# Bootstrap-only, like ollama.host: a service endpoint rather than a tuning
+# value. Decision #9's Check/Verify button would apply to it once an admin panel
+# exists; that is the panel task's, and is not half-built here.
+url = "http://127.0.0.1:8080"
+
+# How long one HTTP request to SearXNG may take.
+#
+# DERIVED from what SearXNG enforces for itself, not guessed. Its own
+# `outgoing.request_timeout` is 3.0s per upstream engine and engines are queried
+# in parallel, so its internal work is bounded at ~3s regardless of how many
+# engines are enabled.
+#
+# MEASURED 2026-09-08 over five real queries against the live instance:
+# 0.5s, 0.7s, 0.9s round trip, 23-27 results each.
+#
+# 10s is ~3x SearXNG's own internal ceiling and ~11x the measured worst case.
+# The margin covers a container paging back in after idle and an engine list
+# that grows over time. The TOOL's declared timeout is 15s, deliberately above
+# this one, so a hung request surfaces as a specific "did not respond within
+# 10s" error rather than as an uninformative tool-level timeout.
+timeout_seconds = 10.0
+
+# How many results are rendered for the model, after sorting by score here.
+#
+# DERIVED, and the binding constraint is context, not taste: it is the largest
+# N whose WORST CASE provably fits under agent.max_tool_result_chars (4000),
+# which is where the agent loop truncates a tool result.
+#
+# MEASURED from a real 27-result response (2026-09-08):
+#   title    median  57  max 109
+#   url      median  70  max 116
+#   content  median 214  max 444, and EMPTY on 1 of 27
+# With content rendered at most 300 chars (see web_search.py), a worst-case
+# result renders in ~537 chars:
+#   N=6  worst 3222 + header/notes ~430  = ~3652   fits
+#   N=7  worst 3759 + header/notes ~430  = ~4189   does not
+# So 6. Raw responses carry 23-27 results; rendering them all would run ~10,000
+# characters and be truncated mid-result by the loop, which is a worse outcome
+# than choosing the cap deliberately.
+max_results = 6
+
+[ingestion]
+# File/artifact ingestion (task 2.6). Design: docs/INGESTION_DESIGN.md.
+#
+# TWO limits, because one number cannot bound this. MEASURED 2026-09-08, the
+# text a file yields per byte differs by ~55x between formats:
+#   PDF  (arXiv 1706.03762, 2.2 MB, 15 pages)  39,510 chars  = 1.8% of bytes
+#   plain text                                                 ~100% of bytes
+# A byte limit sized for PDFs would let a 10 MB text file produce 10 million
+# characters. So bytes bound extraction cost, and characters bound indexing
+# cost, which is the one that dominates.
+
+# Largest file accepted.
+#
+# DERIVED from measured extraction throughput. pypdf read the 2.2 MB test PDF in
+# 3.33 s = 0.66 MB/s, at a peak of 29.7 MB for a 2.2 MB file (13.5x).
+#   10 MB / 0.66 MB/s  = ~15 s of extraction, the worst case
+#   10 MB x 13.5       = ~135 MB peak, acceptable beside a 17 GB resident model
+max_upload_bytes = 10000000
+
+# Ceiling on extracted text, and therefore on chunks and embedding calls.
+#
+# DERIVED from measured embedding cost, which dominates everything else:
+#   embed one 2500-char chunk        0.075 s median over 6 runs (max 0.373 cold)
+#   insert one chunk row             0.0006 s  (60 inserts in 0.03 s)
+# 1,000,000 chars / chunking.target_chars (2500) = 400 chunks
+#   400 x 0.075 s = 30.0 s embedding
+#   400 x 0.0006  =  0.2 s writing
+# Worst-case whole ingestion = 15 s extraction + 30 s embedding + 0.2 s writes
+#                            = ~46 s, inside a ~60 s target for a synchronous
+#                              upload someone is waiting on.
+#
+# Over this, extraction is TRUNCATED rather than the upload refused, and
+# artifacts.extraction_note records that it was — a book-length PDF should be
+# partly ingested with the truncation on the record, not rejected outright.
+max_extracted_chars = 1000000
+
 [database]
 # Write contention. See docs/DB_CONTENTION_DESIGN.md for the measurements.
 #

@@ -251,6 +251,48 @@ def _copy_vector_store(destination: Path, warnings: list[str]) -> BackupArtifact
     )
 
 
+def _copy_artifacts(destination: Path, warnings: list[str]) -> BackupArtifact | None:
+    """Copy the uploaded-file directory. Task 2.6 (INGESTION_DESIGN O5).
+
+    **This one is not derived and cannot be rebuilt.** The ChromaDB copy above is
+    best-effort because vectors can be regenerated from the chunks table; an
+    uploaded file has no such source. Without this, a restore would produce
+    ``artifacts`` rows whose ``storage_path`` points at nothing — rows claiming a
+    file that the restored system does not have.
+
+    Still ``best-effort`` in the manifest rather than ``transactional``, honestly:
+    it is a directory copy taken outside the databases' read lock, so a file
+    uploaded mid-backup may or may not be in it. What that risks is a *missing*
+    file beside its row, not a corrupt one — and the row records the sha256, so
+    a mismatch is detectable rather than silent.
+    """
+    source = config.artifact_dir()
+    if not source.exists():
+        warnings.append(
+            f"no artifact directory at {source}; nothing to copy. Expected "
+            f"until the first file is uploaded."
+        )
+        return None
+
+    target = destination / "artifacts"
+    shutil.copytree(source, target)
+    files = [p for p in target.rglob("*") if p.is_file()]
+    return BackupArtifact(
+        name="artifacts",
+        relative_path="artifacts",
+        size_bytes=sum(p.stat().st_size for p in files),
+        consistency=BEST_EFFORT,
+        note=(
+            f"Directory copy of {len(files)} uploaded file(s). NOT captured "
+            f"under the databases' read lock, so a file uploaded during the "
+            f"backup may be absent. Unlike the vector store this is NOT "
+            f"rebuildable — an uploaded file exists nowhere else — so its "
+            f"absence would leave an artifacts row pointing at nothing. Each "
+            f"row records a sha256, which makes that detectable."
+        ),
+    )
+
+
 def create_backup(
     destination: Path | None = None,
     include_vectors: bool = True,
@@ -289,6 +331,10 @@ def create_backup(
                 artifacts.append(vector_artifact)
         else:
             warnings.append("vector store skipped at the caller's request")
+
+        artifact_files = _copy_artifacts(target, warnings)
+        if artifact_files is not None:
+            artifacts.append(artifact_files)
     except Exception as exc:
         raise BackupError(f"backup to {target} failed: {exc}") from exc
 

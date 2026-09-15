@@ -47,7 +47,76 @@ class Migration:
 INITIAL_VERSION = 1
 INITIAL_NAME = "initial_schema"
 
-MIGRATIONS: list[Migration] = []
+def _v2_artifacts(conn: sqlite3.Connection) -> None:
+    """Version 2 — ingested files. Design of record: ``docs/INGESTION_DESIGN.md``.
+
+    **Not added to ``working.sql``**, deliberately. That file is the version 1
+    definition and stays that way; a change made in both places would apply
+    twice on a fresh store, and ``ALTER TABLE ADD COLUMN`` is not idempotent.
+    ``init_databases()`` runs ``working.sql`` and then this, so a brand-new
+    database and a database created before this task both arrive at the same
+    schema by the same path — which also means this migration is exercised on
+    every fresh store, including every test run, rather than once in production.
+    """
+    conn.execute(
+        """
+        CREATE TABLE artifacts (
+            id                TEXT PRIMARY KEY,
+            -- Uploader. NOT NULL: an artifact with nobody behind it is not a
+            -- state this system should be able to represent.
+            user_id           TEXT NOT NULL,
+            -- As supplied by the client. UNTRUSTED — never used to build a
+            -- path (see program/artifacts/ingest.py). Kept because it is what
+            -- the person calls the file.
+            filename          TEXT NOT NULL,
+            -- Detected from content, not taken from the upload header, which
+            -- the client controls.
+            content_type      TEXT NOT NULL,
+            size_bytes        INTEGER NOT NULL,
+            -- Of the stored bytes. Same role as chunks.text_sha256: detects a
+            -- file changing underneath the rows derived from it.
+            sha256            TEXT NOT NULL,
+            -- RELATIVE to config.artifact_dir(). An absolute path breaks the
+            -- moment the store moves, and a backup is restored elsewhere.
+            storage_path      TEXT NOT NULL,
+            -- Decision #10 already uses this word for creative writing; Phase 4
+            -- adds generated images. Deliberately not CHECK-constrained, for
+            -- chunks.source_type's reason: a new kind should not need a
+            -- migration.
+            artifact_type     TEXT NOT NULL,
+            -- Whether the content was actually read. CHECK-constrained because
+            -- the vocabulary is closed and small, as users.role is. This is what
+            -- makes "was this file read?" answerable structurally instead of
+            -- inferred from whether extracted_text happens to be empty — the
+            -- distinction task 3.1 needs, and the same one ToolResult draws
+            -- between TIMEOUT and TOOL_ERROR.
+            extraction_status TEXT NOT NULL
+                CHECK (extraction_status IN ('extracted', 'metadata_only', 'failed')),
+            -- NULL unless extraction_status = 'extracted'.
+            extracted_text    TEXT,
+            -- Why, when a file was not read. A file that was not read must be
+            -- able to say why.
+            extraction_note   TEXT,
+            created_at        TEXT NOT NULL,
+            FOREIGN KEY (user_id) REFERENCES users(id)
+        )
+        """
+    )
+    conn.execute("CREATE INDEX idx_artifacts_user ON artifacts(user_id)")
+    conn.execute("CREATE INDEX idx_artifacts_sha256 ON artifacts(sha256)")
+    conn.execute("CREATE INDEX idx_artifacts_type ON artifacts(artifact_type)")
+
+    # The link a document chunk needs, symmetric with conversation_id. Without
+    # it a retrieved file chunk cannot say which file it came from, and
+    # first_message_id/last_message_id are meaningless for a document — so
+    # provenance would be returned (D6) with nothing in it.
+    conn.execute("ALTER TABLE chunks ADD COLUMN artifact_id TEXT REFERENCES artifacts(id)")
+    conn.execute("CREATE INDEX idx_chunks_artifact ON chunks(artifact_id)")
+
+
+MIGRATIONS: list[Migration] = [
+    Migration(version=2, name="artifacts_and_chunk_link", apply=_v2_artifacts),
+]
 
 
 def _applied_versions(conn: sqlite3.Connection) -> set[int]:

@@ -33,11 +33,17 @@ REAL_CHROMA_DIR = vectors.chroma_path()
 # test that forgot to repoint it wrote two real backup directories into the
 # repo before this guard existed.
 REAL_BACKUP_DIR = str(config.backup_dir())
+# Added with file ingestion (task 2.6): a fourth real location, and the same
+# trap as the backup directory — it resolves from its own config key, so
+# repointing ANAM_DATA_DIR does not move it, even though its default sits inside
+# `data/`. Uploaded files are the one thing here that cannot be regenerated.
+REAL_ARTIFACT_DIR = str(config.artifact_dir())
 
 # Whether they were already there. A store that predates the run is the
 # operator's, not evidence of a leak.
 _DATA_DIR_PREEXISTED = os.path.exists(REAL_DATA_DIR)
 _CHROMA_DIR_PREEXISTED = os.path.exists(REAL_CHROMA_DIR)
+_ARTIFACT_DIR_PREEXISTED = os.path.exists(REAL_ARTIFACT_DIR)
 _BACKUP_DIR_PREEXISTED = os.path.exists(REAL_BACKUP_DIR)
 
 _violations: list[str] = []
@@ -64,6 +70,10 @@ def _guard_runtime_store():
         _violations.append(f"the real vector store was created: {REAL_CHROMA_DIR}")
     if not _BACKUP_DIR_PREEXISTED and os.path.exists(REAL_BACKUP_DIR):
         _violations.append(f"the real backup directory was created: {REAL_BACKUP_DIR}")
+    if not _ARTIFACT_DIR_PREEXISTED and os.path.exists(REAL_ARTIFACT_DIR):
+        _violations.append(
+            f"the real artifact directory was created: {REAL_ARTIFACT_DIR}"
+        )
 
     if _violations:
         raise StoreIsolationViolation(
@@ -84,6 +94,9 @@ def isolated_data_dir(tmp_path, monkeypatch):
     # The backup directory resolves from its own config key, so repointing the
     # data directory alone leaves backups writing into the real one.
     monkeypatch.setenv("ANAM_BACKUP_DIR", str(tmp_path / "backups"))
+    # Same reason as the backup directory: its own key, so isolating the data
+    # directory leaves it pointing at the real one.
+    monkeypatch.setenv("ANAM_ARTIFACT_DIR", str(tmp_path / "artifacts"))
     config.reload()
     # Stores are cached per resolved path, so clearing here means this test gets
     # its own vector store rather than one another test built for another path.
@@ -91,5 +104,6 @@ def isolated_data_dir(tmp_path, monkeypatch):
     yield tmp_path
     monkeypatch.delenv("ANAM_DATA_DIR", raising=False)
     monkeypatch.delenv("ANAM_BACKUP_DIR", raising=False)
+    monkeypatch.delenv("ANAM_ARTIFACT_DIR", raising=False)
     config.reload()
     vectors.reset_vector_store()

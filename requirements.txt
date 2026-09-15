@@ -9,6 +9,15 @@ python-multipart
 # HTTP client (Ollama, and later SearXNG)
 requests
 
+# PDF text extraction (task 2.6, decision #11). BSD-3-Clause, one transitive
+# dependency, 4.1 MB installed. Chosen over pdfplumber on a measured comparison:
+# 6,022 words against 2,033 on the same 15-page PDF, because pdfplumber's
+# default extraction collapses inter-word spacing — and extracted text feeds
+# FTS5 and the embedder, which both tokenise on words. PyMuPDF was excluded on
+# licensing (AGPL-3.0 against a public repo) before quality was reached. Full
+# comparison: docs/INGESTION_DESIGN.md I7.
+pypdf
+
 # Vector store (task 1.4). Local, on-disk; no server process.
 chromadb
 
