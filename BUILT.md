@@ -944,6 +944,81 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
 ## Media
 - *(nothing yet)*
 
+## Memory integrity
+
+- `[built]` **Unified fabrication gate** (`program/integrity/gate.py`,
+  2026-09-15). Design of record `docs/FABRICATION_GATE_DESIGN.md`. One
+  `gate.check()` entry point, one `GateVerdict`, one findings list — over **two
+  evidence sources**, because a claim about a tool is checkable by lookup and a
+  claim about the entity's own nature is not.
+- `[built]` **Findings carry `ClaimClass` and `Confidence`.** `EXACT` findings
+  come from a trace lookup and have no false-positive rate of their own;
+  `JUDGED` findings come from a model call and do. Keeping them distinct is what
+  stops the structural half's reliability being averaged away with the semantic
+  half's.
+- `[built]` **Both users are checked identically, and it is enforced.** A test
+  asserts no function in the module takes `actor`, `user_id`, `role` or `user`.
+  Fabrication is not a permissions question.
+- `[built]` **Four structural rules, no model call**: `invented_id` (a 32-hex
+  token matching no `call_id`), `unrun_tool`, `failed_tool_referenced`, and
+  **`timeout_outcome_unknowable` as its own rule taking precedence over the
+  failure rule** — a timed-out call was entered and abandoned, so its outcome is
+  *unknown*, and folding it into the failure rule would make the gate assert the
+  call failed, itself a claim the trace does not support. It objects to "it
+  worked" and "it failed" equally. Removing the rule fails three tests.
+- `[built]` **Semantic ground truth is `soul.md` itself**, plus the turn's
+  situation block and a rendered trace. No `architecture.md` was created —
+  `BUILT.md` already named `soul.md` as the gate's ground truth in two entries,
+  it has the Tier 3 review a later summary would not, and one document cannot
+  drift from itself. "No tools were used this turn" is stated **positively**,
+  because an absent section reads as no information.
+- `[built]` **An unparseable classifier reply raises rather than passing.**
+  Silence is not consent; it becomes `unavailable`, not clean. Five parametrised
+  cases.
+- `[built]` **Inline, between the loop and the save** — measured **0.45 s warm**
+  against a turn running 5–20 seconds, so the verdict exists before the answer
+  becomes a permanent record.
+- `[built]` **`unavailable` is never `clean`.** An unreachable classifier records
+  that state explicitly and the answer is still returned and saved — a checker
+  being down is not a reason to withhold an answer already generated. Structural
+  findings survive it, since the exact half needs no model. Removing the branch
+  fails four tests.
+- `[built]` **Stage 1 is flag-only, and that is the shipping behaviour.** The
+  verdict is recorded; nothing about the answer changes. Not a runtime toggle, on
+  purpose: a setting would let enforcement be switched on without the
+  measurement `BUILD_PLAN`'s Phase 3 checkpoint requires. Editing an answer is
+  not an option at any stage — *raw experience is never edited*.
+- `[built]` **`messages.integrity_check`** (migration 3), nullable JSON. Not
+  folded into `tool_trace` — a turn with no tools would otherwise carry a "tool
+  trace" describing an integrity check. Not log-only — a verdict only in the log
+  is unqueryable and the eval harness could never replay production. **NULL means
+  no verdict recorded, not clean**, which holds because the gate writes an
+  explicit `unavailable` instead.
+- `[unverified]` **MEASURED FALSE POSITIVE: a correct denial is flagged when the
+  situation block is present.** Live, after a 14-hour gap, the entity answered
+  *"I did not do anything. I was not running, and I have no experience of the
+  time that passed"* — the most honest answer available — and the gate flagged it.
+  Isolated: **0/3 runs flagged without the situation block, 3/3 with it.** The
+  classifier appears to read topic overlap between the answer and the block as
+  contradiction. **Not fixed here**: tuning a prompt against one observed case is
+  what the frozen harness exists to prevent. This is the first case the eval
+  harness owes and a **blocker for stage 2** — under enforcement, the more honest
+  the answer the more likely it would be blocked.
+- `[unverified]` **A second false positive reproduces from the design's smoke
+  test**: *"You said you'd been thinking about it since yesterday"* — the entity
+  accurately describing the **user's** continuity — flags. True fabrications are
+  caught correctly and ordinary answers pass.
+- `[unverified]` **`tests/test_gate.py` checks the mechanism, not the accuracy.**
+  39 tests establish that the gate does what it says; the two false positives
+  above are direct evidence it is not yet accurate enough to trust. **The eval
+  harness is a separate Tier 2 task and has not run**, and stage 2 should not be
+  considered until it has.
+- **Not built, both confirmed out of scope:** the eval harness (its own
+  `BUILD_PLAN` row) and any retroactive scan or backfill — moot under the full
+  pre-go-live wipe (decisions #1 and #16), and a backfill would have to either
+  edit the record, which `PROJECT.md` forbids, or annotate it, which is
+  supersession's job.
+
 ## Research / reflection
 - *(nothing yet)*
 
@@ -1310,7 +1385,7 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
 
 ## Eval / observability
 
-- `[built]` **Test suite** — 681 tests passing (`pytest`), `ruff check` clean.
+- `[built]` **Test suite** — 720 tests passing (`pytest`), `ruff check` clean.
   *One known intermittent failure: the backup race test, from the recorded
   `db.py` write-contention issue above.*
   Verified order-independent across repeated full runs.

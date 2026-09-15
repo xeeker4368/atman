@@ -94,11 +94,20 @@ idle_close_minutes = 15
 #                                       + database.busy_timeout_seconds
 #   retrieval embedding          300 s  ollama.timeout_seconds
 #   L model calls               1500 s  agent.max_iterations x ollama.timeout_seconds
+#   fabrication gate classifier  300 s  ollama.timeout_seconds (Phase 3)
 #   tool execution, aggregate    120 s  agent.tool_budget_seconds
 #   persist the assistant reply   40 s  as above
 #   idle sweep                     0 s  runs AFTER the response, in the background
 #                              -------
-#                               2000 s  = 33.3 min  -> floor 34
+#                               2300 s  = 38.3 min  -> floor 39
+#
+# RE-DERIVED AGAIN 2026-09-15 when the fabrication gate added a sixth model call
+# to the turn (docs/FABRICATION_GATE_DESIGN.md F3). The gate is MEASURED at
+# 0.45 s warm; the 300 s above is the enforced ceiling it inherits from
+# ollama.timeout_seconds, not what it costs. Giving the classifier its own
+# shorter timeout would bring the floor back toward 34 — flagged as a possible
+# tightening, not taken here, because it is a change to a setting the gate does
+# not own.
 #
 # The floor lives in program/config.py as IN_FLIGHT_GRACE_FLOOR_MINUTES, and
 # tests/test_idle.py recomputes this arithmetic from the live config values
@@ -112,11 +121,12 @@ idle_close_minutes = 15
 # previous 20-minute floor. The placeholder was under even on measured numbers,
 # not only on ceilings.
 #
-# 40 is the floor plus ~18% for un-modelled overhead (HTTP, JSON, thread
-# scheduling). Less headroom than the old 1.5x ratio because the floor is now
-# built from ceilings rather than from a measurement, so it is already
-# pessimistic. JUDGMENT VALUE at that last step; the 34 underneath it is not.
-in_flight_grace_minutes = 40
+# 46 is the floor plus ~18% for un-modelled overhead (HTTP, JSON, thread
+# scheduling) — the same ratio the previous pair used (40/34), applied to the new
+# floor. Less headroom than the original 1.5x because the floor is built from
+# ceilings rather than from a measurement, so it is already pessimistic.
+# JUDGMENT VALUE at that last step; the 39 underneath it is not.
+in_flight_grace_minutes = 46
 
 [agent]
 # The agent loop (task 2.2): call the model, dispatch any tool calls, feed the

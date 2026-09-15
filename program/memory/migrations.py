@@ -114,8 +114,32 @@ def _v2_artifacts(conn: sqlite3.Connection) -> None:
     conn.execute("CREATE INDEX idx_chunks_artifact ON chunks(artifact_id)")
 
 
+def _v3_integrity_check(conn: sqlite3.Connection) -> None:
+    """Version 3 — where the fabrication gate's verdict lives.
+
+    Design of record: ``docs/FABRICATION_GATE_DESIGN.md`` O1. Nullable JSON on
+    the assistant message the verdict is about.
+
+    **Not folded into ``tool_trace``.** That column is the tool trace; a turn
+    that called no tools would otherwise carry a "tool trace" describing an
+    integrity check, and the fabrication gate's own evidence would share a column
+    with the thing it reasons over.
+
+    **Not log-only.** A verdict that exists only in the log is unqueryable, and
+    the eval harness (a separate Tier 2 task) could never replay what production
+    actually decided.
+
+    NULL means *no verdict recorded* — a message written before this migration,
+    or by a path that does not run the gate. It does not mean "clean"; the gate
+    writes an explicit ``unavailable`` status for that case, which is the whole
+    point of the column existing.
+    """
+    conn.execute("ALTER TABLE messages ADD COLUMN integrity_check TEXT")
+
+
 MIGRATIONS: list[Migration] = [
     Migration(version=2, name="artifacts_and_chunk_link", apply=_v2_artifacts),
+    Migration(version=3, name="message_integrity_check", apply=_v3_integrity_check),
 ]
 
 
