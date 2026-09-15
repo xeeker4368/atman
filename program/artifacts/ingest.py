@@ -34,9 +34,10 @@ Two security properties, held here
   header, which whoever is uploading controls. Same reasoning as ``web_fetch``
   validating a resolved address rather than a hostname.
 
-Neither of these is the governance blocklist — that is its own BUILD_PLAN row
-(*"`soul.md`, project docs can't be ingested as normal memory"*), it must match
-by resolved directory rather than by filename, and it is **not built here**.
+The governance blocklist is its own module, ``blocklist.py``, and is checked
+here before a single byte is written. It matches on **content**, because an
+upload arrives as bytes with a name the client chose — see that module for why a
+path check cannot work at this seam and how the directory rule still drives it.
 """
 
 from __future__ import annotations
@@ -47,6 +48,7 @@ import uuid
 from dataclasses import dataclass, field
 
 from program import config
+from program.artifacts import blocklist
 from program.artifacts import extract as extraction
 from program.artifacts.extract import ExtractionStatus
 from program.engine import ollama
@@ -213,6 +215,12 @@ def ingest(
         raise IngestionError(f"{filename!r} is empty.")
 
     digest = hashlib.sha256(data).hexdigest()
+    # Before anything is written, and before the duplicate check: a governance
+    # file must not reach the disk, the artifacts table, or the chunk store even
+    # transiently. Raises GovernanceFileError, which is deliberately not an
+    # IngestionError subclass — the route maps it to its own fixed response.
+    blocklist.check(data, digest)
+
     existing = db.get_artifact_by_hash(digest, user_id)
     if existing is not None:
         # Byte-identical re-upload. Recorded rather than re-indexed: embedding

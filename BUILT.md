@@ -1081,9 +1081,67 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   that seems to need the frozen archive belongs in working instead. "Provenance
   is sacred" therefore holds more weakly for a document than for a conversation
   message.
-- **Not built here: the governance blocklist.** Its own BUILD_PLAN row, and it
-  must match by resolved directory rather than filename. Nothing currently stops
-  `soul.md` being uploaded as ordinary memory.
+- `[built]` **Governance blocklist** (`program/artifacts/blocklist.py`,
+  2026-09-15) — `soul.md` and the project's own docs cannot be ingested as
+  ordinary memory. Checked **before any write**: before the file reaches disk,
+  before the artifacts row, before the duplicate check.
+- `[built]` **Content identity, because there is no path to resolve at an
+  upload.** `ingest()` takes bytes; the only path-like thing in a request is the
+  client's filename, which is already refused as a path. So the directory rule
+  stays the source of truth and the check derives from it — resolve each blocked
+  directory, walk it, hash every file, compare the upload's bytes. A blocked file
+  **renamed to anything** is still refused, which a filename check (the thing
+  BUILD_PLAN's note forbids) would pass straight through.
+- `[built]` **A file added to a blocked directory later is covered with no code
+  change** — Phase 3's `program/integrity/architecture.md` is BUILD_PLAN's own
+  example, and a test creates exactly that case. The root rule is likewise a
+  **rule, not an enumeration**: any `*.md` directly at the project root.
+- `[built]` **Scope**: `program/integrity/`, `docs/`, `changelog/`, `config/`,
+  and root-level `*.md` — 52 files, 50 distinct hashes, ~10 ms to hash all of
+  them against ~75 ms to embed one chunk, so it is walked fresh per upload rather
+  than cached (a cache would go stale exactly when it matters — `NOW.md` is
+  rewritten every session).
+- `[built]` **`workspace/` and `data/artifacts/` are explicitly NOT blocked**,
+  which is why the root rule is non-recursive: decision #10 requires creative
+  writing to be indexed into memory like everything else, and a recursive rule
+  would contradict it. Asserted by test.
+- `[built]` **`config/` is included on a sharper ground than governance hygiene**:
+  `config/local.toml` holds `auth.session_secret`, and ingesting it would write
+  the HMAC signing key into `artifacts.extracted_text` *and* into `chunks` —
+  retrievable forever, surfacing in the entity's own context. *The file does not
+  exist on this machine (the secret comes from `ANAM_AUTH_SESSION_SECRET`), which
+  is itself the argument for a directory rule: the path is blocked now, so the
+  file is covered from the moment anyone creates it. A test asserts the path is
+  blocked while the file is absent.*
+- `[built]` **Paths are fully resolved, symlinks included.** A link named
+  `innocent-notes.md` pointing at `soul.md` is caught; a string check would not
+  see it. Proven to bite — removing `.resolve()` fails three symlink/traversal
+  tests.
+- `[built]` **HTTP 400 with a fixed body that names no path, filename or matched
+  rule.** Not 403 (that reads as "you may not", inviting "perhaps someone else
+  may" — nobody may). Not `metadata_only` (that means *stored but not read*; this
+  was recognised and refused with nothing stored, and `GovernanceFileError` is
+  deliberately not an `IngestionError` subclass so the route cannot collapse
+  them). The matched file is logged at WARNING for the operator — the same split
+  as `AUTH_DESIGN`'s single 401. A test asserts the response body leaks none of
+  `soul`, `integrity`, `program/`, `docs/`, `config/`, `changelog` or the project
+  root.
+- `[built]` **Verified live as Jodie**, the unprivileged user: the real `soul.md`
+  renamed to `holiday-notes.txt` returned 400 with the fixed body, the log named
+  `program/integrity/soul.md`, and an ordinary file in the same session returned
+  200 and indexed a chunk — so the block is narrow, not a general refusal.
+- `[unverified]` **A near-copy is NOT caught, and this is asserted rather than
+  assumed.** Content hashing catches the real file and an exact copy; change one
+  byte and it does not match. Similarity detection would need a threshold, and an
+  uncalibrated threshold is what this project refuses to ship — the retrieval
+  floors are unset for the same reason. A test uploads `soul.md` plus a newline
+  and asserts it **succeeds**, so the gap is a checked property; if near-copy
+  detection is ever added, that test fails and points at its own reasoning.
+- **web_fetch is out of scope, verified not assumed**: nothing serves these files
+  (no `StaticFiles`, `FileResponse` or `mount()`; four routes, none serving a
+  file), and `web_fetch` refuses `127.0.0.1` before any request regardless. If a
+  later admin panel mounts a static directory, the exposure is that mount being
+  LAN-reachable — that task's problem, and the loopback gate's.
 
 ## Users / households
 
@@ -1252,7 +1310,7 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
 
 ## Eval / observability
 
-- `[built]` **Test suite** — 647 tests passing (`pytest`), `ruff check` clean.
+- `[built]` **Test suite** — 681 tests passing (`pytest`), `ruff check` clean.
   *One known intermittent failure: the backup race test, from the recorded
   `db.py` write-contention issue above.*
   Verified order-independent across repeated full runs.

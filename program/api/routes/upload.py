@@ -27,7 +27,7 @@ import logging
 from fastapi import APIRouter, File, HTTPException, UploadFile, status
 
 from program.api.routes.auth import CurrentActor
-from program.artifacts import ingest
+from program.artifacts import blocklist, ingest
 from program.engine import ollama
 from program.settings.permissions import Actor
 
@@ -46,9 +46,23 @@ async def upload(
 
     try:
         result = ingest.ingest(data, file.filename or "unnamed", actor.user_id)
+    except blocklist.GovernanceFileError as exc:
+        # 400, not 403: 403 reads as "you may not", which invites "perhaps
+        # someone else may". Nobody may — this is not a permission question, so
+        # it is not a permission status.
+        #
+        # The exception's message is fixed and names no path, no filename and no
+        # matched rule. Jodie can upload, and a response saying *which* internal
+        # file matched would confirm internal structure to a caller who should
+        # not learn it. The detail is logged at WARNING by blocklist.check(),
+        # where the operator can see it and an unprivileged uploader cannot —
+        # the same split as AUTH_DESIGN's single 401.
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+        ) from None
     except ingest.FileTooLargeError as exc:
         raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail=str(exc)
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE, detail=str(exc)
         ) from None
     except ingest.IngestionError as exc:
         raise HTTPException(
