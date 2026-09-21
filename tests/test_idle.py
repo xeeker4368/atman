@@ -342,17 +342,22 @@ def test_grace_at_the_floor_is_accepted(monkeypatch):
 
 
 def test_the_floor_is_recomputed_from_the_loops_own_limits(monkeypatch):
-    """39 is not a chosen number: it is 2300 seconds rounded up.
+    """35 is not a chosen number: it is 2045 seconds rounded up.
 
         persist the user message      40 s   write_retry_deadline + busy_timeout
         retrieval embedding          300 s   ollama.timeout_seconds
         L model calls               1500 s   max_iterations x ollama.timeout_seconds
-        fabrication gate classifier  300 s   ollama.timeout_seconds (Phase 3)
+        fabrication gate classifier   45 s   integrity.classifier_timeout_seconds
         tool execution, aggregate    120 s   agent.tool_budget_seconds
         persist the assistant reply   40 s   as above
         idle sweep                     0 s   runs after the response
                                    -------
-                                    2300 s   = 38.3 min -> 39
+                                    2045 s   = 34.1 min -> 35
+
+    The classifier term was 300 s — the ceiling it inherited from
+    ollama.timeout_seconds — until task 3.6c gave it its own derived 45 s. The
+    floor is flat across that range: it is 2000 + T, so any T up to 100 s still
+    rounds to 35. That is worth knowing before anyone re-opens the timeout.
 
     Every term is read from live config rather than written in, so raising
     agent.max_iterations or ollama.timeout_seconds without raising the floor
@@ -369,14 +374,14 @@ def test_the_floor_is_recomputed_from_the_loops_own_limits(monkeypatch):
         persist
         + per_model_call                                    # retrieval embedding
         + config.agent_max_iterations() * per_model_call    # the agent loop
-        + per_model_call                                    # the fabrication gate
+        + config.classifier_timeout_seconds()               # the fabrication gate
         + config.agent_tool_budget_seconds()
         + persist
     )
 
-    assert derived_seconds == 2300
-    assert math.ceil(derived_seconds / 60) == 39
-    assert config.IN_FLIGHT_GRACE_FLOOR_MINUTES == 39
+    assert derived_seconds == 2045
+    assert math.ceil(derived_seconds / 60) == 35
+    assert config.IN_FLIGHT_GRACE_FLOOR_MINUTES == 35
 
 
 def test_the_shipped_grace_is_above_the_floor_in_every_layer(monkeypatch):
@@ -390,9 +395,9 @@ def test_the_shipped_grace_is_above_the_floor_in_every_layer(monkeypatch):
     monkeypatch.delenv("ANAM_IN_FLIGHT_GRACE_MINUTES", raising=False)
     config.reload()
 
-    assert config.in_flight_grace_minutes() == 46
+    assert config.in_flight_grace_minutes() == 41
     assert config.in_flight_grace_minutes() >= config.IN_FLIGHT_GRACE_FLOOR_MINUTES
-    assert config._FALLBACK["conversations"]["in_flight_grace_minutes"] == 46
+    assert config._FALLBACK["conversations"]["in_flight_grace_minutes"] == 41
 
 
 def test_the_floor_also_clears_the_measured_worst_case_not_only_the_ceilings():

@@ -190,7 +190,15 @@ def captured_block(monkeypatch) -> dict:
     seen: dict = {}
 
     def fake(messages, **kwargs):
-        seen["system"] = messages[0]["content"]
+        # ONLY the turn's own call. `loop.ollama` is the same module object the
+        # integrity classifier calls through, so an unfiltered capture records
+        # whichever call came last — which is the gate's, not the loop's. That
+        # was invisible while the classifier was given soul.md (it contains the
+        # strings asserted below); it stopped being invisible when task 3.6c
+        # moved the classifier onto architecture.md. The role check is the real
+        # distinction: the loop sends a system message, the classifier does not.
+        if messages and messages[0].get("role") == "system":
+            seen["system"] = messages[0]["content"]
         return {"message": {"role": "assistant", "content": "ok"}}
 
     monkeypatch.setattr(loop.ollama, "chat", fake)
