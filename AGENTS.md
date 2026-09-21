@@ -88,6 +88,32 @@ Prefer verifying against running code and live behavior over trusting
 `BUILT.md` or any other doc, if the two ever seem to disagree — then fix the
 doc.
 
+### Sampling a model's behaviour
+
+Model-judged behaviour is measured, not observed once. Two rules, both bought
+with real mistakes (see `changelog/2026-09-17-n7-stability.md`):
+
+**Escalate anything that is not unanimous.** Five runs is enough to confirm a
+case that comes back 0/5 or 5/5. It is not enough for anything in between: a
+case whose true rate is 20% lands unanimous in a five-run block often enough to
+mislead. **Any case returning non-unanimous in an initial five-run block goes to
+20 runs before its rate is reported as a finding**, and a rate is reported with
+an interval rather than as a bare count.
+
+**Do not sample the same prompt back to back.** Repeated identical calls to
+Ollama produce *correlated* results — measured on one borderline case the same
+minute: a tight loop gave 10/10, while interposing a different prompt between
+samples gave 4/10. A tight loop therefore reports the first sample's luck N times
+and calls it unanimity. **Interpose a different prompt between samples**, or
+interleave cases, whenever a rate is being estimated.
+
+*The second rule is an addition from the same evidence rather than something
+asked for, and it matters because without it the first rule reproduces the
+artifact at higher N. The frozen fabrication-gate harness currently repeats each
+case N times consecutively — the correlating regime — which is recorded as a
+known limitation in `BUILT.md`; changing it is a reviewed change to how the
+measurement works.*
+
 ## Git hygiene
 
 - Explicit `git add <filename>` per file. Never `-A`, never `.`.

@@ -164,6 +164,60 @@ it rather than deciding silently.
     two-axis split (R7) was kept specifically so a real filter could still
     be added later without rework.
 
+21. **Correction scope — who may correct what** (decided 2026-09-15, at the
+    Phase 3 consolidated planning review; questions Q16–Q18 of that plan).
+    Three parts, settled together because they define what the
+    correction/supersession classifier (#2) is actually detecting:
+
+    - **Corrections do not cross users.** A correction applies only within the
+      same user's own prior claims. Lyle may correct what Lyle said; Jodie may
+      correct what Jodie said; **one user's statement never supersedes what the
+      other user told the entity.** This is a *separate* decision from #20 and
+      does not weaken it: #20 says retrieval is not filtered by who is asking,
+      which is about what surfaces. This is about who holds authority to mark a
+      claim superseded. Both can be true at once — a chunk from Jodie's
+      conversation can still surface for Lyle, it simply cannot be superseded
+      by him.
+    - **Self-correction is in scope.** The entity correcting its own earlier
+      claim counts, not only a human correcting it. This is a deliberate
+      expansion beyond `GUIDANCE.md`'s current wording ("when a human corrects
+      something the entity said"), and that wording should be reconciled when
+      task 3.3 lands. **It opens a question 3.3's design must answer rather
+      than default into:** a human correction has an obvious trigger — someone
+      said something contradicting the record — and self-correction has none.
+      Whether it is flagged inline in the turn where the entity notices, or by
+      a separate retrospective pass over past claims, is a real design choice
+      with different cost, complexity and false-positive exposure.
+    - **Corrections cover user statements too**, not only the entity's claims —
+      a person misremembering what they said earlier is in scope. Uniform
+      mechanism, on decision #1's own principle: one detector, one policy, no
+      actor argument, and **no separate confidence or stakes tier** for
+      user-statement corrections versus entity-claim corrections.
+
+22. **Sampling discipline for model-judged measurements** (decided 2026-09-17).
+    Recorded in full under `AGENTS.md`'s "Verification discipline"; the short
+    form: **a case that is not unanimous in a five-run block escalates to 20
+    runs** before its rate is reported, with an interval rather than a bare
+    count; and **samples of the same prompt are not taken back to back**, because
+    repeated identical calls measure correlated, not independent, outcomes. Both
+    came out of `N7`, whose rate read 10/10, 5/5, 3/20, 0/20 and 30/30 on one day
+    with nothing changing underneath it, and which measures **50% [30–70%]** once
+    decorrelated.
+
+23. **Fabrication gate: stage 1 is where it stops for Phase 3** (decided
+    2026-09-18). The mechanism is complete and measured — identity false
+    positives 0/65, tool-output 0/20, identity false negatives 0/30, tool-output
+    false negatives 10/55 = 18% (two documented gaps), all under a decorrelated
+    sampling regime. **Stage 2 is not being taken, and the reason is not the
+    numbers.** Stage 2 is block-and-regenerate, and the *regenerate* half has no
+    design at all: retry behaviour, what happens when a regenerated answer is
+    also flagged, retry limits, fallback, and what the person sees while any of it
+    happens. `docs/FABRICATION_GATE_DESIGN.md` F4 framed stage 2 as a threshold to
+    flip once the harness reported an acceptable rate; **that framing is wrong and
+    is superseded here.** If stage 2 is ever picked up it starts as its own design
+    pass from a blank page, not as a continuation. No further diagnostic or
+    accuracy work on the gate is requested.
+
 ## Backlog (deferred, not forgotten)
 
 Self-modification (+ review queue), iMessage (all stages), vision baseline →
