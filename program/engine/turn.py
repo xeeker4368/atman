@@ -84,7 +84,7 @@ from typing import Any
 
 from program.engine import loop
 from program.engine import situation as situation_block
-from program.integrity import gate
+from program.integrity import corrections, gate
 from program.memory import db, retrieval
 from program.memory.retrieval import RetrievalResult
 from program.settings.permissions import Actor
@@ -174,6 +174,59 @@ def _retrieve(query: str) -> RetrievalResult | None:
         return None
 
 
+def _record_corrections(
+    actor: Actor,
+    conversation_id: str,
+    retrieved,
+    user_text: str,
+    user_message_id: str,
+    answer_text: str,
+    assistant_message_id: str,
+) -> None:
+    """Link anything this turn corrected. Never edits, never raises.
+
+    One classifier call per speaker who said something this turn, over candidates
+    drawn from the turn's own retrieval plus the open trailing group — see
+    ``docs/CORRECTION_DESIGN.md`` C4.
+
+    **A classifier failure is not a turn failure.** The answer has already been
+    generated and saved; losing a link is a missed correction, which leaves the
+    record accurate and merely uncorrected. Same shape as the fabrication gate
+    declining to take a turn down with it.
+    """
+    chunk_ids = [hit.chunk_id for hit in retrieved.results] if retrieved else []
+    try:
+        pool = corrections.candidates(
+            actor.user_id,
+            conversation_id,
+            chunk_ids,
+            exclude_message_ids=(user_message_id, assistant_message_id),
+            user_name=actor.name,
+        )
+        judged = [
+            corrections.classify(user_text, user_message_id, pool, "user", actor.name),
+            corrections.classify(
+                answer_text, assistant_message_id, pool, "assistant", "the system"),
+        ]
+    except Exception as exc:  # noqa: BLE001 — a missed link, never a failed turn
+        logger.warning(
+            "correction classifier could not run for conversation %s; no link "
+            "written: %s: %s", conversation_id[:8], type(exc).__name__, exc,
+        )
+        return
+
+    for correction in judged:
+        if correction is None:
+            continue
+        if corrections.record(correction) is not None:
+            logger.info(
+                "correction recorded in conversation %s: %s supersedes %s",
+                conversation_id[:8],
+                correction.superseding_message_id[:8],
+                correction.superseded_message_id[:8],
+            )
+
+
 def _build_situation(actor: Actor, user_message_id: str) -> str:
     """The current-situation block for this turn (decision #5).
 
@@ -225,10 +278,11 @@ def handle_user_message(
     if situation is None:
         situation = _build_situation(actor, user_message_id)
 
+    retrieved = _retrieve(content)
     result = loop.run_turn(
         db.get_conversation_messages(conversation_id),
         situation,
-        _retrieve(content),
+        retrieved,
         registry=registry,
     )
 
@@ -264,6 +318,18 @@ def handle_user_message(
         tool_trace=json.dumps(result.trace) if result.trace else None,
     )
     db.set_message_integrity_check(assistant_message_id, verdict.to_json())
+    if verdict.advisory:
+        # A record, never a verdict: this column cannot change whether the turn
+        # was flagged. See docs/FABRICATION_GATE_DESIGN.md revision 7.
+        db.set_message_integrity_advisory(
+            assistant_message_id, verdict.advisory_json())
+        logger.info(
+            "integrity gate: %d advisory note(s) on a turn the rules did not flag "
+            "(conversation %s)", len(verdict.advisory), conversation_id[:8],
+        )
+
+    _record_corrections(actor, conversation_id, retrieved, content,
+                        user_message_id, result.text, assistant_message_id)
 
     return TurnOutcome(
         conversation_id=conversation_id,

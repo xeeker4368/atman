@@ -64,7 +64,7 @@ _FALLBACK: dict[str, Any] = {
     },
     "conversations": {
         "idle_close_minutes": 15,
-        "in_flight_grace_minutes": 46,
+        "in_flight_grace_minutes": 41,
     },
     "agent": {
         "max_iterations": 5,
@@ -424,9 +424,12 @@ def model_options() -> dict[str, Any]:
 #: Hard floor on the in-flight grace, in minutes.
 #:
 #: **Derived, not chosen.** 40 s to persist the user message + 300 s for the
-#: retrieval embedding + 5 x 300 s of model calls + **300 s for the fabrication
+#: retrieval embedding + 5 x 300 s of model calls + **45 s for the fabrication
 #: gate's classifier call** + 120 s of tool execution + 40 s to persist the reply
-#: = 2300 s = 38.3 min, rounded up. Every term is a ceiling some other setting
+#: = 2045 s = 34.1 min, rounded up. *The classifier term was 300 s — the ceiling
+#: it inherited from ``ollama.timeout_seconds`` — until revision 3 gave it its
+#: own derived 45 s. The floor is flat across that range: it is 2000 + T, so any
+#: T up to 100 s rounds to 35.* Every term is a ceiling some other setting
 #: enforces — ``database.write_retry_deadline_seconds`` plus
 #: ``database.busy_timeout_seconds``, ``ollama.timeout_seconds``,
 #: ``agent.max_iterations`` and ``agent.tool_budget_seconds`` — because a
@@ -438,7 +441,7 @@ def model_options() -> dict[str, Any]:
 #: Configuring below it raises rather than clamping: a silently clamped value
 #: hides that the operator asked for something unsafe, and this is the setting
 #: where unsafe means closing a conversation while the model is still answering.
-IN_FLIGHT_GRACE_FLOOR_MINUTES = 39
+IN_FLIGHT_GRACE_FLOOR_MINUTES = 35
 
 
 def idle_close_minutes() -> int:
@@ -451,7 +454,7 @@ def in_flight_grace_minutes() -> int:
 
     Raises rather than clamping when configured below the floor.
     """
-    value = int(get("conversations", "in_flight_grace_minutes", 46))
+    value = int(get("conversations", "in_flight_grace_minutes", 41))
     if value < IN_FLIGHT_GRACE_FLOOR_MINUTES:
         raise ConfigError(
             f"conversations.in_flight_grace_minutes is {value}, below the "
@@ -487,6 +490,54 @@ def agent_max_iterations() -> int:
         raise ConfigError(
             f"agent.max_iterations is {value}; it must be at least 1. A turn "
             f"with no model call produces no answer."
+        )
+    return value
+
+
+def classifier_model() -> str:
+    """The model the integrity classifier runs on.
+
+    Empty means *inherit* ``models.chat``. Pinning it exists because of a
+    measured failure, not a hypothetical: under ``muse-glimmer:30b`` the gate
+    returned empty content on 21 of 21 calls and every verdict became
+    ``unavailable`` — changing the chat model silently disabled the checker.
+    Bootstrap-only, like the other keys the in-flight grace floor depends on.
+    """
+    return str(get("integrity", "classifier_model", "") or "").strip() or chat_model()
+
+
+def classifier_num_predict() -> int:
+    """Output token budget for one classification call.
+
+    **Measured, not chosen.** A budget below what a verdict costs does not
+    truncate the verdict — it returns empty content, which reads as an
+    unparseable reply and becomes ``unavailable``. See the task 3.6c changelog
+    for the measurement this value comes from.
+    """
+    value = int(get("integrity", "classifier_num_predict", 120))
+    if value <= 0:
+        raise ConfigError(
+            f"integrity.classifier_num_predict is {value}; it must be positive. "
+            f"A non-positive budget makes every verdict unavailable."
+        )
+    return value
+
+
+def classifier_timeout_seconds() -> float:
+    """Ceiling on one classification call.
+
+    Derived (revision 3, O10): 2x the worst *measured* call, 21.5 s cold from
+    disk, giving 45 s. The doubling is the only judgment in the chain and covers
+    a second resident model slowing the load. Bootstrap-only and deliberately
+    not settings-backed: ``IN_FLIGHT_GRACE_FLOOR_MINUTES`` is derived from it,
+    and a live-editable value underneath a correctness floor is how that floor
+    quietly stops holding.
+    """
+    value = float(get("integrity", "classifier_timeout_seconds", 45.0))
+    if value <= 0:
+        raise ConfigError(
+            f"integrity.classifier_timeout_seconds is {value}; it must be "
+            f"positive."
         )
     return value
 

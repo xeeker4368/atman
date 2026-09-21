@@ -240,6 +240,21 @@ def test_tool_trace_round_trips(store, user):
 # ---------------------------------------------------------------------------
 
 
+def _insert_message(conn, message_id, content, cid, uid, role="user"):
+    """A working-store message row, for the link constraints below.
+
+    Links became message → message at migration 5: a chunk packs up to eight
+    turns chosen by size, so marking one superseded asserts staleness for content
+    the correction says nothing about, and the open trailing group has no chunk to
+    link to at all. See ``docs/CORRECTION_DESIGN.md`` C3.
+    """
+    conn.execute(
+        """INSERT INTO messages (id, conversation_id, user_id, role, content, timestamp)
+           VALUES (?, ?, ?, ?, ?, ?)""",
+        (message_id, cid, uid, role, content, db.now_iso()),
+    )
+
+
 def _insert_chunk(conn, chunk_id, text, cid=None, uid=None, **overrides):
     values = {
         "id": chunk_id,
@@ -335,213 +350,199 @@ def test_non_conversation_chunks_may_share_a_null_index(store):
 # ---------------------------------------------------------------------------
 # Supersession
 # ---------------------------------------------------------------------------
+#
+# Links are message -> message as of migration 5. The properties below are
+# unchanged — real referents, no self-link, no duplicate, no cycle of any
+# length, and the original never altered — but the unit is a message, because a
+# chunk packs up to eight turns chosen by size and the open trailing group has
+# no chunk at all. See `docs/CORRECTION_DESIGN.md` C3.
 
 
-def test_supersedes_link_requires_real_chunks(store):
-    with pytest.raises(sqlite3.IntegrityError):
-        with db.transaction() as conn:
-            conn.execute(
-                """INSERT INTO supersedes
-                       (id, superseding_chunk_id, superseded_chunk_id, created_at)
-                   VALUES (?, ?, ?, ?)""",
-                ("s1", "nope", "also-nope", db.now_iso()),
-            )
+@pytest.fixture
+def conversation(user):
+    return db.start_conversation(user)
 
 
-def test_chunk_cannot_supersede_itself(store):
-    """A self-link would make forward link resolution non-terminating."""
-    with db.transaction() as conn:
-        _insert_chunk(conn, "c1", "text")
-    with pytest.raises(sqlite3.IntegrityError):
-        with db.transaction() as conn:
-            conn.execute(
-                """INSERT INTO supersedes
-                       (id, superseding_chunk_id, superseded_chunk_id, created_at)
-                   VALUES (?, ?, ?, ?)""",
-                ("s1", "c1", "c1", db.now_iso()),
-            )
+def _messages(conn, conversation_id, user_id, *ids):
+    for message_id in ids:
+        _insert_message(conn, message_id, f"claim {message_id}", conversation_id, user_id)
 
 
-def test_duplicate_supersedes_link_is_rejected(store):
-    with db.transaction() as conn:
-        _insert_chunk(conn, "c1", "wrong")
-        _insert_chunk(conn, "c2", "corrected")
-        conn.execute(
-            """INSERT INTO supersedes
-                   (id, superseding_chunk_id, superseded_chunk_id, created_at)
-               VALUES (?, ?, ?, ?)""",
-            ("s1", "c2", "c1", db.now_iso()),
-        )
-    with pytest.raises(sqlite3.IntegrityError):
-        with db.transaction() as conn:
-            conn.execute(
-                """INSERT INTO supersedes
-                       (id, superseding_chunk_id, superseded_chunk_id, created_at)
-                   VALUES (?, ?, ?, ?)""",
-                ("s2", "c2", "c1", db.now_iso()),
-            )
-
-
-def _link(conn, link_id, superseding, superseded):
+def _link(conn, link_id, superseding, superseded, replacement="replaced"):
     conn.execute(
         """INSERT INTO supersedes
-               (id, superseding_chunk_id, superseded_chunk_id, created_at)
-           VALUES (?, ?, ?, ?)""",
-        (link_id, superseding, superseded, db.now_iso()),
+               (id, superseding_message_id, superseded_message_id, replacement,
+                created_at)
+           VALUES (?, ?, ?, ?, ?)""",
+        (link_id, superseding, superseded, replacement, db.now_iso()),
     )
 
 
-def test_two_link_cycle_is_rejected(store):
-    """A→B and B→A are two distinct tuples, so UNIQUE does not stop them.
+def test_the_replacement_state_is_required_and_constrained(conversation, user):
+    """Migration 6. `replaced` vs `contradicted` is what task 3.5 renders
+    differently, and CO8 means a link no longer implies a new value exists — so
+    NULL and a typo both have to be refused by the schema rather than by the one
+    writer that happens to exist today."""
+    with db.transaction() as conn:
+        _messages(conn, conversation, user, "A", "B")
+
+    with pytest.raises(sqlite3.IntegrityError, match="NOT NULL"):
+        with db.transaction() as conn:
+            conn.execute(
+                """INSERT INTO supersedes
+                       (id, superseding_message_id, superseded_message_id, created_at)
+                   VALUES ('s0', 'B', 'A', ?)""",
+                (db.now_iso(),),
+            )
+
+    with pytest.raises(sqlite3.IntegrityError, match="CHECK"):
+        with db.transaction() as conn:
+            _link(conn, "s1", "B", "A", replacement="probably")
+
+    with db.transaction() as conn:
+        _link(conn, "s2", "B", "A", replacement="contradicted")
+    [row] = db.get_supersedes_links("A")
+    assert row["replacement"] == "contradicted"
+
+
+def test_supersedes_link_requires_real_messages(store):
+    with pytest.raises(sqlite3.IntegrityError):
+        with db.transaction() as conn:
+            _link(conn, "s1", "nope", "also-nope")
+
+
+def test_message_cannot_supersede_itself(conversation, user):
+    """A self-link would make forward link resolution non-terminating."""
+    with db.transaction() as conn:
+        _messages(conn, conversation, user, "A")
+    with pytest.raises(sqlite3.IntegrityError):
+        with db.transaction() as conn:
+            _link(conn, "s1", "A", "A")
+
+
+def test_duplicate_supersedes_link_is_rejected(conversation, user):
+    with db.transaction() as conn:
+        _messages(conn, conversation, user, "A", "B")
+        _link(conn, "s1", "B", "A")
+    with pytest.raises(sqlite3.IntegrityError):
+        with db.transaction() as conn:
+            _link(conn, "s2", "B", "A")
+
+
+def test_two_link_cycle_is_rejected(conversation, user):
+    """A->B and B->A are two distinct tuples, so UNIQUE does not stop them.
 
     Retrieval resolves corrections by following links forward, so a loop of any
     length means resolution never terminates. The schema has to stop it, because
     the writer is not always the classifier.
     """
     with db.transaction() as conn:
-        _insert_chunk(conn, "A", "first claim")
-        _insert_chunk(conn, "B", "correction")
+        _messages(conn, conversation, user, "A", "B")
         _link(conn, "s1", "B", "A")
-
     with pytest.raises(sqlite3.IntegrityError, match="cycle"):
         with db.transaction() as conn:
             _link(conn, "s2", "A", "B")
 
 
-def test_longer_cycle_is_rejected(store):
-    """A three-hop loop: B→A, C→B, D→C, then B→D closes it."""
+def test_longer_cycle_is_rejected(conversation, user):
+    """Four hops. The guard walks forward, so length does not matter."""
     with db.transaction() as conn:
-        for cid in ("A", "B", "C", "D"):
-            _insert_chunk(conn, cid, f"chunk {cid}")
+        _messages(conn, conversation, user, "A", "B", "C", "D")
         _link(conn, "s1", "B", "A")
         _link(conn, "s2", "C", "B")
         _link(conn, "s3", "D", "C")
-
     with pytest.raises(sqlite3.IntegrityError, match="cycle"):
         with db.transaction() as conn:
-            _link(conn, "s4", "B", "D")
+            _link(conn, "s4", "A", "D")
 
 
-def test_non_cycle_links_are_still_allowed(store):
-    """The guard must not reject legitimate structure — a chunk may supersede
-    more than one thing, and two chains may converge."""
+def test_non_cycle_links_are_still_allowed(conversation, user):
+    """The guard must not reject an ordinary chain of corrections."""
     with db.transaction() as conn:
-        for cid in ("A", "B", "C", "D"):
-            _insert_chunk(conn, cid, f"chunk {cid}")
+        _messages(conn, conversation, user, "A", "B", "C")
         _link(conn, "s1", "B", "A")
         _link(conn, "s2", "C", "B")
-        _link(conn, "s3", "D", "C")
-        _link(conn, "s4", "D", "A")
-
     with db.connection() as conn:
-        assert conn.execute("SELECT COUNT(*) AS n FROM supersedes").fetchone()["n"] == 4
+        assert conn.execute("SELECT COUNT(*) AS n FROM supersedes").fetchone()["n"] == 2
 
 
-def test_cycle_guard_also_covers_updates(store):
+def test_cycle_guard_also_covers_updates(conversation, user):
     """Repointing an existing link must not be a way around the insert guard.
 
-    Starting state is B→A. Repointing the second link to A→B closes the loop:
+    Starting state is B->A. Repointing the second link to A->B closes the loop:
     resolving B reaches A, and resolving A reaches B.
     """
     with db.transaction() as conn:
-        _insert_chunk(conn, "A", "first")
-        _insert_chunk(conn, "B", "second")
-        _insert_chunk(conn, "C", "third")
+        _messages(conn, conversation, user, "A", "B", "C")
         _link(conn, "s1", "B", "A")
         _link(conn, "s2", "C", "B")
-
     with pytest.raises(sqlite3.IntegrityError, match="cycle"):
         with db.transaction() as conn:
             conn.execute(
-                "UPDATE supersedes SET superseding_chunk_id = 'A', "
-                "superseded_chunk_id = 'B' WHERE id = 's2'"
+                "UPDATE supersedes SET superseding_message_id = 'A', "
+                "superseded_message_id = 'B' WHERE id = 's2'"
             )
 
 
-def test_update_to_a_non_cyclic_link_is_allowed(store):
-    """The update guard must not reject a legitimate repoint.
-
-    B→A with the second link moved to A→C gives the chain C→A→B, which
-    terminates. This is the case that made the first version of the test above
-    wrong, so it is pinned rather than left implicit.
-    """
+def test_update_to_a_non_cyclic_link_is_allowed(conversation, user):
     with db.transaction() as conn:
-        for cid in ("A", "B", "C"):
-            _insert_chunk(conn, cid, f"chunk {cid}")
+        _messages(conn, conversation, user, "A", "B", "C")
         _link(conn, "s1", "B", "A")
-        _link(conn, "s2", "C", "B")
-
+        _link(conn, "s2", "B", "C")
     with db.transaction() as conn:
         conn.execute(
-            "UPDATE supersedes SET superseding_chunk_id = 'A', "
-            "superseded_chunk_id = 'C' WHERE id = 's2'"
+            "UPDATE supersedes SET superseding_message_id = 'A', "
+            "superseded_message_id = 'C' WHERE id = 's2'"
         )
-
     with db.connection() as conn:
         row = conn.execute("SELECT * FROM supersedes WHERE id = 's2'").fetchone()
-    assert row["superseding_chunk_id"] == "A"
-    assert row["superseded_chunk_id"] == "C"
+    assert row["superseding_message_id"] == "A"
+    assert row["superseded_message_id"] == "C"
 
 
-def test_rejected_cycle_leaves_the_chunks_untouched(store):
-    """The guard rejects a link, never a chunk. No raw experience is affected."""
+def test_rejected_cycle_leaves_the_messages_untouched(conversation, user):
+    """The trigger rejects the *link*, never a message. No raw experience is
+    touched by a correction — that is the whole premise of supersession."""
     with db.transaction() as conn:
-        _insert_chunk(conn, "A", "the meeting was on Tuesday")
-        _insert_chunk(conn, "B", "the meeting was on Wednesday")
+        _messages(conn, conversation, user, "A", "B")
         _link(conn, "s1", "B", "A")
-
     with pytest.raises(sqlite3.IntegrityError):
         with db.transaction() as conn:
             _link(conn, "s2", "A", "B")
-
     with db.connection() as conn:
-        assert conn.execute("SELECT COUNT(*) AS n FROM chunks").fetchone()["n"] == 2
-        assert (
-            conn.execute("SELECT text FROM chunks WHERE id = 'A'").fetchone()["text"]
-            == "the meeting was on Tuesday"
-        )
+        assert conn.execute("SELECT COUNT(*) AS n FROM messages").fetchone()["n"] == 2
         assert conn.execute("SELECT COUNT(*) AS n FROM supersedes").fetchone()["n"] == 1
 
 
-def test_forward_resolution_terminates_on_a_clean_chain(store):
-    """The invariant task 3.5 depends on: following links forward always ends.
-
-    Written here rather than in 3.5 because it is the schema's guarantee, not
-    the resolver's — this is what the cycle guard buys.
-    """
+def test_forward_resolution_terminates_on_a_clean_chain(conversation, user):
+    """What task 3.5 will do at read time, on data the guard has kept acyclic."""
     with db.transaction() as conn:
-        for cid in ("A", "B", "C"):
-            _insert_chunk(conn, cid, f"chunk {cid}")
+        _messages(conn, conversation, user, "A", "B", "C")
         _link(conn, "s1", "B", "A")
         _link(conn, "s2", "C", "B")
-
     with db.connection() as conn:
         rows = conn.execute(
             """WITH RECURSIVE forward(id) AS (
                    SELECT 'A'
                    UNION
-                   SELECT s.superseding_chunk_id FROM supersedes s
-                     JOIN forward f ON s.superseded_chunk_id = f.id
+                   SELECT s.superseding_message_id FROM supersedes s
+                     JOIN forward f ON s.superseded_message_id = f.id
                )
                SELECT id FROM forward"""
         ).fetchall()
-    assert {r["id"] for r in rows} == {"A", "B", "C"}
+    assert {row["id"] for row in rows} == {"A", "B", "C"}
 
 
-def test_correction_does_not_alter_the_original(store):
-    """Provenance is sacred: a correction layers on top, it does not rewrite."""
+def test_correction_does_not_alter_the_original(conversation, user):
+    """Provenance is sacred: the corrected message keeps its own words."""
     with db.transaction() as conn:
-        _insert_chunk(conn, "c1", "the meeting was on Tuesday")
-        _insert_chunk(conn, "c2", "the meeting was on Wednesday")
-        conn.execute(
-            """INSERT INTO supersedes
-                   (id, superseding_chunk_id, superseded_chunk_id, created_at)
-               VALUES (?, ?, ?, ?)""",
-            ("s1", "c2", "c1", db.now_iso()),
-        )
+        _insert_message(conn, "A", "the meeting was on Tuesday", conversation, user)
+        _insert_message(conn, "B", "actually Wednesday", conversation, user)
+        _link(conn, "s1", "B", "A")
     with db.connection() as conn:
-        original = conn.execute("SELECT text FROM chunks WHERE id = 'c1'").fetchone()
-    assert original["text"] == "the meeting was on Tuesday"
+        original = conn.execute(
+            "SELECT content FROM messages WHERE id = 'A'").fetchone()
+    assert original["content"] == "the meeting was on Tuesday"
 
 
 # ---------------------------------------------------------------------------

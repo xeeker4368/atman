@@ -183,6 +183,29 @@ def _pack(
     return groups
 
 
+def open_group_messages(
+    messages: list[sqlite3.Row], user_name: str
+) -> list[sqlite3.Row]:
+    """The messages in the **open trailing group** — what has not sealed yet.
+
+    Read-only and pure: no database, no writes, no state. It exists so the
+    correction classifier's notion of "recent" is *this* boundary rather than a
+    new constant of its own (``docs/CORRECTION_DESIGN.md`` CO3). The trailing
+    group is precisely the content retrieval cannot return, because chunking
+    deliberately never indexes it — so it is exactly what a correction of
+    something said a minute ago needs to be able to target.
+
+    Not an entry point: it writes nothing and marks nothing chunked. The two
+    entry points are still ``checkpoint_conversation`` and
+    ``finalise_conversation``, as the pinned test requires.
+    """
+    turns = _to_turns(messages)
+    if not turns:
+        return []
+    groups = _pack(turns, user_name, config.chunk_target_chars(), config.chunk_max_turns())
+    return _group_messages(groups[-1]) if groups else []
+
+
 def _group_messages(group: list[list[sqlite3.Row]]) -> list[sqlite3.Row]:
     return [message for turn in group for message in turn]
 

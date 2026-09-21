@@ -90,6 +90,11 @@ from typing import Any, Iterable, Sequence
 from program import config
 from program.engine import ollama
 from program.memory import db, vectors
+from program.memory.supersession import (
+    Supersession,
+    SupersessionReport,
+    resolve_for_chunks,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -183,6 +188,12 @@ class RetrievedChunk:
     #: Split siblings of the same original message, attached after fusion and
     #: never ranked in their own right (D7).
     siblings: list["RetrievedChunk"] = field(default_factory=list)
+    #: Corrections to messages inside this chunk (task 3.5, CO7). Attached after
+    #: fusion exactly as siblings are, and read by **nothing** in the ranking path:
+    #: a chunk's position must not depend on whether something in it was later
+    #: corrected. Empty for the ordinary case, so every existing consumer is
+    #: unaffected.
+    supersessions: list[Supersession] = field(default_factory=list)
 
     @property
     def legs(self) -> list[str]:
@@ -212,6 +223,7 @@ class RetrievalResult:
     time_filter_applied: bool = False
     allowed_ids: int | None = None
     rrf_k: int = 0
+    supersession: SupersessionReport = field(default_factory=SupersessionReport)
 
     def __len__(self) -> int:
         return len(self.results)
@@ -563,4 +575,41 @@ def search(
     if expand:
         _attach_siblings(result.results, config.retrieval_max_siblings_per_hit())
 
+    _attach_supersessions(result)
     return result
+
+
+def _attach_supersessions(result: RetrievalResult) -> None:
+    """Attach corrections to the ranked results, and to their siblings (task 3.5).
+
+    **Degrades rather than raising** (R7), on the criterion `prompt.py` records:
+    *abort when a failure could corrupt something or when retrying is free; degrade
+    when nothing can be corrupted and a person is waiting.* Nothing is corrupted by
+    an unannotated result and the answer is already being waited for.
+
+    **But the degraded state is not benign and is not treated as such.**
+    Unannotated results present a corrected claim as current — the exact outcome
+    this mechanism exists to prevent — so the failure is recorded on the report
+    (`resolved=False`, with a reason) rather than only logged. That is the gate's
+    *"unavailable is never clean"* shape: a check that did not run must not look
+    like a check that passed.
+
+    Siblings are annotated too. A split sibling is a different piece of the **same**
+    long message, so a correction to that message applies to whichever piece is
+    rendered, and the pieces are rendered separately.
+    """
+    chunks = [c for item in result.results for c in (item, *item.siblings)]
+    if not chunks:
+        return
+    try:
+        by_chunk, report = resolve_for_chunks([c.chunk_id for c in chunks])
+    except Exception as exc:  # noqa: BLE001 — recorded, never silent; see above
+        logger.warning("could not resolve corrections for retrieval: %s", exc)
+        result.supersession = SupersessionReport(
+            resolved=False, skip_reason=f"{type(exc).__name__}: {exc}"
+        )
+        return
+
+    result.supersession = report
+    for chunk in chunks:
+        chunk.supersessions = by_chunk.get(chunk.chunk_id, [])

@@ -162,6 +162,19 @@ it is declared inline here.
 `superseding_chunk_id` and `superseded_chunk_id`, both FK to `chunks`, plus
 `classifier_model`, `confidence`, `rationale`, `created_at`.
 
+**Superseded twice since, and this section describes version 1.** Migration 5
+moved the links to **message** granularity (`superseding_message_id` /
+`superseded_message_id`, FK to `messages`) for the three reasons in
+`docs/CORRECTION_DESIGN.md` C3. Migration 6 added **`replacement`**, `NOT NULL`
+and CHECK-constrained to `replaced | contradicted`: since CO8 a correction may
+state that an earlier claim is wrong *without* giving the correct value, so a link
+no longer implies a replacement exists, and task 3.5 renders the two differently
+(`docs/RETRIEVAL_SUPERSESSION_DESIGN.md` R4). Both migrations recreate the table
+destructively and rebuild the cycle triggers against the new columns —
+`ALTER TABLE ADD COLUMN` cannot add a `NOT NULL` column without a default, and a
+default here would silently manufacture whichever state is cheaper to render.
+Everything below holds unchanged in substance; read "chunk" as "message".
+
 A correction never edits or deletes what it corrects. It links to it, and
 retrieval resolves the link (task 3.5). A chain of corrections resolves by
 following links forward. Two constraints matter:

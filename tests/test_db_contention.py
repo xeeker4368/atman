@@ -270,3 +270,37 @@ def test_migrations_are_deliberately_not_retried():
     from program.memory import migrations
 
     assert not hasattr(migrations.run_working_migrations, "__wrapped__")
+
+
+def test_every_write_in_db_carries_the_retry():
+    """A structural guard, because this is how the gap happened.
+
+    `create_supersedes_link` and `set_message_integrity_advisory` were added in
+    the same session as the advisory channel and the correction classifier, and
+    both shipped **without** the retry every other writer has — so the newest
+    write path was the only unprotected one. Enumerated rather than remembered:
+    any function here that opens a write transaction must be decorated.
+    """
+    import inspect
+
+    from program.memory import db
+
+    undecorated = []
+    for name in dir(db):
+        fn = getattr(db, name)
+        if name.startswith("_") or not callable(fn):
+            continue
+        if getattr(fn, "__module__", "") != "program.memory.db":
+            continue
+        try:
+            source = inspect.getsource(fn)
+        except (OSError, TypeError):
+            continue
+        if "with transaction()" in source and not hasattr(fn, "__wrapped__"):
+            undecorated.append(name)
+
+    assert undecorated == [], (
+        f"write functions missing @retry_on_locked: {undecorated}. Lock contention "
+        f"is transient by construction; an undecorated writer turns it into a "
+        f"failed turn."
+    )

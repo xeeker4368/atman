@@ -137,9 +137,222 @@ def _v3_integrity_check(conn: sqlite3.Connection) -> None:
     conn.execute("ALTER TABLE messages ADD COLUMN integrity_check TEXT")
 
 
+def _v4_integrity_advisory(conn: sqlite3.Connection) -> None:
+    """Version 4 — the advisory channel. Design revision 7, F33.
+
+    Nullable JSON holding what the classifier said about **tool** claims, which
+    it has no authority over: the deterministic rules own that class, and
+    revision 5 made that a property of the code rather than a prompt
+    instruction. This records the judgment without letting it gate anything.
+
+    **Its own column, not a key inside ``integrity_check``.** Exactly migration
+    3's own argument one layer on: that column is the authoritative verdict, and
+    a non-authoritative signal sharing it invites a future reader to take one for
+    the other. Here the boundary is visible in the schema, and "the advisory
+    fired while the verdict was clean" is a trivial query.
+
+    NULL means *no advisory recorded*. An empty list means *the classifier was
+    asked and said nothing the rules had missed* — per O17, only misses are
+    recorded, so the channel stays additive rather than duplicating the verdict.
+    """
+    conn.execute("ALTER TABLE messages ADD COLUMN integrity_advisory TEXT")
+
+
+def _v5_supersedes_by_message(conn: sqlite3.Connection) -> None:
+    """Version 5 — `supersedes` moves from chunk granularity to message.
+
+    Design of record: ``docs/CORRECTION_DESIGN.md`` C3. Three reasons, each
+    measured against the build as it is:
+
+    * **A chunk holds content the correction says nothing about.** Up to eight
+      turns packed to 2,500 characters, boundaries chosen by size. Marking one
+      superseded asserts staleness for all of it.
+    * **The timing gap dissolves.** Chunking never indexes the open trailing
+      group, so the normal case — correcting something said a minute ago — has no
+      chunk to link to yet. Messages exist the moment they are saved.
+    * **Chunks are derived and rebuildable; links to them are not.** A re-chunk,
+      a restore, or a change to ``chunking.target_chars`` leaves a chunk-level
+      link pointing at something that no longer means what it meant.
+
+    **This is destructive, and that is acceptable here specifically**: the table
+    has no production rows — no classifier has ever written to it — and decision
+    #16 wipes the database before go-live with no carve-outs. Keeping the old
+    table alongside would leave two link tables, one dead, and a future reader
+    guessing which one retrieval honours.
+
+    The constraints and the cycle guards come across unchanged in substance,
+    rewritten against the new columns. They still reject the *link*, never a
+    message: no raw experience is touched by a correction.
+    """
+    conn.execute("DROP TRIGGER IF EXISTS supersedes_no_cycle_insert")
+    conn.execute("DROP TRIGGER IF EXISTS supersedes_no_cycle_update")
+    conn.execute("DROP TABLE IF EXISTS supersedes")
+    conn.executescript("""
+        CREATE TABLE supersedes (
+            id                      TEXT PRIMARY KEY,
+            superseding_message_id  TEXT NOT NULL,
+            superseded_message_id   TEXT NOT NULL,
+            classifier_model        TEXT,
+            confidence              REAL,
+            rationale               TEXT,
+            created_at              TEXT NOT NULL,
+            FOREIGN KEY (superseding_message_id) REFERENCES messages(id),
+            FOREIGN KEY (superseded_message_id) REFERENCES messages(id),
+            UNIQUE (superseding_message_id, superseded_message_id),
+            CHECK (superseding_message_id <> superseded_message_id)
+        );
+
+        CREATE INDEX idx_supersedes_superseded
+            ON supersedes(superseded_message_id);
+        CREATE INDEX idx_supersedes_superseding
+            ON supersedes(superseding_message_id);
+
+        CREATE TRIGGER supersedes_no_cycle_insert
+        BEFORE INSERT ON supersedes
+        WHEN EXISTS (
+            WITH RECURSIVE forward(id) AS (
+                SELECT new.superseding_message_id
+                UNION
+                SELECT s.superseding_message_id
+                  FROM supersedes s
+                  JOIN forward f ON s.superseded_message_id = f.id
+            )
+            SELECT 1 FROM forward WHERE id = new.superseded_message_id
+        )
+        BEGIN
+            SELECT RAISE(
+                ABORT,
+                'supersedes cycle: this link would make correction resolution non-terminating'
+            );
+        END;
+
+        CREATE TRIGGER supersedes_no_cycle_update
+        BEFORE UPDATE OF superseding_message_id, superseded_message_id ON supersedes
+        WHEN EXISTS (
+            WITH RECURSIVE forward(id) AS (
+                SELECT new.superseding_message_id
+                UNION
+                SELECT s.superseding_message_id
+                  FROM supersedes s
+                  JOIN forward f ON s.superseded_message_id = f.id
+                 WHERE s.id <> old.id
+            )
+            SELECT 1 FROM forward WHERE id = new.superseded_message_id
+        )
+        BEGIN
+            SELECT RAISE(
+                ABORT,
+                'supersedes cycle: this link would make correction resolution non-terminating'
+            );
+        END;
+    """)
+
+
+def _v6_supersedes_replacement(conn: sqlite3.Connection) -> None:
+    """Version 6 — `supersedes.replacement`: did the correction give a new value?
+
+    Design of record: ``docs/RETRIEVAL_SUPERSESSION_DESIGN.md`` R4, approved at
+    review 2026-09-18 (RO1). Required by CO8, which broadened what counts as a
+    correction: a message may now state that an earlier claim is wrong **without
+    saying what is true instead**, so a link no longer implies a replacement value
+    exists. Task 3.5 has to render those two cases differently, and nothing in the
+    store could tell them apart.
+
+    ``replaced`` — the correction supplied the new value.
+    ``contradicted`` — it said the earlier statement is wrong and gave no value.
+
+    **NOT NULL with no default, deliberately.** A default would let a writer omit
+    the label and silently get whichever state is cheaper to render; a nullable
+    column would make "the classifier did not say" a third state that reads as a
+    missing feature rather than a failure. The single writer
+    (``corrections.record()``) can always supply it, because
+    ``corrections._parse()`` refuses a reply that does not.
+
+    **Recreated rather than ALTERed, and the reason is SQLite's**, not taste:
+    ``ALTER TABLE ADD COLUMN`` with ``NOT NULL`` *requires* a non-null default,
+    which is precisely the failure above. The alternative — a nullable column plus
+    a ``BEFORE INSERT`` trigger enforcing both the NOT NULL and the vocabulary —
+    would put one constraint in two mechanisms and leave the schema not saying what
+    it means. Destructive on migration 5's own grounds: this build's data is
+    disposable, decision #16 wipes before go-live, and any rows here are dev links
+    written since 3.3 landed.
+
+    The constraints and both cycle guards come across unchanged. They are verified
+    by the existing cycle tests rather than by reading — a transcription error in a
+    recursive trigger is exactly the kind that looks right.
+    """
+    conn.execute("DROP TRIGGER IF EXISTS supersedes_no_cycle_insert")
+    conn.execute("DROP TRIGGER IF EXISTS supersedes_no_cycle_update")
+    conn.execute("DROP TABLE IF EXISTS supersedes")
+    conn.executescript("""
+        CREATE TABLE supersedes (
+            id                      TEXT PRIMARY KEY,
+            superseding_message_id  TEXT NOT NULL,
+            superseded_message_id   TEXT NOT NULL,
+            replacement             TEXT NOT NULL,
+            classifier_model        TEXT,
+            confidence              REAL,
+            rationale               TEXT,
+            created_at              TEXT NOT NULL,
+            FOREIGN KEY (superseding_message_id) REFERENCES messages(id),
+            FOREIGN KEY (superseded_message_id) REFERENCES messages(id),
+            UNIQUE (superseding_message_id, superseded_message_id),
+            CHECK (superseding_message_id <> superseded_message_id),
+            CHECK (replacement IN ('replaced', 'contradicted'))
+        );
+
+        CREATE INDEX idx_supersedes_superseded
+            ON supersedes(superseded_message_id);
+        CREATE INDEX idx_supersedes_superseding
+            ON supersedes(superseding_message_id);
+
+        CREATE TRIGGER supersedes_no_cycle_insert
+        BEFORE INSERT ON supersedes
+        WHEN EXISTS (
+            WITH RECURSIVE forward(id) AS (
+                SELECT new.superseding_message_id
+                UNION
+                SELECT s.superseding_message_id
+                  FROM supersedes s
+                  JOIN forward f ON s.superseded_message_id = f.id
+            )
+            SELECT 1 FROM forward WHERE id = new.superseded_message_id
+        )
+        BEGIN
+            SELECT RAISE(
+                ABORT,
+                'supersedes cycle: this link would make correction resolution non-terminating'
+            );
+        END;
+
+        CREATE TRIGGER supersedes_no_cycle_update
+        BEFORE UPDATE OF superseding_message_id, superseded_message_id ON supersedes
+        WHEN EXISTS (
+            WITH RECURSIVE forward(id) AS (
+                SELECT new.superseding_message_id
+                UNION
+                SELECT s.superseding_message_id
+                  FROM supersedes s
+                  JOIN forward f ON s.superseded_message_id = f.id
+                 WHERE s.id <> old.id
+            )
+            SELECT 1 FROM forward WHERE id = new.superseded_message_id
+        )
+        BEGIN
+            SELECT RAISE(
+                ABORT,
+                'supersedes cycle: this link would make correction resolution non-terminating'
+            );
+        END;
+    """)
+
+
 MIGRATIONS: list[Migration] = [
     Migration(version=2, name="artifacts_and_chunk_link", apply=_v2_artifacts),
     Migration(version=3, name="message_integrity_check", apply=_v3_integrity_check),
+    Migration(version=4, name="message_integrity_advisory", apply=_v4_integrity_advisory),
+    Migration(version=5, name="supersedes_by_message", apply=_v5_supersedes_by_message),
+    Migration(version=6, name="supersedes_replacement", apply=_v6_supersedes_replacement),
 ]
 
 

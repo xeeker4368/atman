@@ -37,6 +37,7 @@ import random
 import sqlite3
 import time
 import uuid
+from collections.abc import Sequence
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -452,6 +453,190 @@ def set_message_integrity_check(message_id: str, verdict_json: str) -> None:
             "UPDATE messages SET integrity_check = ? WHERE id = ?",
             (verdict_json, message_id),
         )
+
+
+@retry_on_locked
+def set_message_integrity_advisory(message_id: str, advisory_json: str) -> None:
+    """Record what the classifier said about tool claims — a signal, not a verdict.
+
+    Separate from :func:`set_message_integrity_check` because the two mean
+    different things: that column decides whether a turn was flagged, this one
+    never does. Working store only, for the same reason.
+    """
+    with transaction() as conn:
+        conn.execute(
+            "UPDATE messages SET integrity_advisory = ? WHERE id = ?",
+            (advisory_json, message_id),
+        )
+
+
+def get_messages_in_chunk(chunk_id: str) -> list[sqlite3.Row]:
+    """The messages a chunk was built from.
+
+    **A timestamp-window join, because there is no ordinal to use.**
+    ``chunks.first_message_id``/``last_message_id`` are uuid4 hex and therefore
+    unordered, and ``messages`` carries no sequence number — only ``timestamp``,
+    which is indexed. So the range is resolved by looking up the two endpoint
+    messages' timestamps and taking everything between them in that conversation.
+    The endpoints are exact (they are named by id); only the interior relies on
+    the window, which is why a same-second collision between *interior* messages
+    is harmless. See ``docs/CORRECTION_DESIGN.md`` C3 and CO2.
+    """
+    with connection() as conn:
+        return conn.execute(
+            """
+            SELECT m.* FROM messages m
+              JOIN chunks c ON c.id = ?
+              JOIN messages f ON f.id = c.first_message_id
+              JOIN messages l ON l.id = c.last_message_id
+             WHERE m.conversation_id = c.conversation_id
+               AND m.timestamp >= f.timestamp
+               AND m.timestamp <= l.timestamp
+             ORDER BY m.timestamp, m.id
+            """,
+            (chunk_id,),
+        ).fetchall()
+
+
+#: What ``supersedes.replacement`` may hold, matching the column's CHECK. Here as
+#: well as in the schema so a caller can validate before the database refuses —
+#: but the CHECK is the guarantee, since this module is not the only possible
+#: writer. See RETRIEVAL_SUPERSESSION_DESIGN R4.
+REPLACEMENT_STATES = ("replaced", "contradicted")
+
+
+@retry_on_locked
+def create_supersedes_link(
+    superseding_message_id: str,
+    superseded_message_id: str,
+    replacement: str,
+    classifier_model: str | None = None,
+    confidence: float | None = None,
+    rationale: str | None = None,
+) -> str:
+    """Record that one message supersedes another. Never edits either.
+
+    Working store only: a correction is a judgment *about* messages rather than
+    part of them, which is `migrations.py`'s own test for what belongs in working
+    rather than in the frozen archive.
+
+    ``replacement`` is ``replaced`` or ``contradicted`` (migration 6) and has **no
+    default**, positioned before the optional arguments so it cannot be omitted.
+    CO8 lets a correction state that a claim is wrong without saying what is true
+    instead, so a link no longer implies a new value exists; task 3.5 renders the
+    two differently and cannot recover the distinction from anything else on the
+    row. A default here would silently manufacture whichever state is cheaper to
+    render.
+
+    ``confidence`` is written as supplied and is normally ``None`` — see
+    ``docs/CORRECTION_DESIGN.md`` C7: the classifier emits no calibrated number,
+    and a self-reported one would be an unmeasured constant of exactly the kind
+    this build keeps refusing.
+    """
+    link_id = uuid.uuid4().hex
+    with transaction() as conn:
+        conn.execute(
+            """
+            INSERT INTO supersedes (
+                id, superseding_message_id, superseded_message_id, replacement,
+                classifier_model, confidence, rationale, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (link_id, superseding_message_id, superseded_message_id, replacement,
+             classifier_model, confidence, rationale, now_iso()),
+        )
+    return link_id
+
+
+def get_supersedes_links(message_id: str | None = None) -> list[sqlite3.Row]:
+    """Every link, or every link touching one message. Read-only."""
+    with connection() as conn:
+        if message_id is None:
+            return conn.execute(
+                "SELECT * FROM supersedes ORDER BY created_at"
+            ).fetchall()
+        return conn.execute(
+            """
+            SELECT * FROM supersedes
+             WHERE superseding_message_id = ? OR superseded_message_id = ?
+             ORDER BY created_at
+            """,
+            (message_id, message_id),
+        ).fetchall()
+
+
+def get_supersedes_for_chunks(chunk_ids: Sequence[str]) -> list[sqlite3.Row]:
+    """Corrections touching any message inside these chunks. One query, read-only.
+
+    Task 3.5's first hop (``docs/RETRIEVAL_SUPERSESSION_DESIGN.md`` R2). Links name
+    *messages* and retrieval returns *chunks*, so the mapping is the same
+    timestamp-window join :func:`get_messages_in_chunk` documents — done once for
+    the whole result set rather than per chunk, because per-chunk plus per-message
+    would be up to ``top_k (10) x max_turns (8)`` queries inside a turn on a
+    database whose lock contention is a recorded issue.
+
+    Chunks from file ingestion have NULL message-id columns, so the join drops them
+    rather than needing a guard: a document has no messages to correct.
+    """
+    if not chunk_ids:
+        return []
+    placeholders = ", ".join("?" for _ in chunk_ids)
+    with connection() as conn:
+        return conn.execute(
+            f"""
+            SELECT c.id                       AS chunk_id,
+                   sup.replacement            AS replacement,
+                   sd.id                      AS superseded_id,
+                   sd.content                 AS superseded_content,
+                   sd.timestamp               AS superseded_timestamp,
+                   sd.role                    AS superseded_role,
+                   sg.id                      AS superseding_id,
+                   sg.content                 AS superseding_content,
+                   sg.timestamp               AS superseding_timestamp,
+                   sg.role                    AS superseding_role
+              FROM chunks c
+              JOIN messages f  ON f.id = c.first_message_id
+              JOIN messages l  ON l.id = c.last_message_id
+              JOIN messages sd ON sd.conversation_id = c.conversation_id
+                              AND sd.timestamp >= f.timestamp
+                              AND sd.timestamp <= l.timestamp
+              JOIN supersedes sup ON sup.superseded_message_id = sd.id
+              JOIN messages sg ON sg.id = sup.superseding_message_id
+             WHERE c.id IN ({placeholders})
+             ORDER BY c.id, sd.timestamp, sd.id, sg.timestamp, sg.id
+            """,
+            tuple(chunk_ids),
+        ).fetchall()
+
+
+def get_supersedes_from(message_ids: Sequence[str]) -> list[sqlite3.Row]:
+    """What supersedes each of these messages. One query per chain level.
+
+    Task 3.5 follows a chain forward to its tip (R3) — ``A <- B <- C`` means ``C``
+    is the current statement, and surfacing ``B`` would annotate a record with a
+    correction that has itself been corrected. Batched by level so the usual case
+    (depth 1, nothing further) costs exactly one extra query and a long chain costs
+    one per level rather than one per message.
+    """
+    if not message_ids:
+        return []
+    placeholders = ", ".join("?" for _ in message_ids)
+    with connection() as conn:
+        return conn.execute(
+            f"""
+            SELECT sup.superseded_message_id AS from_id,
+                   sup.replacement           AS replacement,
+                   sg.id                     AS superseding_id,
+                   sg.content                AS superseding_content,
+                   sg.timestamp              AS superseding_timestamp,
+                   sg.role                   AS superseding_role
+              FROM supersedes sup
+              JOIN messages sg ON sg.id = sup.superseding_message_id
+             WHERE sup.superseded_message_id IN ({placeholders})
+             ORDER BY sg.timestamp, sg.id
+            """,
+            tuple(message_ids),
+        ).fetchall()
 
 
 def get_conversation_messages(conversation_id: str) -> list[sqlite3.Row]:

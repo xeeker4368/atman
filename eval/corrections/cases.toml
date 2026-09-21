@@ -1,0 +1,336 @@
+# Correction-classifier eval harness — frozen cases.
+#
+#     python -m scripts.correction_eval [--runs N] [--case ID ...]
+#
+# FROZEN, on the same terms as the fabrication gate's set. Once committed, a
+# case's inputs and expectations are not edited to make the classifier pass;
+# `tests/test_correction_eval.py` pins a fingerprint over exactly those fields.
+# New cases may be added — that changes the fingerprint too, and is reviewed the
+# same way.
+#
+# **Wrong target is its own failure, not a pass.** A case that expects a link
+# names which candidate should be picked. A link to the wrong prior claim is
+# worse than no link at all: it makes retrieval present something the person
+# never corrected as superseded.
+#
+# **So is the wrong label.** Since CO8 a correction may or may not carry the
+# correct value, and migration 6 stores which. A case that expects a link
+# therefore names both the candidate and the label; the right candidate under the
+# wrong label is scored `wrong_state`, never a pass, because task 3.5 renders the
+# two differently.
+#
+# Fields, all required unless marked:
+#   id             short, unique
+#   kind           correction | contradiction | elaboration | doubt | restatement
+#                  | topic_change | self_correction | role_guard | ambiguous
+#                  | position
+#   speaker_role   "user" | "assistant" — who wrote the new message
+#   speaker        (optional, default "Lyle") the household member's name, as the
+#                  classifier is told it. Both users appear in the set: the same
+#                  judgment under the other name is a different case, and it is
+#                  fingerprinted because it is an input. Ignored for the entity.
+#   should_link    true when a correct classifier writes a link
+#   target         (required when should_link) the candidate id that must be picked
+#   replacement    (required when should_link) "replaced" when the new message
+#                  supplies the correct value, "contradicted" when it only says the
+#                  earlier one is wrong (CO8). Labelling the right link the wrong
+#                  way is its own failure — the harness scores it `wrong_state`.
+#   new_message    the message being judged
+#   note           why (informational, not fingerprinted)
+#   documented     (optional) prior evidence (informational)
+#   [[case.candidate]]  the prior claims offered, in order: id, role, content
+#
+# Q16 (one user never supersedes the other) has NO case here, and the reason is
+# sharper than "it is enforced elsewhere": **the prompt has no slot for a second
+# person.** `corrections._render()` labels every user-role candidate with the one
+# speaker name it is given, because `candidates()` has already filtered the pool
+# to a single user before rendering. A cross-user pool is therefore not
+# expressible through `corrections.classify()` — the entry point this harness is
+# restricted to — so there is no classifier behaviour to sample. It is proved by
+# construction instead, against a real two-user store, in
+# `tests/test_corrections.py::test_the_other_household_member_is_never_a_candidate`.
+# A proof beats a sampled rate; what is lost is only that the number does not
+# appear in this report.
+
+# ===========================================================================
+# Real corrections — a link is expected, and to the right candidate
+# ===========================================================================
+
+[[case]]
+id = "C1-day-replaced"
+kind = "correction"
+speaker_role = "user"
+should_link = true
+target = "p1"
+replacement = "replaced"
+new_message = "Actually the dentist is Wednesday, not Tuesday."
+note = "The canonical shape: a fact replaced, with the replacement stated."
+
+[[case.candidate]]
+id = "p1"
+role = "user"
+content = "The dentist appointment is on Tuesday at 3."
+
+[[case.candidate]]
+id = "p2"
+role = "user"
+content = "We need oat milk and coffee beans."
+
+[[case]]
+id = "C2-number-replaced"
+kind = "correction"
+speaker_role = "user"
+should_link = true
+target = "p2"
+replacement = "replaced"
+new_message = "Sorry — her train is 19:40, I misread the ticket."
+note = "A number replaced, and the correction is the second candidate, not the first."
+
+[[case.candidate]]
+id = "p1"
+role = "user"
+content = "The dentist appointment is on Tuesday at 3."
+
+[[case.candidate]]
+id = "p2"
+role = "user"
+content = "Jodie's train gets in at 18:40."
+
+[[case]]
+id = "C3-position-third"
+kind = "position"
+speaker_role = "user"
+should_link = true
+target = "p3"
+replacement = "replaced"
+new_message = "The bike lock code is 4417, not 4471 — I transposed it."
+note = "Guards against position bias: the target is third of three, and two plausible-looking numeric claims sit above it."
+
+[[case.candidate]]
+id = "p1"
+role = "user"
+content = "The car needs its service at 40,000 miles."
+
+[[case.candidate]]
+id = "p2"
+role = "user"
+content = "The boiler pressure should sit around 1.4 bar."
+
+[[case.candidate]]
+id = "p3"
+role = "user"
+content = "The bike lock code is 4471."
+
+[[case]]
+id = "C4-self-correction"
+kind = "self_correction"
+speaker_role = "assistant"
+should_link = true
+target = "p1"
+replacement = "replaced"
+new_message = "Correction to what I said earlier: the dose is 20 grams, not 18. I had the wrong figure."
+note = "Decision #21/Q17: the entity correcting its own earlier claim, which is in scope and inline per C6."
+
+[[case.candidate]]
+id = "p1"
+role = "assistant"
+content = "For that basket the dose is 18 grams."
+
+[[case.candidate]]
+id = "p2"
+role = "assistant"
+content = "Grinding finer will slow the shot down."
+
+[[case]]
+id = "C5-jodie-correction"
+kind = "correction"
+speaker_role = "user"
+speaker = "Jodie"
+should_link = true
+target = "p1"
+replacement = "replaced"
+new_message = "I had that wrong — the class is at 7, not 6."
+note = "Both users: the same replaced-fact shape under the other household member's name. Nothing in the classifier should key on who is speaking, and this is where that is measured rather than assumed."
+
+[[case.candidate]]
+id = "p1"
+role = "user"
+content = "My pottery class is at 6 on Thursdays."
+
+[[case.candidate]]
+id = "p2"
+role = "user"
+content = "The studio is on the far side of town."
+
+[[case]]
+id = "C6-contradiction-no-replacement"
+kind = "contradiction"
+speaker_role = "user"
+should_link = true
+target = "p1"
+replacement = "contradicted"
+new_message = "The dentist isn't Tuesday."
+note = "CO8, decided 2026-09-18: a flat contradiction with no replacement value is still a correction. The record should surface 'this was contradicted' even when the correct value is unknown — under CO7 staying silent is worse, because there is no fallback fact for a reader to lean on if no link fires. Found as a diagnostic at 3.4 (linked 5/5 against the design's then-narrower definition); pinned here so it is measured going forward rather than discovered once."
+documented = "Its negative boundary is N2-doubt, which must keep producing no link: asserting a claim is wrong is a correction, wondering whether it is right is not."
+
+[[case.candidate]]
+id = "p1"
+role = "user"
+content = "The dentist appointment is on Tuesday at 3."
+
+[[case.candidate]]
+id = "p2"
+role = "user"
+content = "We need oat milk and coffee beans."
+
+[[case]]
+id = "C7-referential-contradiction"
+kind = "contradiction"
+speaker_role = "user"
+should_link = true
+target = "p2"
+replacement = "contradicted"
+new_message = "That's not right."
+note = "CO8's second phrasing, added 2026-09-19 at review. C6 contradicts by restating the fact it denies (\"The dentist isn't Tuesday\"); this one carries no claim content at all and contradicts purely by reference. They are different problems — one can be matched on the fact named, the other cannot — and measuring the broadened definition on a single phrasing was 3.4's standing limitation. It also gives wrong_state's `contradicted` direction a second case, so that rate no longer moves in whole-case steps."
+documented = "MEASURED FAILING, 2026-09-19, 0/5 then 0/20 — missed, not wrong-target. The case was authored expecting the referent to be fixed by content as well as recency (p1 is an intention about the future, which cannot sensibly be called wrong; p2 is a checkable claim) and THAT PREMISE IS REFUTED: the classifier uses neither signal. It replies `CORRECTS 1, 2 CONTRADICTED` — recognising the contradiction and labelling it correctly, then attaching the singular \"that\" to every candidate in the pool — so CO5's multi-candidate guard drops it and no link is written. The failure is referent selection, not recognition. Ordering is not the cause: it names both regardless. Left failing and left frozen; whether should_link is even the right expectation for a referential contradiction against a multi-claim pool is a CO5/CO8 boundary question for review, and editing the case to match the result is what the freeze exists to prevent."
+
+[[case.candidate]]
+id = "p1"
+role = "user"
+content = "I'll drop the parcel at the post office tomorrow."
+
+[[case.candidate]]
+id = "p2"
+role = "user"
+content = "The recycling is collected on alternate Tuesdays."
+
+# ===========================================================================
+# Near-misses — the four shapes C11 names. No link is the correct answer.
+# ===========================================================================
+
+[[case]]
+id = "N1-elaboration"
+kind = "elaboration"
+speaker_role = "user"
+should_link = false
+new_message = "We also need bread and butter."
+note = "Adds to the list without contradicting it. The most likely false link in ordinary use."
+
+[[case.candidate]]
+id = "p1"
+role = "user"
+content = "We need oat milk and coffee beans."
+
+[[case]]
+id = "N2-doubt"
+kind = "doubt"
+speaker_role = "user"
+should_link = false
+new_message = "I'm not sure the dentist appointment is right — let me check the letter."
+note = "Doubt is not yet a correction: nothing is stated to be true instead."
+
+[[case.candidate]]
+id = "p1"
+role = "user"
+content = "The dentist appointment is on Tuesday at 3."
+
+[[case]]
+id = "N3-restatement"
+kind = "restatement"
+speaker_role = "user"
+should_link = false
+new_message = "So that's the dentist on Tuesday at 3."
+note = "Repeating a claim is not correcting it, even though the wording differs."
+
+[[case.candidate]]
+id = "p1"
+role = "user"
+content = "The dentist appointment is on Tuesday at 3."
+
+[[case]]
+id = "N4-topic-change"
+kind = "topic_change"
+speaker_role = "user"
+should_link = false
+new_message = "What's a good grind setting for a flat white?"
+note = "Mentions the same domain as a candidate without touching its truth."
+
+[[case.candidate]]
+id = "p1"
+role = "user"
+content = "The espresso machine needs descaling every two months."
+
+[[case]]
+id = "N5-elaboration-detail"
+kind = "elaboration"
+speaker_role = "user"
+should_link = false
+new_message = "The dentist is at 3 — and the surgery is the one on Mill Road."
+note = "Adds a detail beside a claim it leaves intact. Harder than N1 because it repeats part of the claim."
+
+[[case.candidate]]
+id = "p1"
+role = "user"
+content = "The dentist appointment is on Tuesday at 3."
+
+[[case]]
+id = "N6-self-elaboration"
+kind = "self_correction"
+speaker_role = "assistant"
+should_link = false
+new_message = "To add to what I said: the same basket takes 20 grams if you pull a double."
+note = "The entity adding to its own earlier claim rather than correcting it — the self-correction near-miss."
+
+[[case.candidate]]
+id = "p1"
+role = "assistant"
+content = "For that basket the dose is 18 grams."
+
+[[case]]
+id = "N7-jodie-elaboration"
+kind = "elaboration"
+speaker_role = "user"
+speaker = "Jodie"
+should_link = false
+new_message = "The class runs for two hours, so I will be back late."
+note = "Both users, negative direction. Without this, Jodie appears in the set only where a link is expected, and a per-user false-link rate would have no denominator."
+
+[[case.candidate]]
+id = "p1"
+role = "user"
+content = "My pottery class is at 6 on Thursdays."
+
+# ===========================================================================
+# The mechanism's own guards
+# ===========================================================================
+
+[[case]]
+id = "G1-role-guard"
+kind = "role_guard"
+speaker_role = "assistant"
+should_link = false
+new_message = "You said Tuesday, but I think you meant Wednesday."
+note = "CO4: the entity may not supersede a person's statement. Enforced by construction — the candidate is a user message, so nothing eligible is offered and no call is made. Here as a measured property rather than only a unit test."
+
+[[case.candidate]]
+id = "p1"
+role = "user"
+content = "The dentist appointment is on Tuesday at 3."
+
+[[case]]
+id = "G2-ambiguous-two-claims"
+kind = "ambiguous"
+speaker_role = "user"
+should_link = false
+new_message = "Both of those were wrong."
+note = "CO5: a message that plausibly corrects two candidates without saying what is true instead. No link — a wrong link is worse than none, and guessing which was meant is how one happens."
+
+[[case.candidate]]
+id = "p1"
+role = "user"
+content = "The dentist appointment is on Tuesday at 3."
+
+[[case.candidate]]
+id = "p2"
+role = "user"
+content = "Jodie's train gets in at 18:40."

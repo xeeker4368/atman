@@ -131,3 +131,77 @@ def test_migration_colliding_with_initial_version_is_rejected(store, monkeypatch
 def test_archive_has_no_migration_path(store):
     """The archive's shape is frozen; there is deliberately no runner for it."""
     assert not hasattr(migrations, "run_archive_migrations")
+
+
+def test_migration_four_adds_the_advisory_column_without_touching_the_verdict(store):
+    """Two meanings, two columns. A non-authoritative signal sharing the
+    verdict's column would invite a reader to take one for the other — exactly
+    migration 3's own argument against folding it into `tool_trace`.
+
+    **`store` was missing here and the test passed with migration 4 deleted.**
+    Without the fixture, `init_databases()` ran against whatever store the ambient
+    data directory already held — already at version 4, so nothing migrated and the
+    assertions inspected a schema built earlier. Found while writing migration 6's
+    test, which had inherited the same shape. Verified by deleting the `ALTER
+    TABLE` and re-running: it now fails.
+    """
+    with db.connection() as conn:
+        columns = {row["name"] for row in conn.execute("PRAGMA table_info(messages)")}
+
+    assert {"integrity_check", "integrity_advisory"} <= columns
+    assert migrations.current_version() >= 4
+
+
+def test_the_advisory_column_is_not_in_working_sql():
+    """Same rule migration 2 established: `working.sql` stays the version 1
+    definition, so a fresh store and an existing one reach the same schema by the
+    same path — and the migration is exercised on every test run."""
+    from program.memory import db
+
+    assert "integrity_advisory" not in (
+        db.SCHEMA_DIR / "working.sql").read_text(encoding="utf-8")
+
+
+def test_migration_six_adds_the_replacement_column_and_keeps_the_cycle_guards(store):
+    """Migration 6 recreates `supersedes` to get a NOT NULL column with no default.
+
+    The column is the easy half. The half worth testing is that **both cycle
+    triggers survived the recreate** — a recursive-CTE trigger is exactly the kind
+    of SQL that looks right when it has been transcribed wrongly, and if one were
+    lost nothing else here would notice until correction resolution hung.
+
+    **Takes `store`, and that is not cosmetic.** Written without it, this test
+    called `init_databases()` against whatever store the ambient data directory
+    already held — already at version 6, so no migration ran and the assertions
+    inspected a schema built by *earlier* code. It passed in 0.01 s with
+    migration 6's update trigger deliberately deleted. The fixture forces a fresh
+    database so the assertions describe what this migration actually produces.
+    """
+    with db.connection() as conn:
+        columns = {row["name"] for row in conn.execute("PRAGMA table_info(supersedes)")}
+        triggers = {
+            row["name"] for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'trigger' "
+                "AND tbl_name = 'supersedes'")
+        }
+        [sql] = [row["sql"] for row in conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'supersedes'")]
+
+    assert "replacement" in columns
+    assert triggers == {"supersedes_no_cycle_insert", "supersedes_no_cycle_update"}
+    assert migrations.current_version() >= 6
+    assert "replacement IN ('replaced', 'contradicted')" in sql
+    assert "superseding_message_id <> superseded_message_id" in sql
+    assert "UNIQUE (superseding_message_id, superseded_message_id)" in sql
+
+
+def test_the_replacement_column_is_not_in_working_sql():
+    """`working.sql` stays the version 1 definition — and version 1's `supersedes`
+    is still the chunk-level table, which migration 5 replaces on every fresh
+    store."""
+    working = (db.SCHEMA_DIR / "working.sql").read_text(encoding="utf-8")
+    assert "replacement" not in working
+    assert "superseding_chunk_id" in working, (
+        "version 1's chunk-level definition is the historical record; migrations 5 "
+        "and 6 are what bring a fresh store up to message granularity"
+    )

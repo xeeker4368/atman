@@ -57,6 +57,7 @@ from typing import Any, Mapping, Sequence
 
 from program.engine import history
 from program.engine.history import BudgetBreakdown, HistoryWindow
+from program.memory import supersession
 from program.memory.retrieval import RetrievalResult, RetrievedChunk
 
 #: soul.md lives beside the governance files the Phase 2 ingestion blocklist
@@ -360,6 +361,98 @@ _RETRIEVED_HEADER = (
 )
 
 
+#: Characters of the corrected message quoted as a **locator**. Always shown, never
+#: budgeted: a chunk packs up to eight turns into one opaque block, so "the third
+#: message" is not something a reader can resolve against the text in front of it.
+#: A JUDGMENT value.
+SUPERSEDED_QUOTE_CHARS = 120
+
+#: Characters of the correction itself. Quoted rather than summarised — a generated
+#: paraphrase where the person's own words belong would be the one thing this
+#: mechanism exists to avoid. `web_search`'s snippet cap, for the same reason.
+SUPERSEDING_QUOTE_CHARS = 300
+
+#: Annotations rendered under one chunk before the remainder become a count.
+SUPERSEDING_MAX_PER_CHUNK = supersession.MAX_PER_CHUNK
+
+#: RO4's answer. Annotations are charged against the same window as everything else
+#: (`assemble_turn()` measures what `render_retrieved()` returns), so an unbounded
+#: annotation silently evicts conversation history.
+#:
+#: **Two bounds, because they protect different things.** The quote budget is spent
+#: on the *correction text* in rank order; once it runs out, annotations still
+#: render with their locator and their state, just without the correction quoted.
+#: The annotation cap bounds how many appear at all.
+#:
+#: **Degradation order is deliberate: shorten before dropping.** A dropped
+#: annotation presents a corrected claim as current, which is the failure this
+#: mechanism exists to prevent, so the quote is the first thing to go and the
+#: existence of the annotation is the last. Whatever the cap does drop is still
+#: *counted* in a closing line rather than vanishing — the `unresponsive_engines`
+#: pattern: nothing found with two engines down is a different claim from nothing
+#: found.
+#:
+#: Worst case, by construction: 12 annotations x ~210 characters of locator and
+#: scaffolding, plus 2,000 characters of quotes, plus the closing counts —
+#: **about 4,600 characters**, against `agent.max_tool_result_chars`'s 4,000 as the
+#: nearest precedent for how much text one auxiliary thing may add to a turn. Both
+#: numbers are JUDGMENT values.
+SUPERSEDING_QUOTE_BUDGET_CHARS = 2000
+SUPERSESSION_MAX_ANNOTATIONS = 12
+
+
+def _quote(text: str, limit: int) -> str:
+    collapsed = " ".join((text or "").split())
+    if len(collapsed) <= limit:
+        return f'"{collapsed}"'
+    return f'"{collapsed[:limit].rstrip()}…"'
+
+
+def _render_supersession(item, quote_budget: int) -> tuple[str, int]:
+    """One annotation, and how much of the quote budget it spent.
+
+    Stated positively for both states, on the rule the gate's *"No tools were used
+    this turn"* follows: an absent clause reads as no information, so
+    "with no replacement given" is said rather than implied by omission.
+    """
+    locator = _quote(item.superseded_text, SUPERSEDED_QUOTE_CHARS)
+    when = (item.superseding_timestamp or "")[:10] or "an unknown date"
+    if item.replacement == supersession.CONTRADICTED:
+        head = f"Later contradicted, with no replacement given. {locator} was"
+        verb = "contradicted"
+    else:
+        head = f"Later corrected. {locator} was"
+        verb = "superseded"
+
+    if quote_budget >= len(item.superseding_text[:SUPERSEDING_QUOTE_CHARS]):
+        quote = _quote(item.superseding_text, SUPERSEDING_QUOTE_CHARS)
+        return f"{head} {verb} on {when} by: {quote}", len(quote)
+    # Budget spent. The annotation still says what happened and to which line; only
+    # the correction's wording is withheld.
+    return f"{head} {verb} on {when}.", 0
+
+
+#: Said when correction resolution failed (R7/RO3). **Stated before the records**,
+#: not after: the ordering rule this module already enforces for the elapsed-time
+#: figure — a caveat that arrives after the thing it qualifies has been read is the
+#: wrong way round.
+#:
+#: RO3 was **reversed at review** (2026-09-19). My own lean was to record the
+#: failure without telling the model, on the grounds that it would invite hedging on
+#: every record in a turn where one lookup failed. The reviewer's argument is the
+#: better one and it is `memory_search`'s own: *nothing found with the vector leg
+#: down is a different claim from nothing found.* Here the absence of annotations
+#: carries no information when the check did not run, and saying so is what stops
+#: that absence being read as "nothing was corrected".
+#:
+#: The wording is deliberately about the **check**, not about the records' truth, to
+#: keep it from reading as a general warning about the memory.
+_SUPERSESSION_UNRESOLVED = (
+    "[The check for later corrections to these records did not complete, so no "
+    "corrections are shown below whether or not any exist.]"
+)
+
+
 def _render_chunk(chunk: RetrievedChunk, marker: str) -> str:
     """One chunk with its timestamp.
 
@@ -378,15 +471,73 @@ def render_retrieved(result: RetrievalResult | None) -> str:
     if result is None or not result.results:
         return ""
 
+    budget = _AnnotationBudget()
     blocks = [_RETRIEVED_HEADER]
+    if not result.supersession.resolved:
+        blocks.append(_SUPERSESSION_UNRESOLVED)
     for position, chunk in enumerate(result.results, start=1):
         blocks.append(_render_chunk(chunk, f"record {position}"))
+        blocks.extend(budget.render(chunk))
         for offset, sibling in enumerate(chunk.siblings, start=1):
             # Continuations of the same split message, not independent matches.
             blocks.append(
                 _render_chunk(sibling, f"record {position}, continued {offset}")
             )
+            blocks.extend(budget.render(sibling))
+    blocks.extend(budget.closing())
     return "\n\n".join(blocks)
+
+
+class _AnnotationBudget:
+    """Spends RO4's two bounds across one rendering pass.
+
+    Stateful on purpose: the quote budget is global to the render, so it cannot live
+    inside a per-chunk function. Kept out of `render_retrieved`'s body so the
+    ordering of records stays readable.
+    """
+
+    def __init__(self) -> None:
+        self.quote_budget = SUPERSEDING_QUOTE_BUDGET_CHARS
+        self.remaining = SUPERSESSION_MAX_ANNOTATIONS
+        self.withheld = 0
+        self.withheld_records = 0
+
+    def render(self, chunk: RetrievedChunk) -> list[str]:
+        items = list(getattr(chunk, "supersessions", ()))
+        if not items:
+            return []
+
+        shown = items[:min(SUPERSEDING_MAX_PER_CHUNK, self.remaining)]
+        if not shown:
+            # Nothing left in the global cap. Counted, never silently dropped.
+            self.withheld += len(items)
+            self.withheld_records += 1
+            return []
+
+        lines = []
+        for item in shown:
+            text, spent = _render_supersession(item, self.quote_budget)
+            self.quote_budget -= spent
+            lines.append(f"  {text}")
+        self.remaining -= len(shown)
+
+        extra = len(items) - len(shown)
+        if extra:
+            lines.append(
+                f"  And {extra} further correction{'s' if extra > 1 else ''} to this "
+                f"record, not shown."
+            )
+        return ["\n".join(lines)]
+
+    def closing(self) -> list[str]:
+        if not self.withheld:
+            return []
+        records = self.withheld_records
+        return [
+            f"{self.withheld} further correction"
+            f"{'s' if self.withheld > 1 else ''} apply to {records} of the records "
+            f"above and {'are' if self.withheld > 1 else 'is'} not shown."
+        ]
 
 
 # ---------------------------------------------------------------------------
@@ -440,6 +591,7 @@ def build_system_prompt(
     situation = (situation or "").strip()
     _check_pairing(situation)
     check_authored_text(_RETRIEVED_HEADER, "retrieved-records header")
+    check_authored_text(_SUPERSESSION_UNRESOLVED, "supersession-unresolved note")
 
     retrieved = render_retrieved(retrieval)
     parts = [part for part in (soul, situation, retrieved) if part]
