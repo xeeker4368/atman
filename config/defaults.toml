@@ -27,7 +27,6 @@ port = 8000
 [ollama]
 host = "http://localhost:11434"
 timeout_seconds = 300
-
 # Seed values for settings-backed keys. Model selection and temperature become
 # admin-panel settings in Phase 9; until the settings table holds a row for one,
 # these are what the system uses.
@@ -94,12 +93,12 @@ idle_close_minutes = 15
 #                                       + database.busy_timeout_seconds
 #   retrieval embedding          300 s  ollama.timeout_seconds
 #   L model calls               1500 s  agent.max_iterations x ollama.timeout_seconds
-#   fabrication gate classifier  300 s  ollama.timeout_seconds (Phase 3)
+#   fabrication gate classifier   45 s  integrity.classifier_timeout_seconds
 #   tool execution, aggregate    120 s  agent.tool_budget_seconds
 #   persist the assistant reply   40 s  as above
 #   idle sweep                     0 s  runs AFTER the response, in the background
 #                              -------
-#                               2300 s  = 38.3 min  -> floor 39
+#                               2045 s  = 34.1 min  -> floor 35
 #
 # RE-DERIVED AGAIN 2026-09-15 when the fabrication gate added a sixth model call
 # to the turn (docs/FABRICATION_GATE_DESIGN.md F3). The gate is MEASURED at
@@ -126,7 +125,7 @@ idle_close_minutes = 15
 # floor. Less headroom than the original 1.5x because the floor is built from
 # ceilings rather than from a measurement, so it is already pessimistic.
 # JUDGMENT VALUE at that last step; the 39 underneath it is not.
-in_flight_grace_minutes = 46
+in_flight_grace_minutes = 41
 
 [agent]
 # The agent loop (task 2.2): call the model, dispatch any tool calls, feed the
@@ -517,3 +516,23 @@ scrypt_p = 1
 # restart and does not exist across processes, and it cannot slow an attacker
 # spreading guesses across names. JUDGMENT VALUE.
 login_max_attempts_per_minute = 5
+
+# ---------------------------------------------------------------------------
+# Integrity classifier (fabrication gate; task 3.3's correction classifier later)
+# ---------------------------------------------------------------------------
+#
+# All three are BOOTSTRAP-ONLY and deliberately not settings-backed: the
+# in-flight grace floor is derived from the timeout, and a live-editable value
+# sitting underneath a correctness floor is how that floor quietly stops holding.
+[integrity]
+# Empty means inherit models.chat. Pinning this exists because of a measured
+# failure: under muse-glimmer:30b the gate returned empty content on 21 of 21
+# calls and every verdict became `unavailable` — changing the chat model
+# silently disabled the checker. MEASURED HAZARD, see the 3.2 changelog.
+classifier_model = ""
+# MEASURED, not chosen — see the task 3.6c changelog for the distribution.
+classifier_num_predict = 120
+# DERIVED (revision 3, O10): 2x the worst measured call (21.5 s cold from disk).
+# The doubling is the one judgment and covers a second resident model slowing
+# the load. Warm calls measured 1.75-3.54 s.
+classifier_timeout_seconds = 45
