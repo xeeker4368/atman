@@ -293,6 +293,53 @@ def _copy_artifacts(destination: Path, warnings: list[str]) -> BackupArtifact | 
     )
 
 
+def _copy_workspace(destination: Path, warnings: list[str]) -> BackupArtifact | None:
+    """Copy the entity's own output directory. Phase 4 B0.
+
+    **The least rebuildable thing in this system.** `_copy_artifacts` above covers
+    files people handed over — which, in the worst case, they still have. This covers
+    what the entity *made*: creative writing (decision #10) and generated images.
+    There is no upstream copy of a story it wrote. Losing `workspace/` loses it.
+
+    That is a stronger claim than the artifact directory's and a much stronger one
+    than the vector store's, so it is worth being exact about what is and is not
+    guaranteed: this is still a directory copy taken **outside** the databases' read
+    lock, so something written during the backup may be absent. What that risks is a
+    missing file beside its row, not a corrupt one, and each row records a sha256.
+
+    It was not covered until B0, and the gap was real rather than theoretical: A2
+    started writing generated images here on 2026-09-21 while `backup.py` still knew
+    nothing about the directory.
+    """
+    source = config.workspace_dir()
+    if not source.exists():
+        warnings.append(
+            f"no workspace directory at {source}; nothing to copy. Expected "
+            f"until the entity writes or generates something."
+        )
+        return None
+
+    target = destination / "workspace"
+    shutil.copytree(source, target)
+    files = [p for p in target.rglob("*") if p.is_file()]
+    return BackupArtifact(
+        name="workspace",
+        relative_path="workspace",
+        size_bytes=sum(p.stat().st_size for p in files),
+        consistency=BEST_EFFORT,
+        note=(
+            f"Directory copy of {len(files)} file(s) the entity produced — "
+            f"creative writing and generated images. NOT captured under the "
+            f"databases' read lock, so something written during the backup may be "
+            f"absent. This is the LEAST rebuildable artifact in the set: uploaded "
+            f"files at least exist on whoever's machine they came from, and vectors "
+            f"regenerate from the chunks table, but nothing the entity wrote exists "
+            f"anywhere else. Each row records a sha256, which makes a mismatch "
+            f"detectable."
+        ),
+    )
+
+
 def create_backup(
     destination: Path | None = None,
     include_vectors: bool = True,
@@ -335,6 +382,10 @@ def create_backup(
         artifact_files = _copy_artifacts(target, warnings)
         if artifact_files is not None:
             artifacts.append(artifact_files)
+
+        workspace_files = _copy_workspace(target, warnings)
+        if workspace_files is not None:
+            artifacts.append(workspace_files)
     except Exception as exc:
         raise BackupError(f"backup to {target} failed: {exc}") from exc
 
@@ -373,6 +424,10 @@ def _write_manifest(result: BackupResult) -> None:
             "working_db": str(db.working_path()),
             "archive_db": str(db.archive_path()),
             "chroma_dir": str(vectors.chroma_path()),
+            # Both resolve from their own config keys, so a manifest that named only
+            # the databases would not say where a restore should put these back.
+            "artifact_dir": str(config.artifact_dir()),
+            "workspace_dir": str(config.workspace_dir()),
         },
         "schema_version": _schema_version(),
         "row_counts": result.row_counts,

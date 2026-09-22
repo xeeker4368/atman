@@ -114,6 +114,45 @@ case N times consecutively — the correlating regime — which is recorded as a
 known limitation in `BUILT.md`; changing it is a reviewed change to how the
 measurement works.*
 
+## Adding a runtime directory
+
+**Any new directory resolved from its own config key gets `backup.py` coverage and
+test-isolation-guard coverage in the SAME task that introduces it — never as a
+follow-up.**
+
+This is a standing item because it has now been missed three times, each caught only
+after something leaked or nearly did:
+
+| directory | added | how the gap surfaced |
+|---|---|---|
+| `backup_dir()` | task 1.14 | the backup tests wrote **two real backup directories into the repo** before the guard existed |
+| `artifact_dir()` | task 2.6 | caught during the task, after noticing 1.14's trap |
+| `workspace_dir()` | Phase 4 A2 | **65 real PNGs** from the image tests were sitting in the repository's own `workspace/` |
+
+The mechanism is always the same, and it is worth stating so it is recognised rather
+than rediscovered: **a new directory starts outside every existing guard by default.**
+Each resolves from its own config key, so repointing `ANAM_DATA_DIR` does not move it
+even when its default path sits inside `data/`, and `isolated_data_dir` protects only
+the keys it was told about.
+
+Three things to add, in the same change:
+
+1. **`isolated_data_dir` repoints it** (`tests/conftest.py`) — otherwise every test
+   touching it writes into the real one.
+2. **The session guard notices it.** For a directory the suite creates, "was it
+   created during the run?" is enough. For one that is **part of the tracked
+   skeleton** — `workspace/` has `.gitkeep` markers — that check can never fire, and
+   the guard must snapshot the file set and report anything new.
+3. **`backup.py` copies it, or the task says in writing why not.** Ask what it holds
+   that exists nowhere else: `backup_dir()` is the destination, and a vector store
+   rebuilds from `chunks`, but an uploaded file and anything the entity wrote do not
+   rebuild from anything.
+
+`tests/test_directories.py` enumerates the config accessors and fails on a directory
+that is not covered and not explicitly exempted, so a fourth occurrence fails the
+suite instead of leaking. **Adding the exemption is a real answer; it just has to be
+written down.**
+
 ## Git hygiene
 
 - Explicit `git add <filename>` per file. Never `-A`, never `.`.
