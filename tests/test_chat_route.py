@@ -205,3 +205,38 @@ def test_the_sweep_runs_after_the_turn_and_never_closes_the_active_conversation(
 
     assert db.get_conversation(stale)["ended_at"] is not None, "the sweep did not run"
     assert db.get_conversation(body["conversation_id"])["ended_at"] is None
+
+
+def test_a_lost_correction_link_is_not_a_500_on_a_turn_that_succeeded(
+    client, store, monkeypatch
+):
+    """The user-visible half of the same guard.
+
+    The route catches `ConversationAccessError`, `EmptyMessageError` and
+    `OllamaError` and nothing else, so before `turn._after_durable` existed an
+    `OperationalError` from a correction-link write past its retry deadline
+    reached FastAPI as an unhandled 500 — on a turn whose answer was already in
+    both stores. The person saw a server error and never saw the reply; the next
+    turn's history then held an answer they were never shown.
+    """
+    import sqlite3
+
+    from program.engine import turn
+
+    monkeypatch.setattr(
+        turn, "_record_corrections",
+        lambda *a, **k: (_ for _ in ()).throw(
+            sqlite3.OperationalError("database is locked")),
+    )
+
+    response = client.post(
+        "/api/chat", json={"message": "hello"}, headers=token_for(client, "Lyle")
+    )
+
+    assert response.status_code == 200, "a succeeded turn must not surface as an error"
+    body = response.json()
+    assert body["content"] == "Answered."
+
+    # and the answer the person was shown is the one on record
+    rows = db.get_conversation_messages(body["conversation_id"])
+    assert rows[-1]["content"] == "Answered."

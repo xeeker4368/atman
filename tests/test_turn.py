@@ -11,12 +11,15 @@ of two lines of code.
 from __future__ import annotations
 
 import json
+import logging
+import sqlite3
 
 import pytest
 
 from program import config
 from program.engine import loop, turn
 from program.engine.ollama import OllamaUnreachable
+from program.integrity import corrections
 from program.memory import db, idle
 from program.settings.permissions import Actor, Role
 from program.tools.registry import Tool, ToolRegistry
@@ -280,3 +283,129 @@ def test_the_actor_is_recorded_on_both_messages(store, model):
 
     rows = db.get_conversation_messages(outcome.conversation_id)
     assert {r["user_id"] for r in rows} == {store["jodie"].user_id}
+
+
+# --- Nothing after the answer is durable may fail the turn -------------------
+#
+# Three writes run after `save_message` has put the assistant's answer in both
+# stores: the integrity verdict, the advisory note, and the correction links.
+# None of them is the answer. Before this guard, any of them raising reached
+# FastAPI as an unhandled 500 — the route catches only ConversationAccessError,
+# EmptyMessageError and OllamaError — so the person got a server error for a turn
+# that had succeeded and never saw a reply that was already in the database.
+#
+# Reachable, not theoretical: `db.create_supersedes_link` carries
+# `@retry_on_locked` and raises `OperationalError` past its deadline, and a writer
+# racing a backup snapshot was measured hitting `database is locked` 2 of 5 times.
+
+
+def _locked():
+    """The exception `retry_on_locked` really raises once its deadline passes."""
+    return sqlite3.OperationalError("database is locked")
+
+
+def test_a_failing_integrity_write_leaves_the_turn_standing(store, model, monkeypatch):
+    model(answer("the boiler is at 1.4 bar"))
+    monkeypatch.setattr(db, "set_message_integrity_check",
+                        lambda *a, **k: (_ for _ in ()).throw(_locked()))
+
+    outcome = turn.handle_user_message(store["lyle"], "what pressure?")
+
+    assert outcome.content == "the boiler is at 1.4 bar"
+    rows = db.get_conversation_messages(outcome.conversation_id)
+    assert [r["role"] for r in rows] == ["user", "assistant"]
+    assert rows[1]["content"] == "the boiler is at 1.4 bar"
+
+
+def test_a_failed_verdict_write_records_NULL_rather_than_something_false(
+    store, model, monkeypatch
+):
+    """`gate.py` defines NULL as *no verdict recorded*, never as clean.
+
+    So losing this write leaves the record honest — which is the whole reason it
+    is safe to swallow. Asserted rather than assumed.
+    """
+    model(answer("ok"))
+    monkeypatch.setattr(db, "set_message_integrity_check",
+                        lambda *a, **k: (_ for _ in ()).throw(_locked()))
+
+    outcome = turn.handle_user_message(store["lyle"], "hello")
+
+    with db.connection() as conn:
+        row = conn.execute(
+            "SELECT integrity_check FROM messages WHERE id = ?",
+            (outcome.assistant_message_id,),
+        ).fetchone()
+    assert row["integrity_check"] is None
+
+
+def test_a_failing_correction_link_does_not_fail_the_turn(store, model, monkeypatch):
+    """The real path: classify returns a correction, and the WRITE loses the race.
+
+    `corrections.record()` catches only `sqlite3.IntegrityError` — an expected
+    schema refusal — so an `OperationalError` from the retry deadline goes
+    straight through it.
+    """
+    model(answer("actually it is 1.8 bar"))
+    monkeypatch.setattr(turn.corrections, "candidates", lambda *a, **k: [object()])
+    monkeypatch.setattr(
+        turn.corrections, "classify",
+        lambda *a, **k: corrections.Correction(
+            superseding_message_id="new", superseded_message_id="old",
+            rationale="r", replacement="replaced"),
+    )
+    monkeypatch.setattr(turn.corrections, "record",
+                        lambda *a, **k: (_ for _ in ()).throw(_locked()))
+
+    outcome = turn.handle_user_message(store["lyle"], "no, 1.8")
+
+    assert outcome.content == "actually it is 1.8 bar"
+    assert outcome.assistant_message_id
+
+
+def test_every_post_durability_write_failing_still_returns_the_answer(
+    store, model, monkeypatch
+):
+    model(answer("still answered"))
+    for name in ("set_message_integrity_check", "set_message_integrity_advisory"):
+        monkeypatch.setattr(db, name, lambda *a, **k: (_ for _ in ()).throw(_locked()))
+    monkeypatch.setattr(turn, "_record_corrections",
+                        lambda *a, **k: (_ for _ in ()).throw(_locked()))
+
+    outcome = turn.handle_user_message(store["lyle"], "anything")
+
+    assert outcome.content == "still answered"
+
+
+def test_the_guard_swallows_Exception_but_never_BaseException(
+    store, model, monkeypatch
+):
+    """`StoreIsolationViolation` derives from BaseException precisely so a broad
+    `except` cannot hide a test writing into the real store. Same line
+    `registry.dispatch` draws.
+    """
+
+    class Interrupt(BaseException):
+        pass
+
+    model(answer("x"))
+    monkeypatch.setattr(db, "set_message_integrity_check",
+                        lambda *a, **k: (_ for _ in ()).throw(Interrupt()))
+
+    with pytest.raises(Interrupt):
+        turn.handle_user_message(store["lyle"], "hello")
+
+
+def test_the_failure_is_logged_with_which_step_was_lost(store, model, monkeypatch, caplog):
+    """A swallowed write must not be a silent one: the operator needs to know
+    which piece of bookkeeping was lost, since each has a different consequence."""
+    model(answer("x"))
+    monkeypatch.setattr(db, "set_message_integrity_check",
+                        lambda *a, **k: (_ for _ in ()).throw(_locked()))
+
+    with caplog.at_level(logging.WARNING, logger="program.engine.turn"):
+        turn.handle_user_message(store["lyle"], "hello")
+
+    messages = [r.getMessage() for r in caplog.records]
+    assert any("the integrity verdict could not be recorded" in m for m in messages)
+    assert any("database is locked" in m for m in messages)

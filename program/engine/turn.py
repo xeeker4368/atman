@@ -57,6 +57,26 @@ of ``unavailable`` — recorded as such, never as clean — and the answer is
 returned. A checker being down is not a reason to withhold an answer that was
 already generated.
 
+Nothing after the answer is durable may fail the turn
+-----------------------------------------------------
+Once ``save_message`` has returned for the assistant's message, the answer is in
+both stores and the turn has succeeded. Everything after that point is
+bookkeeping *about* a turn that already happened — a verdict to file, an advisory
+note, a correction link — and none of it is the answer.
+
+Letting one of them raise turned a completed turn into an unhandled 500: the
+route catches ``ConversationAccessError``, ``EmptyMessageError`` and
+``OllamaError`` and nothing else, so a ``database is locked`` from a link write
+past its retry deadline reached FastAPI as a server error. The person never saw a
+reply that was sitting in the database, and the next turn's history contained an
+answer they were never shown. Measured reachable: with a writer racing a backup
+snapshot, ``database is locked`` fired 2 of 5 times, which is the contention the
+background idle sweep and ``backup.py`` already produce.
+
+``_after_durable`` is where that invariant lives, and it is deliberately the same
+shape the gate uses for its own failure — log it, record nothing rather than
+something false, return the answer.
+
 Who the actor is
 ----------------
 Obligation (c): the ``Actor`` comes from ``require_actor`` in the route, which
@@ -78,6 +98,8 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
@@ -175,6 +197,42 @@ def _retrieve(query: str) -> RetrievalResult | None:
         return None
 
 
+@contextmanager
+def _after_durable(step: str, conversation_id: str) -> Iterator[None]:
+    """A step that runs after the answer is durable must never fail the turn.
+
+    ``step`` names what was being recorded, for the log line — the operator needs
+    to know *which* piece of bookkeeping was lost, since each has a different
+    consequence and none of them is the answer.
+
+    **What is lost, per step, stated rather than left to be worked out.**
+    The integrity verdict: ``messages.integrity_check`` stays ``NULL``, which
+    ``gate.py`` defines as *no verdict recorded*, never as clean — so the record
+    stays honest and the turn is simply unchecked. The advisory note: a
+    non-authoritative signal is missing; it could never change a verdict. A
+    correction link: a correction is missed, which leaves the record accurate and
+    merely uncorrected — the same direction of failure ``corrections.py`` already
+    chose when it decided never to link by default.
+
+    Every one of those is better than the alternative, which is what this replaces:
+    the person gets a 500 for a turn that succeeded and never sees an answer that
+    is already in both stores.
+
+    ``except Exception``, never ``BaseException`` — ``KeyboardInterrupt``,
+    ``SystemExit`` and the test suite's ``StoreIsolationViolation`` must still
+    propagate. That is the same line ``registry.dispatch`` draws, for the same
+    reason.
+    """
+    try:
+        yield
+    except Exception as exc:  # noqa: BLE001 - never past a durable answer
+        logger.warning(
+            "%s could not be recorded for conversation %s; the answer was already "
+            "saved and is returned unchanged: %s: %s",
+            step, conversation_id[:8], type(exc).__name__, exc,
+        )
+
+
 def _record_corrections(
     actor: Actor,
     conversation_id: str,
@@ -184,7 +242,7 @@ def _record_corrections(
     answer_text: str,
     assistant_message_id: str,
 ) -> None:
-    """Link anything this turn corrected. Never edits, never raises.
+    """Link anything this turn corrected. Never edits.
 
     One classifier call per speaker who said something this turn, over candidates
     drawn from the turn's own retrieval plus the open trailing group — see
@@ -194,6 +252,15 @@ def _record_corrections(
     generated and saved; losing a link is a missed correction, which leaves the
     record accurate and merely uncorrected. Same shape as the fabrication gate
     declining to take a turn down with it.
+
+    **The "never raises" half of that promise is the caller's**, and it used to be
+    nobody's. The ``try`` below covers assembling and classifying; the write loop
+    after it does not, and ``corrections.record()`` catches only
+    ``sqlite3.IntegrityError`` — an expected schema refusal — while
+    ``db.create_supersedes_link`` can still raise ``OperationalError`` past its
+    retry deadline. That reached FastAPI as a 500 on a turn whose answer was
+    already saved. The guarantee now lives in ``_after_durable`` at the call site,
+    once, rather than being claimed here and enforced nowhere.
     """
     chunk_ids = [hit.chunk_id for hit in retrieved.results] if retrieved else []
     try:
@@ -323,19 +390,26 @@ def handle_user_message(
         result.text,
         tool_trace=json.dumps(result.trace) if result.trace else None,
     )
-    db.set_message_integrity_check(assistant_message_id, verdict.to_json())
+
+    # --- the answer is durable from here. Nothing below may fail the turn. ---
+
+    with _after_durable("the integrity verdict", conversation_id):
+        db.set_message_integrity_check(assistant_message_id, verdict.to_json())
     if verdict.advisory:
         # A record, never a verdict: this column cannot change whether the turn
         # was flagged. See docs/FABRICATION_GATE_DESIGN.md revision 7.
-        db.set_message_integrity_advisory(
-            assistant_message_id, verdict.advisory_json())
-        logger.info(
-            "integrity gate: %d advisory note(s) on a turn the rules did not flag "
-            "(conversation %s)", len(verdict.advisory), conversation_id[:8],
-        )
+        with _after_durable("the integrity advisory", conversation_id):
+            db.set_message_integrity_advisory(
+                assistant_message_id, verdict.advisory_json())
+            logger.info(
+                "integrity gate: %d advisory note(s) on a turn the rules did not "
+                "flag (conversation %s)",
+                len(verdict.advisory), conversation_id[:8],
+            )
 
-    _record_corrections(actor, conversation_id, retrieved, content,
-                        user_message_id, result.text, assistant_message_id)
+    with _after_durable("correction links", conversation_id):
+        _record_corrections(actor, conversation_id, retrieved, content,
+                            user_message_id, result.text, assistant_message_id)
 
     return TurnOutcome(
         conversation_id=conversation_id,
