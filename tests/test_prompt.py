@@ -32,21 +32,27 @@ def write_soul(tmp_path, text):
 
 
 def test_soul_md_char_count_matches_the_design_document():
-    """The design claims 3,963 characters. Drift means a transcription error.
+    """The design claims 4,392 characters. Drift means a transcription error.
 
     Asserted rather than eyeballed once, because the approved artefact is the
     design document and the file is supposed to be that text.
 
     Was 3,401 until the cross-user disclosure paragraph replaced S7's original
-    single sentence (2026-09-02); the design document was updated in the same
-    change, so this still compares the file against the approved text.
+    single sentence (2026-09-02), then 3,963 until Phase 4's creative-work refusal
+    clause was added after the general-discretion paragraph (2026-09-21, design
+    revision 3). The design document was updated in the same change each time, so this
+    still compares the file against the approved text.
+
+    **Characters, not bytes.** The file holds 8 em-dashes (U+2014, 3 bytes each in
+    UTF-8), so it is 4,392 characters and 4,408 bytes — `wc -c` reports the second.
+    This assertion and `SOUL_MAX_CHARS` both measure the first.
     """
-    assert len(REAL_SOUL) == 3963
+    assert len(REAL_SOUL) == 4392
 
 
 def test_soul_md_token_estimate_stays_within_its_stated_share_of_the_window():
     tokens = history.estimate_tokens(REAL_SOUL)
-    assert tokens == pytest.approx(991, abs=5)
+    assert tokens == pytest.approx(1098, abs=5)
     # ~3.0% of the window. The ceiling that actually governs growth is
     # SOUL_MAX_CHARS; this bound only catches an order-of-magnitude mistake.
     assert tokens / 32768 < 0.04
@@ -58,9 +64,20 @@ def test_the_real_soul_md_passes_every_check():
 
 
 def test_soul_md_is_well_under_the_ceiling_with_headroom_for_later_phases():
-    """Phase 4 adds a refusal clause and Phase 10 rewords. Both need room."""
+    """Phase 10 rewords and needs room.
+
+    The threshold was **> 2000** when this covered two future consumers: *"Phase 4
+    adds a refusal clause and Phase 10 rewords. Both need room."* Phase 4's clause
+    landed on 2026-09-21 and spent 429 characters of it, leaving 1,608 for Phase 10
+    alone — which is a rewording pass rather than an addition, and may well shrink the
+    file.
+
+    So the threshold drops to 1500 rather than being removed: the check exists to stop
+    `soul.md` creeping toward a ceiling that silently shrinks every future turn's
+    history, and it still fails if another ~100 characters arrive unreviewed.
+    """
     assert len(REAL_SOUL) < prompt.SOUL_MAX_CHARS
-    assert prompt.SOUL_MAX_CHARS - len(REAL_SOUL) > 2000
+    assert prompt.SOUL_MAX_CHARS - len(REAL_SOUL) > 1500
 
 
 # --- S9: required markers ----------------------------------------------------
