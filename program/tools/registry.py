@@ -116,12 +116,17 @@ from enum import Enum
 from typing import Any, Callable, Iterable, Mapping
 
 from program import config
+from program.attribution import AttributionContext
 
 logger = logging.getLogger(__name__)
 
 #: Tool names as the model will emit them. Matches the function-name shape
 #: Ollama and the OpenAI-style schema accept.
 _NAME = re.compile(r"^[a-z][a-z0-9_]*$")
+
+#: The keyword an attribution-taking handler receives. Reserved: a tool may not
+#: declare it in ``parameters``, so it can never be model-settable.
+ATTRIBUTION_ARGUMENT = "attribution"
 
 #: JSON Schema primitives this validator understands. Deliberately small — see
 #: ``_validate_arguments``.
@@ -163,6 +168,25 @@ class Tool:
     description: str
     parameters: dict[str, Any]
     handler: Callable[..., Any]
+    #: Whether this tool's handler is passed an ``AttributionContext`` alongside
+    #: the model's arguments (Phase 4 P0). Declared rather than inferred from the
+    #: handler's signature, for the same reason ``parameters`` is declared: the
+    #: contract should be the thing that was written down.
+    #:
+    #: **It is never part of ``parameters``**, and ``__post_init__`` refuses a
+    #: tool that puts it there. If the model could set it, the model could
+    #: attribute a write to the other household member — so the value arrives
+    #: from the caller and the model is not asked.
+    takes_attribution: bool = False
+    #: Whether this capability exists right now (decision #12's first axis). A
+    #: **call-time predicate**, not a boolean, so the answer comes from config when
+    #: the registry is built rather than from whatever it was at import. ``None``
+    #: means unconditional, which is every tool built before Phase 4.
+    #:
+    #: A disabled tool is omitted from ``default_registry()`` entirely — the model is
+    #: never shown a schema for something it cannot use. Offering it and refusing the
+    #: call would burn a turn on the discovery.
+    enabled: Callable[[], bool] | None = None
     #: How long a turn will wait for this handler. ``None`` means *use
     #: ``tools.default_timeout_seconds``* — it does **not** mean "no limit".
     #: There is deliberately no way to declare an unbounded tool: an unbounded
@@ -171,6 +195,15 @@ class Tool:
     timeout_seconds: float | None = None
 
     def __post_init__(self) -> None:
+        if self.takes_attribution and ATTRIBUTION_ARGUMENT in (
+            self.parameters.get("properties") or {}
+        ):
+            raise ToolError(
+                f"tool {self.name!r} declares {ATTRIBUTION_ARGUMENT!r} in its "
+                f"parameters. Attribution comes from the caller, never from the "
+                f"model — a model that could set it could attribute a write to "
+                f"the other household member."
+            )
         if not _NAME.match(self.name):
             raise ToolError(
                 f"tool name {self.name!r} must be lowercase alphanumeric with "
@@ -452,9 +485,16 @@ class ToolRegistry:
         name: str,
         arguments: Mapping[str, Any] | None = None,
         timeout_seconds: float | None = None,
+        attribution: AttributionContext | None = None,
     ) -> ToolResult:
         """Invoke a tool by name. Always returns; never raises for the
         model-facing failure modes. See the module docstring for the contract.
+
+        ``attribution`` is passed on **only** to a tool that declares
+        ``takes_attribution``, and only ever as a handler keyword — it never joins
+        the model's arguments, never appears in the trace, and never reaches a
+        tool that did not ask for it. So the three Phase 2 tools are dispatched
+        exactly as they were before it existed.
 
         ``timeout_seconds`` overrides the tool's own declared timeout for this
         one call. The agent loop passes the turn's *remaining* tool budget, so
@@ -504,6 +544,22 @@ class ToolRegistry:
                 error=problem,
             )
 
+        # Attribution is kept OUT of `supplied` on purpose. `supplied` is what
+        # `_validate_arguments` checks (it rejects unexpected keys), what reaches
+        # `ToolResult.arguments`, and therefore what reaches the tool trace the
+        # fabrication gate reasons over. Mixing it in would change the recorded
+        # shape of every call for a value the model never sent.
+        call_kwargs = dict(supplied)
+        if tool.takes_attribution:
+            if attribution is None:
+                raise ToolError(
+                    f"tool {name!r} takes attribution and none was supplied. "
+                    f"This is a wiring bug, not a model error: the caller knows "
+                    f"whose record the write belongs to and the model does not, "
+                    f"so there is no honest value to substitute here."
+                )
+            call_kwargs[ATTRIBUTION_ARGUMENT] = attribution
+
         limit = (
             float(timeout_seconds)
             if timeout_seconds is not None
@@ -517,7 +573,7 @@ class ToolRegistry:
             )
 
         started = time.monotonic()
-        value, exc, timed_out = _run_in_thread(tool, supplied, limit)
+        value, exc, timed_out = _run_in_thread(tool, call_kwargs, limit)
         elapsed = time.monotonic() - started
 
         if timed_out:
@@ -582,7 +638,13 @@ def default_registry() -> ToolRegistry:
     if _default is None:
         from program.tools.catalog import TOOLS
 
-        _default = ToolRegistry(TOOLS)
+        # A disabled capability is not registered at all, so its schema never
+        # reaches the model. The predicate is evaluated here, once, which is why
+        # flipping a flag needs `reset_default_registry()` — recorded in
+        # config/defaults.toml beside the flag.
+        _default = ToolRegistry(
+            [tool for tool in TOOLS if tool.enabled is None or tool.enabled()]
+        )
     return _default
 
 
@@ -596,6 +658,9 @@ def dispatch(
     name: str,
     arguments: Mapping[str, Any] | None = None,
     timeout_seconds: float | None = None,
+    attribution: AttributionContext | None = None,
 ) -> ToolResult:
     """Dispatch against the default registry."""
-    return default_registry().dispatch(name, arguments, timeout_seconds)
+    return default_registry().dispatch(
+        name, arguments, timeout_seconds, attribution=attribution
+    )

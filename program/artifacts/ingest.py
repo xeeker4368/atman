@@ -48,11 +48,10 @@ import uuid
 from dataclasses import dataclass, field
 
 from program import config
-from program.artifacts import blocklist
+from program.artifacts import blocklist, indexing, kinds
 from program.artifacts import extract as extraction
 from program.artifacts.extract import ExtractionStatus
-from program.engine import ollama
-from program.memory import db, splitting, vectors
+from program.memory import db
 
 logger = logging.getLogger(__name__)
 
@@ -68,8 +67,12 @@ logger = logging.getLogger(__name__)
 #: document's claim, not a thing that happened here. Nothing reads the value —
 #: `test_source_trust_does_not_change_ranking` rewrites every chunk's trust and
 #: asserts ranking is byte-identical — so this is a record, not a lever.
-SOURCE_TYPE = "file"
-SOURCE_TRUST = "secondhand"
+#: Phase 4 P0 moved the authority for these to ``kinds.py``, where the storage
+#: root lives too, so one kind cannot have its vocabulary in one file and its
+#: directory in another. They stay exported here because callers and tests refer
+#: to them by these names; the values are the registry's.
+SOURCE_TYPE = kinds.kind("upload").source_type
+SOURCE_TRUST = kinds.kind("upload").source_trust
 
 #: What kind of artifact an upload is. Decision #10 uses the same column for
 #: ``creative_writing``; Phase 4 adds generated images.
@@ -105,91 +108,27 @@ class IngestResult:
         return self.chunks_written > 0
 
 
-def _storage_path(artifact_id: str) -> tuple[str, object]:
+def _storage_path(artifact_id: str, artifact_type: str = ARTIFACT_TYPE) -> tuple[str, object]:
     """``(relative_path, absolute_path)`` for a new artifact.
 
-    Two hex characters of the id become a subdirectory: a flat directory with
-    thousands of files is slow to list and unpleasant to inspect, and this is
-    the same shape git uses for objects. The path derives **only** from the
-    generated id — never from anything the client sent.
+    Delegates to ``kinds.storage_path``, which owns the sharding and the
+    per-kind root (Phase 4 Q1). The sharding is unchanged — two hex characters of
+    the generated id, never anything the client sent — and for ``upload`` the root
+    is still ``config.artifact_dir()``, so nothing about this path moved.
     """
-    relative = f"{artifact_id[:2]}/{artifact_id}"
-    absolute = config.artifact_dir() / relative
-    absolute.parent.mkdir(parents=True, exist_ok=True)
-    return relative, absolute
-
-
-def _pack(pieces: list[str], target: int) -> list[str]:
-    """Greedily pack split pieces up to ``target`` characters.
-
-    Mirrors ``chunking.py``'s packing, minus the turn cap that has no meaning
-    for a document. A piece already over target — a single unbroken paragraph —
-    stands as its own chunk rather than being cut again; ``splitting.py`` has
-    already taken it as far as it goes.
-    """
-    chunks: list[str] = []
-    current = ""
-    for piece in pieces:
-        if not current:
-            current = piece
-        elif len(current) + 2 + len(piece) <= target:
-            current = f"{current}\n\n{piece}"
-        else:
-            chunks.append(current)
-            current = piece
-    if current:
-        chunks.append(current)
-    return chunks
+    return kinds.storage_path(artifact_type, artifact_id)
 
 
 def _index_text(artifact_id: str, user_id: str, text: str) -> tuple[int, list[str]]:
-    """Chunk, embed and store. Returns ``(count, chunk_ids)``.
+    """Chunk, embed and store an upload's extracted text.
 
-    Embedding precedes every write, so an unreachable model leaves nothing
-    behind rather than a half-indexed document.
+    Delegates to ``indexing.index_text``, which Phase 4 A3 extracted from this
+    function so generated images could use the same pipeline with their own
+    provenance instead of a second copy of it. The behaviour for an upload is
+    unchanged: ``kinds`` supplies the same ``file``/``secondhand`` pair this module
+    hardcoded before.
     """
-    target = config.chunk_target_chars()
-    # Split to the CHUNK target, not to the embedding budget. Splitting at
-    # embedding.max_input_chars (5000) would produce document chunks twice the
-    # size of conversation chunks, which compete for the same retrieval slots —
-    # a bigger chunk is a bigger lexical target and a more diluted embedding.
-    # The embedding budget remains the hard ceiling neither may cross.
-    pieces = splitting.split_text(
-        text, min(target, config.embedding_max_input_chars())
-    )
-    chunks = _pack(pieces, target)
-    if not chunks:
-        return 0, []
-
-    store = vectors.get_vector_store()
-    written: list[str] = []
-    for index, body in enumerate(chunks):
-        vector = ollama.embed(body)
-        chunk_id = uuid.uuid4().hex
-        db.insert_chunk(
-            chunk_id=chunk_id,
-            conversation_id=None,
-            user_id=user_id,
-            text=body,
-            source_type=SOURCE_TYPE,
-            source_trust=SOURCE_TRUST,
-            text_sha256=hashlib.sha256(body.encode("utf-8")).hexdigest(),
-            chunk_index=index,
-            artifact_id=artifact_id,
-        )
-        store.upsert(
-            chunk_id,
-            vector,
-            {
-                "artifact_id": artifact_id,
-                "user_id": user_id,
-                "chunk_index": index,
-                "source_type": SOURCE_TYPE,
-                "source_trust": SOURCE_TRUST,
-            },
-        )
-        written.append(chunk_id)
-    return len(written), written
+    return indexing.index_text(artifact_id, user_id, text, ARTIFACT_TYPE)
 
 
 def ingest(
@@ -242,7 +181,7 @@ def ingest(
 
     artifact_id = uuid.uuid4().hex
     content_type = extraction.detect_content_type(data, filename)
-    relative, absolute = _storage_path(artifact_id)
+    relative, absolute = _storage_path(artifact_id, artifact_type)
     absolute.write_bytes(data)
 
     result = extraction.extract(data, content_type)

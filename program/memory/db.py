@@ -290,6 +290,75 @@ def create_user(name: str, role: str = "user", user_id: str | None = None) -> st
     return uid
 
 
+#: The entity's own row in ``users``, for a write with no person present
+#: (Phase 4 Q2c). **NEVER RENDER THIS VALUE.** It is a sentinel, not a label, and
+#: deliberately unspeakable: CLAUDE.md says the entity *"has no name and must not
+#: be given one — not by code, prompt, config, or docs."*
+#:
+#: The first attempt here was ``"the system"``, on the grounds that it reads as a
+#: role description rather than a name. **A reachability trace killed that**, and
+#: the path is worth keeping written down because it is not obvious:
+#:
+#: * ``chunking._format_line()`` renders every user message as
+#:   ``f"{user_name}: {content}"``, where ``user_name`` comes from
+#:   ``db.get_user(conversation["user_id"])["name"]`` — so a **conversation owned
+#:   by this row would bake its name into chunk text**, which is what reaches
+#:   FTS5, the embedding vector, and the retrieved-records block of the prompt.
+#:   That is permanent: re-chunking reproduces it, and the embedding cannot be
+#:   edited after the fact.
+#: * ``turn.py`` passes ``actor.name`` into the correction classifier's prompt
+#:   (``corrections._render``) and into ``situation``'s speaker field, both
+#:   model-facing.
+#:
+#: Neither is reachable *today* — this row owns no conversation and cannot produce
+#: an ``Actor``, because it cannot log in. But a reflection journal or a research
+#: run owning its own conversation is one ordinary Phase 5 task away, and the
+#: chunk-text path is irreversible once taken. A sentinel nobody could mistake for
+#: a name meant to be spoken costs nothing now and cannot be un-taken later.
+#:
+#: Underscore-delimited rather than ``operator``-style bare, because
+#: ``permissions.OPERATOR_NAME`` is a word a person might legitimately be called
+#: and this must not be.
+ENTITY_USER_NAME = "__entity__"
+
+#: The entity's row takes ``role = 'user'``, and that is forced rather than
+#: chosen: ``users.role`` is ``CHECK (role IN ('admin', 'user'))`` in
+#: ``working.sql``, so a third value needs the table recreated — and the reviewed
+#: decision was a real row in the existing table with no schema change. ``user``
+#: over ``admin`` on least privilege.
+#:
+#: **What actually keeps this row from being an account**: ``password_hash`` stays
+#: ``NULL``, and *a NULL hash never authenticates*. Nothing here relies on the
+#: role to make that true. See the design doc for the residual — an operator could
+#: set a password on this row with ``scripts/set_password.py``, and closing that
+#: needs an auth-side guard, which is a separate Tier 3 change.
+ENTITY_USER_ROLE = "user"
+
+
+@retry_on_locked
+def entity_user_id() -> str:
+    """The entity's ``users.id``, created on first use.
+
+    Created lazily rather than in ``init_databases()`` so that an empty store
+    stays empty — every test run builds a store, and a user row appearing in all
+    of them would change what existing tests see.
+
+    The ``UNIQUE`` constraint on ``name`` is what makes this safe under two
+    concurrent first writes: the loser catches ``IntegrityError`` and re-reads,
+    rather than both inserting or one silently winning.
+    """
+    existing = get_user_by_name(ENTITY_USER_NAME)
+    if existing is not None:
+        return existing["id"]
+    try:
+        return create_user(ENTITY_USER_NAME, role=ENTITY_USER_ROLE)
+    except sqlite3.IntegrityError:
+        row = get_user_by_name(ENTITY_USER_NAME)
+        if row is None:
+            raise
+        return row["id"]
+
+
 def get_user(user_id: str) -> sqlite3.Row | None:
     with connection() as conn:
         return conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()

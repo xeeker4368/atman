@@ -82,6 +82,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
+from program.attribution import AttributionContext
 from program.engine import loop
 from program.engine import situation as situation_block
 from program.integrity import corrections, gate
@@ -284,6 +285,11 @@ def handle_user_message(
         situation,
         retrieved,
         registry=registry,
+        # Q2b: the person present. They asked for the thing, so the record of it
+        # belongs in their history. This is attribution, not authorization — the
+        # actor's role is deliberately not carried across (see
+        # `program/attribution.py`), so nothing downstream can gate on it.
+        attribution=AttributionContext(user_id=actor.user_id),
     )
 
     if not result.text.strip():

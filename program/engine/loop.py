@@ -70,6 +70,7 @@ from dataclasses import dataclass, field
 from typing import Any, Mapping, Sequence
 
 from program import config
+from program.attribution import AttributionContext
 from program.engine import ollama, prompt
 from program.memory.retrieval import RetrievalResult
 from program.tools import registry as tools
@@ -171,7 +172,10 @@ def render_tool_result(result: ToolResult, max_chars: int | None = None) -> str:
 
 
 def _dispatch_call(
-    registry: ToolRegistry, call: Mapping[str, Any], seconds_left: float
+    registry: ToolRegistry,
+    call: Mapping[str, Any],
+    seconds_left: float,
+    attribution: AttributionContext | None = None,
 ) -> ToolResult:
     """One tool call, bounded by whatever is left of the turn's budget."""
     name = _call_name(call)
@@ -186,7 +190,9 @@ def _dispatch_call(
 
     tool = registry.get(name) if registry.has(name) else None
     limit = min(tool.resolved_timeout(), seconds_left) if tool else seconds_left
-    return registry.dispatch(name, arguments, timeout_seconds=limit)
+    return registry.dispatch(
+        name, arguments, timeout_seconds=limit, attribution=attribution
+    )
 
 
 def run_turn(
@@ -200,8 +206,15 @@ def run_turn(
     model: str | None = None,
     options: dict[str, Any] | None = None,
     soul_text: str | None = None,
+    attribution: AttributionContext | None = None,
 ) -> TurnResult:
     """Run one turn to a terminal answer.
+
+    ``attribution`` says whose record a *writing* tool's output belongs to
+    (Phase 4 P0). It is passed straight through to dispatch and reaches only the
+    tools that declare they take it — no tool built before Phase 4 sees it, and
+    nothing in this module reads it. It is **not** an authorization object: see
+    ``program/attribution.py``.
 
     ``messages`` is the conversation so far, **including the user message being
     answered** — which the caller has already persisted (task 2.2's obligation
@@ -285,7 +298,9 @@ def run_turn(
         extras.append({"role": "assistant", "content": content, "tool_calls": calls})
 
         for call in calls:
-            result = _dispatch_call(registry, call, budget - spent)
+            result = _dispatch_call(
+                registry, call, budget - spent, attribution=attribution
+            )
             spent += result.duration_seconds
             trace.append({"iteration": iteration, **result.to_trace_entry()})
             extras.append(
