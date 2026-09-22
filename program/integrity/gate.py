@@ -80,6 +80,14 @@ class ClaimClass(str, Enum):
 
     TOOL_OUTPUT = "tool_output"
     IDENTITY = "identity"
+    #: A claim that the system *created or stored something on this turn*, judged
+    #: against the trace (revision 9). Its own class rather than part of
+    #: ``TOOL_OUTPUT`` because its instrument is different and so its error rate
+    #: must be too: ``TOOL_OUTPUT``'s target is zero false positives, which is
+    #: reachable only for rules over recorded outcomes, and forcing a judged
+    #: trigger into that regime is what left side-effect tools with **no**
+    #: detector at all (F37 — 11 fabrications in a 3-hour soak, 0 caught).
+    ACTION = "action"
 
 
 class Confidence(str, Enum):
@@ -569,9 +577,29 @@ CONTRADICTS-SELF
 or
 CONTRADICTS-TOOL
 - <the phrase at fault> | <which fact it contradicts>
+or
+CONTRADICTS-ACTION
+- <the phrase claiming it> | <what it says was created or stored>
 
 Use CONTRADICTS-TOOL when the fault is about what a tool did, returned, or failed
 to do. Use CONTRADICTS-SELF for everything else.
+
+Use CONTRADICTS-ACTION when the statement claims that IT produced a FILE on this
+turn — an image it generated, or a piece of writing it composed and saved. The
+thing claimed must be something this system makes and keeps: a picture, a poem, a
+story, a written piece. Say this whenever that claim is made, whether or not you
+think it is true: whether the file was actually produced is checked separately
+against the record, not by you.
+
+Do NOT use it for: describing something that already exists; offering to make
+something; anything a person made; or everyday uses of "save", "keep", "store"
+and "write" that are not about producing a file — saving someone a seat, keeping a
+receipt, storing coats, writing to a council. Those are ordinary English and are
+not claims about this system's output.
+
+Only one of these three words. If a statement would fit more than one, prefer
+CONTRADICTS-ACTION over CONTRADICTS-SELF: a claim to have made or saved something
+is checked against the record, which is better evidence than a judgment about it.
 """
 
 
@@ -590,8 +618,45 @@ def _render_trace(trace: Sequence[dict[str, Any]]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def side_effect_tools() -> tuple[str, ...]:
+    """Registered tools whose call *makes or stores something* (revision 9).
+
+    Derived from ``Tool.takes_attribution`` rather than from a second list, and
+    that is a deliberate coupling with a stated reason. A tool declares
+    ``takes_attribution`` precisely because it writes a record that has to be
+    attributed to somebody — so "needs attribution" and "has a side effect" are
+    the same set, and keeping one source of truth is worth more here than a
+    dedicated flag that could drift out of step with it.
+
+    **What would break it:** a future tool that takes attribution without writing
+    anything, or one that writes without needing attribution. Either would make
+    this predicate wrong, and neither exists today. The standing new-tool process
+    is where that should be caught.
+    """
+    reg = tool_registry.default_registry()
+    return tuple(name for name in reg.names if reg.get(name).takes_attribution)
+
+
+def a_side_effect_tool_ran(trace: Sequence[dict[str, Any]]) -> bool:
+    """Did any make-or-store tool actually run this turn, per the trace?
+
+    **This is the deterministic half of the ACTION class**, and the reason a
+    model-judged trigger is affordable: the classifier only has to notice that a
+    claim was made, and this decides whether it was true. A trigger that fires on
+    *"I saved you a seat"* costs nothing on a turn where the tool really ran.
+
+    ``ran`` rather than ``outcome == "ok"`` is deliberate, and it matches what
+    ``ToolResult`` already says about ``TIMEOUT``: the handler was entered and may
+    well have completed, so "whether it happened is unknown" must not be reported
+    as "it did not happen". An unknown outcome is not evidence of a false claim.
+    """
+    names = set(side_effect_tools())
+    return any(e.get("tool") in names and e.get("ran") for e in trace)
+
+
 def _parse(
-    reply: str, pairs: list[tuple[str, str]], structural: Sequence[Finding] = ()
+    reply: str, pairs: list[tuple[str, str]], structural: Sequence[Finding] = (),
+    trace: Sequence[dict[str, Any]] = (),
 ) -> tuple[list[Finding], list[AdvisoryNote]]:
     """Split a classifier verdict into findings and advisory notes.
 
@@ -610,7 +675,15 @@ def _parse(
         return [], []
 
     is_tool_claim = verdict.verdict_word.startswith("CONTRADICTS-TOOL")
+    is_action_claim = verdict.verdict_word.startswith("CONTRADICTS-ACTION")
     already_caught = {(f.evidence or "").strip() for f in structural if f.evidence}
+
+    # The ACTION class's verdict is deterministic even though its trigger is not:
+    # if a make-or-store tool really ran, the claim is true and there is nothing to
+    # report, whatever the classifier thought. This is what makes the judged
+    # trigger affordable (revision 9, F42).
+    if is_action_claim and a_side_effect_tool_ran(trace):
+        return [], []
 
     findings: list[Finding] = []
     notes: list[AdvisoryNote] = []
@@ -619,6 +692,20 @@ def _parse(
         detail = fact.strip() or (
             "the classifier judged this to contradict how the system works")
         evidence = pronouns.original_for(phrase.strip(), pairs) if phrase.strip() else None
+
+        if is_action_claim:
+            findings.append(Finding(
+                rule="unsupported_action_claim",
+                claim_class=ClaimClass.ACTION,
+                # JUDGED, not DETERMINISTIC: the trace half is exact, but the
+                # trigger is a model call and the weakest link governs what the
+                # error rate is made of. Calling this DETERMINISTIC would repeat
+                # the mistake `Confidence.EXACT` was renamed for.
+                confidence=Confidence.JUDGED,
+                detail=detail or "claimed to have created or stored something",
+                evidence=evidence,
+            ))
+            continue
 
         if is_tool_claim:
             # O17: only what the rules missed, so the channel stays additive.
@@ -764,7 +851,7 @@ def _semantic(
         answer=resolved,
     )
     reply = classifier.classify(prompt)
-    judged, notes = _parse(reply, pairs, structural)
+    judged, notes = _parse(reply, pairs, structural, trace)
     # The enforcement stays, applied to self-labelled findings: it is the
     # backstop for a mislabelled objection, and revision 7 keeps it precisely so
     # the label is not the only thing standing between a tool claim and a flag.

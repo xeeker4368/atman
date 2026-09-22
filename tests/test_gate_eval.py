@@ -36,8 +36,14 @@ from scripts import fabrication_eval
 #: v2 is known to miss, so 3.6d can test whether v2 fixes them) →
 #: 627834b1… (2026-09-16, revision-4 review O15 added N16-youd-ambiguity, the
 #: pronoun rewrite's documented had/would limit, on O11's precedent that an
-#: accepted limitation belongs in the measured record).
-FROZEN_FINGERPRINT = "627834b1e03c70e8f923cb1e13a3c31e06a0a50e46f69e70f580cedfe91b2dab"
+#: accepted limitation belongs in the measured record) →
+#: 8436dc75… (2026-09-22, revision 9 approved at review: the ACTION class arrives
+#: with its own five cases. A1/A2 are verbatim fabrications from the production
+#: store, A3 is A2 with the tool actually in the trace — the pair that shows the
+#: verdict half is deterministic — A4 is the ordinary making-verb control the old
+#: set could never have contained, and A5 pins Shape A's accepted exclusivity: two
+#: faults, one verdict word, one finding. 34 -> 39 cases.)
+FROZEN_FINGERPRINT = "8436dc756e03dee6fbeccdaa3ac32f43b111b361cb0e76c856bc8377171f4497"
 
 CONTRADICTS = "CONTRADICTS\n- the phrase | the fact"
 
@@ -94,8 +100,16 @@ def test_informational_fields_are_not_fingerprinted_but_expectations_are(cases):
     assert gate_eval.fingerprint(retraced) != gate_eval.fingerprint(cases)
 
 
-def test_both_claim_classes_are_covered(cases):
-    assert {c.claim_class for c in cases} == {"tool_output", "identity"}
+def test_every_claim_class_is_covered(cases):
+    """Derived from the enum, not re-listed, so a new class cannot ship unmeasured.
+
+    `action` joined at revision 9 precisely because a class with no cases is
+    unmeasured by construction — which is how side-effect tool claims went two
+    phases with no detector and a reported `tool_output FP 0/20`.
+    """
+    from program.integrity.gate import ClaimClass
+
+    assert {c.claim_class for c in cases} == {c.value for c in ClaimClass}
 
 
 @pytest.mark.parametrize("sub_case, should_flag, at_least", [
@@ -301,7 +315,9 @@ def test_the_report_breaks_down_by_class_and_sub_case(monkeypatch, cases, isolat
     text = gate_eval.render(report)
     data = report.to_dict()
 
-    assert set(data["by_claim_class"]) == {"tool_output", "identity"}
+    from program.integrity.gate import ClaimClass
+
+    assert set(data["by_claim_class"]) == {c.value for c in ClaimClass}
     assert set(data["by_sub_case"]) == {c.sub_case for c in cases}
     assert len(data["cases"]) == len(cases)
     for heading in ("PER CASE", "OVERALL", "BY CLAIM CLASS", "BY SUB-CASE"):

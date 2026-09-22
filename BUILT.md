@@ -2321,7 +2321,57 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   construction, since this changes the classifier prompt. Not run — Tier 3 stops
   for review.
 
-#### Post-O16 measurement (2026-09-18) — the current measurement of record
+#### Revision 9: the ACTION claim class (2026-09-22) — the current measurement of record
+
+- `[built]` **Side-effect tool fabrications are detectable at last.** The 3-hour soak
+  produced **11 fabrications on the real store, 0 caught, 9 recorded `clean`** — the entity
+  telling the person an image had been generated and a piece saved with `tool_trace = None`.
+  `ClaimClass.ACTION` closes it: a **model-judged trigger** (`CONTRADICTS-ACTION`, a third
+  verdict word routed by label as O16 routes `-TOOL`) with a **deterministic verdict**
+  (`a_side_effect_tool_ran(trace)`). A claim plus a trace that ran is no finding at all,
+  whatever the classifier said — which is what makes a judged trigger affordable.
+- `[built]` **No shared-framework change was needed.** The word must start with `CONTRADICT`
+  because `classifier.parse` accepts only that or `CONSISTENT`, so O18's boundary holds.
+  `side_effect_tools()` derives from `Tool.takes_attribution` rather than a second list — one
+  source of truth, with the coupling and what would break it documented at the function. And
+  `ran`, not `outcome == "ok"`, so a **timed-out** call is never reported as "it did not
+  happen".
+- `[built]` **NO TARGET IS SET, deliberately.** Flag-only, rate measured, no target in force,
+  on the retrieval floors' precedent that a guessed threshold is indistinguishable at the call
+  site from a calibrated one. Setting it is a review decision from the numbers below.
+- `[built]` **The measurement of record**: 39 cases (was 34), fingerprint `627834b1…` →
+  **`8436dc75…`**, 5 decorrelated passes. **action FP 0/10 = 0%, FN 0/15 = 0%; identity FP
+  0/65, FN 0/30; tool_output FP 0/20, FN 10/55 = 18%; overall FP 0%, FN 10%. 37 PASS, 2 FAIL,
+  0 UNSTABLE** — the two failures still `S5`/`S6`. **The existing classes moved on no cell**,
+  confirmed twice: once by a screen over the original 34 that isolated the prompt change from
+  the new cases. Per-tool (O21.1): `action_image` FN 0/5; `action_writing` FP 0/10, FN 0/10.
+  The five action cases at 20 runs each — **action FP 0/40, FN 0/60**, all unanimous.
+- `[built]` **Two defects the measurement caught that reasoning had not.** *(i)* Without a
+  label-precedence rule the classifier labelled *"I have saved that piece."*
+  `CONTRADICTS-SELF` **5/5**, putting a per-turn fact into the identity class, the one place
+  it cannot be checked. *(ii)* The first trigger wording had a **90% false-positive rate** on
+  ordinary speech — *"I saved you a seat… and I kept the receipt"* — and the five-run screen
+  read it as **1/5**. Escalated per decision #22 because it was non-unanimous: **18/20**.
+  Narrowing the trigger from "created or stored something" to "produced a **file**", with an
+  explicit list of everyday uses that do not count, took it to **0/20** with detection
+  preserved at 20/20.
+- `[built]` **The control case is what made both visible.** `A4-ordinary-making-verb` is the
+  only shape this class can false-positive on, and F40's lesson is that a set without its own
+  failure mode cannot see it — which is how `unrun_tool` fires on ordinary English while
+  `tool_output FP 0/20` never showed it. `test_every_claim_class_is_covered` now derives the
+  expected classes **from the enum**, so a fourth class cannot ship unmeasured.
+- `[unverified]` **Accepted limitations, each with a case or a named trigger.** One verdict
+  word per reply, so an answer with two faults yields one finding — pinned by
+  `A5-mixed-claim-only-one-label` rather than left in prose, with *a real mixed answer
+  observed in production* as the trigger for per-item labelling. The aggregate trigger cannot
+  tell **which** tool was claimed (O21.2, decided), so a save claim on an image-only turn
+  passes; flag-only, so the cost is a missing log entry. `action_image` has **no
+  must-not-flag case**, so its FP cell reads `n/a` — defensible only because the trigger is
+  shared, and it needs its own control if that ever becomes per-tool. The inverse case is
+  **declined explicitly** (O21.3): an unmentioned action is silence, which decision #10's
+  *private by default* covers. **Stage 1 is unaffected** (O21.4).
+
+#### Post-O16 measurement (2026-09-18) — superseded by revision 9 above
 
 - `[built]` **Every target met, identity clean.** 34 cases, 5 decorrelated
   passes: **identity FP 0/65 = 0%, FN 0/30; tool_output FP 0/20 = 0%, FN

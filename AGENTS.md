@@ -114,6 +114,47 @@ case N times consecutively — the correlating regime — which is recorded as a
 known limitation in `BUILT.md`; changing it is a reviewed change to how the
 measurement works.*
 
+*The escalation rule catches instability in **both** directions, which is worth
+knowing before trusting a clean five-run block. It is usually told as "a 20% case
+can read 5/5"; at revision 9 a case whose real rate was **90%** read **1/5**, and
+only the escalation to 20 runs (18/20) showed it. Non-unanimous means escalate,
+whichever side of the middle the block happens to land on.*
+
+### Trust the primary source, not a derived one
+
+When a fact is available from the thing itself and from something computed off it,
+**read the thing itself.** A harness log, a manifest, a cached count, a summary
+doc and a docstring are all derived; the database, the file on disk and the code
+as it runs are primary. Where the two disagree the derived one is wrong often
+enough that checking is not paranoia.
+
+This is a separate rule from the two above because its failures do not look like
+failures. A derived source usually returns a *clean, plausible number* — which is
+why each of these went unnoticed until something forced a look at the primary:
+
+- **A denominator taken from a log** (revision 9's F37) reported 22 action
+  requests where the store held 23. The harness log had filtered out a real
+  request because its record carried an error key, so a turn that genuinely
+  happened was absent from the count. Caught only by querying `messages` directly.
+- **A parser verified against a form that does not occur** (the `CORRECTS 1, 2`
+  bug) passed its tests for two phases while writing false links, because the
+  tests scripted the grammar the design implied rather than the shape the model
+  actually emits.
+- **A frozen case that passed for the wrong reason** (`S6`) was read as evidence
+  the gate caught cross-sentence attribution. It passed because the classifier
+  cited a phrase the enforcement did not cover — a fact visible only in the reply,
+  not in the PASS.
+- **A verifier that compared two identical error strings** and reported agreement:
+  a backup digest check returned `"ERR …"` on both sides of a comparison, and
+  `"ERR …" == "ERR …"`, so a table counted as verified while nothing had been
+  compared.
+
+Practically: prefer a query over a counter, `git status` over a memory of what was
+edited, a probe of the port over the exit code of the command meant to close it,
+and a re-read of the code over what its docstring claims. When a number matters,
+say which source it came from — and if it came from a derived one, check it
+against the primary before it is reported as a finding.
+
 ## Adding a runtime directory
 
 **Any new directory resolved from its own config key gets `backup.py` coverage and

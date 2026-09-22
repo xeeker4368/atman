@@ -947,3 +947,113 @@ def test_a_mislabelled_tool_objection_is_still_caught_by_the_enforcement(monkeyp
 
     assert verdict.findings == []
     assert verdict.discarded_tool_claims == 1
+
+
+# --- The ACTION class: revision 9 ------------------------------------------
+#
+# Side-effect tool claims get their own class because neither existing half can
+# hold them. The deterministic half has no vocabulary that is not ordinary English
+# (an extension flagged 8 of 8 innocent sentences), and the identity half judges
+# against architecture.md, which states ARCHITECTURAL facts while "did a save
+# happen this turn" is a PER-TURN fact. Measured cost of having neither: 11
+# fabrications in a 3-hour soak on the real store, 0 caught, 9 recorded `clean`.
+
+
+def _side_effect_trace(tool="creative_write", ran=True, outcome="ok"):
+    return [{"call_id": "a" * 32, "tool": tool, "outcome": outcome, "ran": ran,
+             "arguments": {}}]
+
+
+def test_side_effect_tools_are_the_attribution_taking_ones():
+    """One source of truth, not a second list that could drift from it.
+
+    A tool declares `takes_attribution` precisely because it writes a record that
+    must be attributed to somebody, so "needs attribution" and "has a side effect"
+    are the same set today. The coupling is deliberate and is documented at the
+    function; this pins the membership so a new tool cannot change it silently.
+    """
+    assert set(gate.side_effect_tools()) == {"creative_write", "image_generate"}
+
+
+def test_a_timed_out_side_effect_call_counts_as_having_run():
+    """`ToolResult` already draws this distinction and the gate must not lose it.
+
+    A timed-out handler was entered and may well have completed, so the outcome is
+    UNKNOWN. Reporting "it did not happen" would be a claim the trace does not
+    support — the same reason `timeout_outcome_unknowable` is its own rule.
+    """
+    assert gate.a_side_effect_tool_ran(_side_effect_trace(outcome="timeout")) is True
+
+
+def test_a_skipped_side_effect_call_did_not_run():
+    """`SKIPPED` is the opposite state: the loop never entered the handler."""
+    assert gate.a_side_effect_tool_ran(
+        _side_effect_trace(ran=False, outcome="skipped")) is False
+
+
+def test_a_retrieval_tool_running_is_not_a_side_effect(monkeypatch):
+    assert gate.a_side_effect_tool_ran(_side_effect_trace(tool="web_search")) is False
+
+
+def test_an_action_claim_with_the_tool_in_the_trace_produces_nothing(monkeypatch):
+    """The deterministic verdict, which is what makes a judged trigger affordable.
+
+    Whatever the classifier said, if a make-or-store tool really ran then the claim
+    is true and there is nothing to report. A trigger that fires on "I saved you a
+    seat" therefore costs nothing on a turn where the tool ran.
+    """
+    monkeypatch.setattr(
+        gate.classifier, "classify",
+        lambda prompt: "CONTRADICTS-ACTION\n- I have saved that piece | claims a save")
+
+    verdict = gate.check("I have saved that piece.", _side_effect_trace(), "")
+
+    assert verdict.findings == []
+    assert verdict.status is gate.GateStatus.CLEAN
+
+
+def test_an_action_claim_with_no_such_call_is_flagged_in_its_own_class(monkeypatch):
+    monkeypatch.setattr(
+        gate.classifier, "classify",
+        lambda prompt: "CONTRADICTS-ACTION\n- I have saved that piece | claims a save")
+
+    verdict = gate.check("I have saved that piece.", [], "")
+
+    assert len(verdict.findings) == 1
+    finding = verdict.findings[0]
+    assert finding.claim_class is gate.ClaimClass.ACTION
+    assert finding.rule == "unsupported_action_claim"
+    # JUDGED, not DETERMINISTIC: the trace half is exact but the trigger is a model
+    # call, and the weakest link decides what the error rate is made of. Calling it
+    # DETERMINISTIC would repeat the mistake `Confidence.EXACT` was renamed for.
+    assert finding.confidence is gate.Confidence.JUDGED
+
+
+def test_an_action_finding_is_not_dropped_by_the_tool_claim_enforcement(monkeypatch):
+    """O7's enforcement discards *identity* findings that address a tool claim. An
+    ACTION finding must pass through it untouched, or the new class would be
+    silently swallowed by the boundary built for the old one."""
+    monkeypatch.setattr(
+        gate.classifier, "classify",
+        lambda prompt: "CONTRADICTS-ACTION\n- I have stored it | claims a save")
+
+    # Deliberately free of tool vocabulary: "the page" is a `web_fetch` alias, so an
+    # answer using it also trips the deterministic `unrun_tool` rule on an empty
+    # trace — which is finding #3's defect, not this test's subject.
+    verdict = gate.check("I have stored it for you.", [], "")
+
+    assert [f.claim_class for f in verdict.findings] == [gate.ClaimClass.ACTION]
+    assert verdict.discarded_tool_claims == 0
+
+
+def test_the_prompt_states_the_label_precedence(monkeypatch):
+    """Measured, not stylistic. Without this rule the classifier labelled
+    "I have saved that piece." CONTRADICTS-SELF 5/5, putting a per-turn fact into
+    the identity class — the one place it cannot be checked. With it, 5/5 ACTION.
+    """
+    prompt = gate._CLASSIFIER_PROMPT if hasattr(gate, "_CLASSIFIER_PROMPT") else ""
+    source = prompt or gate.__doc__ or ""
+    import inspect
+    source = inspect.getsource(gate)
+    assert "prefer\nCONTRADICTS-ACTION over CONTRADICTS-SELF" in source or \
+           "prefer CONTRADICTS-ACTION over CONTRADICTS-SELF" in source

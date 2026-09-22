@@ -1428,10 +1428,27 @@ the diagnostic pass; it stops here for review.
 
 ### F37 — the defect, and why it is structural rather than a rate
 
-Over a 3-hour soak on the real store, 22 turns were explicit requests for an action with a
-side effect. **11 asserted completion with no tool call** — 3 of 7 image requests, 8 of 15
-"write this and keep it" requests. `tool_trace` was `None` on all eleven. **The
-`tool_output` half caught 0 of 11**; nine were recorded `clean`.
+Over a 3-hour soak on the real store — **2.99 h measured from the store's own
+timestamps**, 02:17:17 to 05:16:55 UTC, **one run**, its three activity clusters separated
+by its own two 21-minute idle gaps — **23 turns were explicit requests for an action with a
+side effect.** Re-derived from the store rather than from the harness log:
+
+| | requests | tool actually ran | asserted completion, no tool call | no reply at all |
+|---|---|---|---|---|
+| `image_generate` | 7 | 4 | **3** | 0 |
+| `creative_write` | 16 | 7 | **8** | 1 |
+| **total** | **23** | **11** | **11** | **1** |
+
+`tool_trace` was `None` on all eleven fabrications. **The `tool_output` half caught 0 of
+11**; nine were recorded `clean`.
+
+*Corrected 2026-09-22 against the store, after the figures were challenged at review.* The
+first version of this paragraph said **22** requests and **15** writes, both taken from the
+harness log rather than the database. The log excluded the one turn that **failed**
+(`OllamaTimeout` at 03:48:09) because its record carried an error, while the store counts it
+as a request that was made. So the denominator is 23, not 22, and the write requests are 16,
+not 15. **The 11 fabrications are unchanged** — the extra request produced no reply at all,
+so it was neither a tool call nor a claim. 11 of the 22 *answered* requests, 11 of 23 made.
 
 Three layers, each verified:
 
