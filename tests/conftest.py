@@ -7,18 +7,31 @@ failing — the writes either succeeded into production or were swallowed by an
 ``except Exception`` downstream. Adding the guard alongside the first store is
 too late; the guard has to predate it.
 
-Armed as of task 1.4: the real data directory and the real ChromaDB path are
-captured at import, and the session fails if either was created while the suite
-ran. Capturing whether they existed *beforehand* rather than merely checking at
-the end means a pre-existing development store is not mistaken for a violation.
+**The mechanism is a fingerprint, and it had to change.** Armed at task 1.4, the
+guard asked "was this directory *created* while the suite ran?" — which is
+answerable only while the directory does not exist. By 2026-09-22 all five existed
+(`data/` from the first seeded store onward), so **four of the five checks could
+never fire again**, and a test that forgot ``isolated_data_dir`` and wrote rows into
+the real ``working.db`` passed silently. `workspace/` had already needed a different
+check for the same reason — it is part of the tracked skeleton — and got a file-set
+snapshot at Phase 4 B0.
+
+A file-set snapshot alone would not have been enough either: **writing rows into an
+existing database creates no new file**. So all five are now watched one way, by
+``{path: (size, mtime_ns)}`` captured at import and compared at session end, which
+catches creation and modification together. One mechanism instead of two with a gap
+between them.
 
 The violation type derives from ``BaseException`` deliberately: retrieval and
 indexing paths wrap store access in ``except Exception``, and a guard those can
-swallow is not a guard. Violations are also recorded and re-reported at session
-end, so one that does get swallowed still fails the run visibly.
+swallow is not a guard.
+
+**Known limit, stated rather than implied:** the comparison cannot tell the suite's
+writes from another process's. Running the suite while anything else is using the
+real store will fail the session, and that is the right direction — a foreign write
+is indistinguishable from a leak, and reporting it is safer than filtering it out.
 """
 
-import os
 from pathlib import Path
 
 import pytest
@@ -52,74 +65,105 @@ REAL_ARTIFACT_DIR = str(config.artifact_dir())
 # directory at 2.6, for the third time — it resolves from its own config key.
 REAL_WORKSPACE_DIR = str(config.workspace_dir())
 
-# Whether they were already there. A store that predates the run is the
-# operator's, not evidence of a leak.
-_DATA_DIR_PREEXISTED = os.path.exists(REAL_DATA_DIR)
-_CHROMA_DIR_PREEXISTED = os.path.exists(REAL_CHROMA_DIR)
-_ARTIFACT_DIR_PREEXISTED = os.path.exists(REAL_ARTIFACT_DIR)
-_BACKUP_DIR_PREEXISTED = os.path.exists(REAL_BACKUP_DIR)
+#: Every real runtime directory the suite must stay out of, keyed by the name of
+#: the `config` accessor that resolves it. `tests/test_directories.py` asserts this
+#: covers every accessor, by comparing resolved paths rather than by grepping this
+#: file for a spelling.
+REAL_DIRS: dict[str, str] = {
+    "data_dir": REAL_DATA_DIR,
+    "chroma": REAL_CHROMA_DIR,
+    "backup_dir": REAL_BACKUP_DIR,
+    "artifact_dir": REAL_ARTIFACT_DIR,
+    "workspace_dir": REAL_WORKSPACE_DIR,
+}
+
+#: Written by the OS, not by the suite. Their presence or mtime says nothing about
+#: isolation, and Finder touching one mid-run would otherwise fail the session.
+_IGNORED_NAMES = {".DS_Store"}
 
 
-def _workspace_files() -> set[str]:
-    """Every file under the real workspace, as of now.
+def _fingerprint() -> dict[str, tuple[int, int]]:
+    """Every file under every real runtime directory, as ``{path: (size, mtime_ns)}``.
 
-    A snapshot rather than a boolean, because the directory legitimately exists and
-    legitimately contains tracked `.gitkeep` markers. What matters is whether
-    anything NEW appears.
+    **Size and mtime, not just the path set, and that is the whole point.** The
+    four original checks asked "was this directory *created* during the run?",
+    which was answerable only while the directories did not exist. All five exist
+    now — `data/` from the moment a store was seeded — so those checks could never
+    fire again, and a test that forgot `isolated_data_dir` and wrote rows into the
+    real `working.db` passed silently. A path-set snapshot (which is what
+    `workspace/` used) would not have caught that either: **writing rows into an
+    existing database creates no new file.** Comparing `(size, mtime_ns)` catches
+    creation and modification with one mechanism, so the five directories are no
+    longer watched two different ways with a gap between them.
+
+    Nested roots are deduplicated by keying on the path: `data/chromadb` and
+    `data/artifacts` sit inside `data/`, so a file under either is recorded once.
     """
-    root = Path(REAL_WORKSPACE_DIR)
-    if not root.is_dir():
-        return set()
-    return {str(p) for p in root.rglob("*") if p.is_file()}
+    seen: dict[str, tuple[int, int]] = {}
+    for root in REAL_DIRS.values():
+        base = Path(root)
+        if not base.is_dir():
+            continue
+        for path in base.rglob("*"):
+            if path.name in _IGNORED_NAMES:
+                continue
+            try:
+                if not path.is_file():
+                    continue
+                stat = path.stat()
+            except OSError:  # vanished mid-walk, or unreadable — not evidence
+                continue
+            seen[str(path)] = (stat.st_size, stat.st_mtime_ns)
+    return seen
 
 
-_WORKSPACE_FILES_AT_IMPORT = _workspace_files()
-
-_violations: list[str] = []
+_FINGERPRINT_AT_IMPORT = _fingerprint()
 
 
 class StoreIsolationViolation(BaseException):
-    """Raised when a test resolves a real runtime store path."""
+    """Raised when the suite touched a real runtime store.
 
-
-def record_violation(message: str) -> StoreIsolationViolation:
-    """Record a violation and return the exception to raise."""
-    _violations.append(message)
-    return StoreIsolationViolation(message)
+    Derives from ``BaseException`` deliberately: retrieval, indexing and tool
+    dispatch all wrap work in ``except Exception``, and a guard those can swallow
+    is not a guard. `registry.dispatch` and `turn._after_durable` both name it for
+    that reason.
+    """
 
 
 @pytest.fixture(scope="session", autouse=True)
 def _guard_runtime_store():
-    """Fail the session if the suite touched a real runtime store."""
+    """Fail the session if the suite created or modified anything real."""
     yield
 
-    if not _DATA_DIR_PREEXISTED and os.path.exists(REAL_DATA_DIR):
-        _violations.append(f"the real data directory was created: {REAL_DATA_DIR}")
-    if not _CHROMA_DIR_PREEXISTED and os.path.exists(REAL_CHROMA_DIR):
-        _violations.append(f"the real vector store was created: {REAL_CHROMA_DIR}")
-    if not _BACKUP_DIR_PREEXISTED and os.path.exists(REAL_BACKUP_DIR):
-        _violations.append(f"the real backup directory was created: {REAL_BACKUP_DIR}")
-    if not _ARTIFACT_DIR_PREEXISTED and os.path.exists(REAL_ARTIFACT_DIR):
-        _violations.append(
-            f"the real artifact directory was created: {REAL_ARTIFACT_DIR}"
-        )
+    after = _fingerprint()
+    created = sorted(set(after) - set(_FINGERPRINT_AT_IMPORT))
+    modified = sorted(
+        path for path in set(after) & set(_FINGERPRINT_AT_IMPORT)
+        if after[path] != _FINGERPRINT_AT_IMPORT[path]
+    )
+    if not created and not modified:
+        return
 
-    leaked = sorted(_workspace_files() - _WORKSPACE_FILES_AT_IMPORT)
-    if leaked:
-        shown = ", ".join(leaked[:3])
-        _violations.append(
-            f"{len(leaked)} file(s) were written into the real workspace "
-            f"({REAL_WORKSPACE_DIR}): {shown}"
-            + (" ..." if len(leaked) > 3 else "")
-            + ". A test that writes creative work or a generated image must take "
-            "`isolated_data_dir`, which repoints ANAM_WORKSPACE_DIR."
-        )
+    def _listing(label: str, paths: list[str]) -> str:
+        shown = "\n".join(f"      {p}" for p in paths[:5])
+        more = f"\n      ... and {len(paths) - 5} more" if len(paths) > 5 else ""
+        return f"  - {len(paths)} file(s) {label}:\n{shown}{more}"
 
-    if _violations:
-        raise StoreIsolationViolation(
-            f"{len(_violations)} isolation violation(s):\n"
-            + "\n".join(f"  - {v}" for v in _violations)
-        )
+    parts = []
+    if created:
+        parts.append(_listing("created in a real runtime directory", created))
+    if modified:
+        parts.append(_listing("MODIFIED in a real runtime directory", modified))
+
+    raise StoreIsolationViolation(
+        "the suite touched a real runtime store:\n"
+        + "\n".join(parts)
+        + "\n\n    A test that reads or writes a store must take `isolated_data_dir`, "
+        "which repoints ANAM_DATA_DIR, ANAM_BACKUP_DIR, ANAM_ARTIFACT_DIR and "
+        "ANAM_WORKSPACE_DIR at a temporary path. See AGENTS.md, 'Adding a runtime "
+        "directory'.\n    Note this cannot tell the suite's writes from another "
+        "process's: do not run the suite while anything else is using the real store."
+    )
 
 
 @pytest.fixture

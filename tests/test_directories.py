@@ -18,6 +18,7 @@ reason** — an exemption is a real answer, it just has to be written down.
 from __future__ import annotations
 
 import inspect
+import os
 from pathlib import Path
 
 import pytest
@@ -85,60 +86,131 @@ def test_there_is_at_least_one_of_each_kind_to_check():
     assert "workspace_dir" in accessors and "artifact_dir" in accessors
 
 
-def test_every_runtime_directory_is_repointed_by_the_isolation_fixture():
-    """Otherwise a test writing there writes into the real one — which is how 65 real
-    PNGs ended up in the repository's `workspace/`."""
-    source = inspect.getsource(conftest.isolated_data_dir)
+def test_the_isolation_fixture_actually_repoints_every_runtime_directory(
+    isolated_data_dir,
+):
+    """The property, not the spelling.
 
-    missing = []
-    for name in directory_accessors():
+    This used to grep `inspect.getsource(conftest.isolated_data_dir)` for the string
+    `ANAM_<NAME>`, which passes on a mention — in a comment, in a docstring, in a
+    line that sets the wrong value. It is the same weakness `BUILT.md` already
+    records against `test_the_gate_takes_no_actor`: *a check that passes on spelling
+    while the property weakens is worse than no check.*
+
+    So resolve every accessor **from inside the fixture** and require the answer to
+    be somewhere under the temporary directory. A new runtime directory that nobody
+    repointed resolves to its real path and fails here, which is the whole point.
+    """
+    leaked = {}
+    for name, path in directory_accessors().items():
         if name in ISOLATION_EXEMPT:
             continue
-        env_var = f"ANAM_{name.upper()}"
-        if env_var not in source:
-            missing.append(f"{name}() — expected {env_var} in isolated_data_dir")
+        if not str(Path(path).resolve()).startswith(str(Path(isolated_data_dir).resolve())):
+            leaked[name] = str(path)
 
-    assert missing == [], (
-        "runtime directories not isolated:\n  " + "\n  ".join(missing)
-        + "\n\nAdd the setenv/delenv pair in tests/conftest.py, or add an entry to "
-        "ISOLATION_EXEMPT here saying why it needs none. See AGENTS.md, "
-        "'Adding a runtime directory'."
+    assert leaked == {}, (
+        "these runtime directories still resolve to their REAL paths inside "
+        f"`isolated_data_dir`: {leaked}\n\nAdd the setenv/delenv pair in "
+        "tests/conftest.py, or add an entry to ISOLATION_EXEMPT here saying why it "
+        "needs none. See AGENTS.md, 'Adding a runtime directory'."
     )
 
 
-def test_every_runtime_directory_is_watched_by_the_session_guard():
-    """Repointing is not enough on its own: a test that forgets the fixture still
-    writes into the real directory, and the session guard is what notices."""
-    guard = inspect.getsource(conftest)
+def test_the_session_guard_watches_every_runtime_directory():
+    """Repointing is not enough: a test that forgets the fixture still writes into
+    the real directory, and the session guard is what notices.
 
-    missing = [
-        name for name in directory_accessors()
-        if name not in ISOLATION_EXEMPT and f"config.{name}()" not in guard
-    ]
+    Also a property rather than a grep — `conftest.REAL_DIRS` is data, so this
+    compares resolved paths. A directory nested inside a watched one counts as
+    watched, which is why `data/chromadb` and `data/artifacts` need no separate
+    entry to satisfy this.
+    """
+    watched = [str(Path(p).resolve()) for p in conftest.REAL_DIRS.values()]
+
+    missing = []
+    for name, path in directory_accessors().items():
+        if name in ISOLATION_EXEMPT:
+            continue
+        resolved = str(Path(path).resolve())
+        if not any(resolved == w or resolved.startswith(w + os.sep) for w in watched):
+            missing.append(name)
 
     assert missing == [], (
-        f"runtime directories the session guard never looks at: {missing}. Capture "
-        f"the real path at import and check it in `_guard_runtime_store`. For a "
-        f"directory that is part of the tracked skeleton, 'was it created?' can never "
-        f"fire — snapshot the file set instead, as workspace_dir does."
+        f"runtime directories the session guard never looks at: {missing}. Add the "
+        f"real path to `conftest.REAL_DIRS`, which is what `_fingerprint()` walks."
     )
 
 
-def test_every_runtime_directory_is_either_backed_up_or_exempted_with_a_reason():
-    """The question is what it holds that exists nowhere else."""
+def test_the_session_guard_notices_a_write_into_a_watched_directory(tmp_path,
+                                                                    monkeypatch):
+    """Proven to bite, rather than assumed to.
+
+    The guard's own failure mode is silence, so the thing worth testing is that it
+    speaks. This drives `_fingerprint()` directly against a directory it is told to
+    watch: a created file and a MODIFIED one must both show up, because the
+    modification case is the one a file-set snapshot could not see.
+    """
+    watched = tmp_path / "pretend-real"
+    watched.mkdir()
+    existing = watched / "working.db"
+    existing.write_text("rows")
+    untouched = watched / "archive.db"
+    untouched.write_text("frozen")
+
+    monkeypatch.setattr(conftest, "REAL_DIRS", {"pretend": str(watched)})
+    before = conftest._fingerprint()
+
+    (watched / "leaked.png").write_bytes(b"new file")
+    existing.write_text("rows and one more")      # same file, different content
+
+    after = conftest._fingerprint()
+
+    created = set(after) - set(before)
+    modified = {p for p in set(after) & set(before) if after[p] != before[p]}
+
+    assert created == {str(watched / "leaked.png")}
+    assert modified == {str(existing)}, "a write into an existing store must be seen"
+    assert str(untouched) not in created | modified
+
+
+def test_backup_actually_captures_every_non_exempt_runtime_directory(
+    isolated_data_dir,
+):
+    """The property, established by running a backup rather than by grepping.
+
+    This used to check that the string `config.<name>()` appeared anywhere in
+    `backup.py` — which a mention in the manifest's `source` dict satisfies just as
+    well as a copy, so a directory could be *named* as a source with no bytes behind
+    it. Instead: plant a canary in each non-exempt directory, take a real backup, and
+    require the canary to come out the other side.
+    """
+    from program.memory import db
     from program.ops import backup
 
-    source = inspect.getsource(backup)
+    db.init_databases()
 
-    missing = [
-        name for name in directory_accessors()
-        if name not in BACKUP_EXEMPT and f"config.{name}()" not in source
-    ]
+    planted = {}
+    for name in directory_accessors():
+        if name in BACKUP_EXEMPT:
+            continue
+        directory = getattr(config, name)()
+        directory.mkdir(parents=True, exist_ok=True)
+        canary = directory / f"canary-{name}.txt"
+        canary.write_text(f"planted for {name}")
+        planted[name] = canary.name
+
+    assert planted, "nothing to check — every directory was exempt, which is a bug here"
+
+    result = backup.create_backup(include_vectors=False)
+    captured = {p.name for p in Path(result.directory).rglob("*") if p.is_file()}
+
+    missing = sorted(name for name, filename in planted.items()
+                     if filename not in captured)
 
     assert missing == [], (
-        f"runtime directories `backup.py` neither copies nor exempts: {missing}. "
-        f"Either copy it, or add an entry to BACKUP_EXEMPT here saying what it holds "
-        f"that can be rebuilt from something else."
+        f"`backup.py` does not actually copy: {missing}. Either copy it, or add an "
+        f"entry to BACKUP_EXEMPT here saying what it holds that can be rebuilt from "
+        f"something else."
     )
 
 
