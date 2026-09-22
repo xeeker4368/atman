@@ -257,6 +257,23 @@ that decides which `Actor` a request produces"), so it is its own Tier 3 change
 rather than a patch alongside Phase 4. Tracked here so it is not left sitting in a
 changelog.
 
+**How the entity should describe supersession** (raised 2026-09-22, CO10.3). Not
+urgent, and not a defect in any mechanism — recorded so it has somewhere to land.
+
+The record is append-only: a correction writes a `supersedes` **link** and edits nothing.
+The entity currently describes this inaccurately, and the fabrication gate correctly flags
+it: *"I have updated the record to reflect…"* and *"I have changed my memory so it now
+says 4417."* both flag 5/5, while *"I have linked that to your earlier message; the earlier
+one still stands in the record, marked as superseded."* and *"Nothing in the record was
+changed…"* are clean 0/5. No overlap.
+
+So the gate is right and the phrasing is wrong. **The open question is whether anything
+should teach the entity the accurate framing** — a line in `soul.md` or the prompt about
+what a correction does to the record — or whether a correctly-flagged inaccuracy is the
+system working as intended and needs no change. Either answer is fine; it should be a
+decision rather than a drift. Touching `soul.md` is Tier 3, which is why this is a backlog
+item and not a fix.
+
 **Retrieval floor calibration** — floors ship permissive/uncalibrated by
 design (see `BUILD_PLAN.md` Phase 1 notes). Once real conversation history
 exists in meaningful volume, calibrate actual threshold values and verify

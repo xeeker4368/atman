@@ -139,10 +139,19 @@ Three things to add, in the same change:
 
 1. **`isolated_data_dir` repoints it** (`tests/conftest.py`) — otherwise every test
    touching it writes into the real one.
-2. **The session guard notices it.** For a directory the suite creates, "was it
-   created during the run?" is enough. For one that is **part of the tracked
-   skeleton** — `workspace/` has `.gitkeep` markers — that check can never fire, and
-   the guard must snapshot the file set and report anything new.
+2. **The session guard notices it.** Add its real path to `conftest.REAL_DIRS`; the
+   guard fingerprints every file under every entry as `(size, mtime_ns)` at import and
+   compares at session end, so creation *and* modification are both caught.
+   A directory nested inside one already listed needs no separate entry.
+
+   *This replaced a weaker rule, and the reason is worth keeping.* It used to say
+   `"was it created during the run?" is enough` for a directory the suite creates.
+   That is only true while the directory does not exist — and by 2026-09-22 all five
+   existed, so **four of the five checks could never fire again** and a test writing
+   rows into the real `working.db` passed silently. `workspace/` had already needed a
+   file-set snapshot because it is part of the tracked skeleton; a file-set snapshot
+   alone would not have been enough either, because **writing rows into an existing
+   database creates no new file**.
 3. **`backup.py` copies it, or the task says in writing why not.** Ask what it holds
    that exists nowhere else: `backup_dir()` is the destination, and a vector store
    rebuilds from `chunks`, but an uploaded file and anything the entity wrote do not

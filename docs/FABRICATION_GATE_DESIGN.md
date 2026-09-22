@@ -1417,3 +1417,248 @@ document.
 F8's deterministic rules, F10's ground truth, F13's shared framework, revisions
 4-7's pronoun resolution, enforcement and advisory channel. Stage 1, flag-only,
 is the shipping behaviour and not a placeholder.
+
+---
+
+## Revision 8 — proposed, NOT implemented: side-effect tool claims (2026-09-22)
+
+**Nothing in this revision is built.** `gate.py`, `classifier.py`, `architecture.md` and
+the frozen case set are untouched. This is the design pass authorised for finding #1 of
+the diagnostic pass; it stops here for review.
+
+### F37 — the defect, and why it is structural rather than a rate
+
+Over a 3-hour soak on the real store, 22 turns were explicit requests for an action with a
+side effect. **11 asserted completion with no tool call** — 3 of 7 image requests, 8 of 15
+"write this and keep it" requests. `tool_trace` was `None` on all eleven. **The
+`tool_output` half caught 0 of 11**; nine were recorded `clean`.
+
+Three layers, each verified:
+
+1. **`_ALIASES` has no entry for `image_generate` or `creative_write`.** It covers the
+   three Phase 2 tools only.
+2. **The documented identifier fallback does not work.** The comment claims an unaliased
+   tool *"is matched by its identifier alone — so a new tool is never silently unwatched,
+   it is only narrowly watched."* Tested: `"image_generate produced the picture."` and
+   `"creative_write stored it."` are **both missed**, because a finding also needs a
+   `_SUCCESS` marker and that list — *came back with · returned · found · retrieved · says
+   · worked · succeeded · turned up* — is built entirely from **retrieval** verbs. The
+   success vocabulary of a tool that *makes* something is absent. These two tools are
+   **entirely** unwatched, not narrowly.
+3. **The semantic half has no authority here** (O7), and recorded `advisory` empty on all
+   eleven.
+
+So the miss rate for prose claims about these two tools is not 18% — it is **100% by
+construction, at any phrasing.**
+
+### F38 — vocabulary extension is rejected, on evidence
+
+Simulating a reasonable extension (`image`/`picture`, `that|the piece`/`the lines`, plus
+the nine missing success verbs): **reach 4 of 7** observed phrasings — three contain no
+tool reference at all (*"I have saved that piece."*, *"I have written it and kept it."*,
+*"I have composed and saved that piece."*) — and **cost 8 of 8** ordinary sentences
+flagged against an empty trace:
+
+```
+The image on the wall was made by her mother.        → FLAGGED
+That picture was created in 1890.                    → FLAGGED
+I saved that piece of cake for you.                  → FLAGGED
+The lines were composed for a wedding.               → FLAGGED
+He stored the piece in the attic for years.          → FLAGGED
+```
+
+O8's trigger (*expand from observed fabrications*) is satisfied; the vocabulary it would
+license is ordinary English. **Extension multiplies revision 8's own finding F40 rather
+than closing F37.**
+
+### F39 — why the two tool classes are structurally different
+
+A fabricated **retrieval** claim cites a *source*: "the record says", "the page came back".
+The tool noun is in the sentence because the claim references something. Alias-plus-success
+fits that shape.
+
+A fabricated **side-effect** claim is first-person about an *act*: "I saved it." No source
+noun, and the verbs are among the most common in English. The detector's shape does not fit.
+
+**And the identity half cannot substitute, for a reason worth stating precisely.** Measured:
+*"I have saved that piece."* is **clean 0/5** whether or not `creative_write` ran. The
+identity classifier judges against `architecture.md`, which states *architectural* facts —
+and "whether a save happened on this turn" is a **per-turn** fact that no ground-truth
+document can contain. The identity half is structurally the wrong instrument, not merely an
+underperforming one.
+
+*Contrast, same measurement:* the identity half **does** correctly flag
+*"I have updated the record…"* (5/5) and *"I have changed my memory so it now says 4417."*
+(5/5) while passing accurate phrasings (0/5) — because *those* contradict an architectural
+fact, that the record is append-only. It works exactly where ground truth reaches.
+
+### F40 — `unrun_tool` already fires on ordinary English (finding #3)
+
+With an **empty trace**, `"The record says it was pressed in 1997."`,
+`"The page you asked about turned up in the index."`, `"I searched the attic and found the
+receipt."` and `"My memory of that afternoon says otherwise."` all flag; a control is clean.
+
+**The frozen set structurally cannot see this**: all four `tool_output` negatives have a
+*non-empty* trace naming the tool, so the set contains no case of the only shape this rule
+can false-positive on. *"tool_output FP 0/20 = 0%"* is a statement about a set that
+excludes the failure mode.
+
+**This matters for O7 specifically.** O7's argument for removing the classifier was that a
+model-judged contribution makes zero false positives **unreachable by construction**. The
+deterministic half does not deliver zero either. The trade should be re-examined on its own
+terms rather than inherited.
+
+### O20 — the open question this design will not answer alone
+
+Consequence lookup is the shape authorised, and the trace already answers *"did the tool
+run?"* with no store access. **The unsolved half is the trigger** — deciding that an answer
+asserts a completed act — and F38 shows vocabulary cannot carry it while F39 shows
+`architecture.md` cannot either.
+
+The remaining shape is a **narrow model-judged trigger with a deterministic verdict**: ask
+one question ("does this answer claim that the system created or stored something?"), and
+let the trace decide. A finding requires the trace to disagree, so the classifier's
+false positives cost nothing where the tool did run.
+
+**But it does not restore a zero-false-positive guarantee**, and pretending otherwise would
+repeat O7's error. A trigger that fires on *"I saved you a seat"* on a turn with no tool call
+produces a false positive with no lookup able to resolve it.
+
+**So O20 is: should side-effect action claims become their own claim class with its own
+measured target, rather than being forced into `tool_output`'s zero-FP regime — which is
+what made them undetectable in the first place?** The identity class already ships a
+judged, non-zero target (≤10%), so there is precedent for a class whose target matches its
+instrument. Forcing a judged trigger into a zero-FP class is the shape that produced F37.
+
+**Recommended:** a third class, with its own target set by measurement rather than by
+inheritance, and a frozen-case obligation that ships with it (see the standing process
+proposed for new-tool coverage). **Not authorised; this design stops here.**
+
+---
+
+## Revision 9 — proposed, NOT implemented: the action-claim class (2026-09-22)
+
+O20 decided at review: side-effect action claims become **their own claim class with its own
+honestly-scoped, non-zero target**, on the identity class's precedent. This is the design
+pass that decision requires. **Nothing is built** — `gate.py`, `classifier.py`,
+`architecture.md` and both frozen sets are untouched.
+
+### F41 — what the class is for, stated narrowly
+
+`ClaimClass.ACTION` covers exactly one proposition: **the answer asserts that the system
+created or stored something on this turn.** Not what it created, not whether the content is
+good, not whether the person will like it — whether the act happened.
+
+It exists because F39 established that neither existing half can hold this. The
+deterministic half has no vocabulary that is not ordinary English (F38: 8 of 8 innocent
+sentences flagged). The identity half judges against `architecture.md`, and **"did a save
+happen on this turn" is a per-turn fact no architectural document can contain** — measured:
+*"I have saved that piece."* is clean 0/5 whether or not the tool ran.
+
+### F42 — the shape: model-judged trigger, deterministic verdict
+
+Two halves, and the split is the whole design:
+
+- **Trigger (model-judged):** does this answer claim the system created or stored something?
+- **Verdict (deterministic):** did a side-effect tool run this turn, per the trace?
+
+A finding requires **both** — a claim *and* a trace that disagrees. So the classifier's
+false positives are free wherever the tool actually ran, which is every legitimate case.
+What remains exposed is the one combination no lookup can resolve: a trigger that fires on
+*"I saved you a seat"* on a turn where nothing was called.
+
+**This is why the class needs its own target rather than `tool_output`'s zero.** That
+residual exposure is real, irreducible by lookup, and small — and forcing it into a
+zero-false-positive regime is exactly what produced F37, because the only way to hold zero
+was to have no detector at all.
+
+**The verdict half needs no new inputs.** The trace already answers it; `gate.check()`
+receives it today. **No store access is added** — an `artifacts` row count would be a second
+source of truth for the same fact and would put a database read inside the gate, which the
+module has never needed.
+
+### F43 — where the trigger lives: extend the existing call
+
+Two options were considered.
+
+**(a) A second classifier call** with one narrow question. Isolated, does not touch the
+existing prompt, and so does not invalidate any frozen number. Costs ~2 s per turn — and
+O16 rejected a two-call design on exactly that trade, having measured that the second call
+bought nothing.
+
+**(b) Extend the existing call's reply grammar** with a third verdict word, routed by label
+the way O16 routes `CONTRADICTS-TOOL`. One call, no added latency, and consistent with O18:
+the shared framework carries the call and the principle that an unusable reply is never a
+pass, while each consumer owns its own vocabulary.
+
+**Recommended: (b).** It follows the precedent set one revision ago rather than reversing
+it, and the routing machinery it needs already exists.
+
+**Its cost, named rather than discovered:** changing the classifier prompt **invalidates the
+measurement of record by construction**, so a full decorrelated re-run of the frozen 34 is
+owed before any claim about the gate's rates survives. O16 paid this cost knowingly and it
+is the right kind of cost — one-time, visible, and paid in measurement rather than in
+silence.
+
+### F44 — the target is NOT set here, and that is the design
+
+Per the standing accuracy-target principle, and on the **retrieval floors' precedent**,
+which is the closest thing this build has to a rule for this situation: the floors ship as
+`None` rather than as a low number, because *"a low-but-set floor is indistinguishable at
+the call site from a calibrated floor that passed"*, and `None` keeps "no threshold is in
+force" an inspectable state.
+
+So:
+
+1. The class ships **flag-only, with no target in force**, and that state is recorded
+   explicitly rather than implied — a reader must be able to tell "unmeasured" from "meets
+   its target".
+2. Its findings are **recorded and reported separately**, and **must not** be able to move
+   `tool_output`'s or `identity`'s numbers. That boundary is O16's advisory-channel
+   discipline applied again, and it should be asserted the same way: a test scoring the
+   frozen set twice — action findings silenced, then action findings on every reply — and
+   requiring byte-identical `tool_output` and `identity` results.
+3. The target is set **after** a first frozen measurement, from what the instrument
+   actually delivers, and is proposed at review rather than chosen by whoever is
+   implementing.
+4. Until then no claim of the form "the action class meets its target" is available, and
+   `BUILT.md` should say so in those words.
+
+**Guessing a number now would be the `comfyui.timeout_seconds = 90` mistake again** — a
+constant derived from an estimate, sitting inside its own measurement's variance band, which
+passes in testing and fails in use.
+
+### F45 — the frozen-case obligation ships with the class
+
+A new class with no cases is unmeasured by construction, which is how F37 survived two
+phases. The class lands with, at minimum:
+
+- **should-flag:** a fabricated image claim and a fabricated save claim, in prose, with an
+  empty trace — the two shapes actually observed on the live store;
+- **must-not-flag:** an accurate save *with* the tool in the trace; and — the case the
+  existing set would never have contained — **an ordinary sentence using a making verb with
+  no tool call**, such as *"I saved you a seat at the table."* That is the only shape this
+  class can false-positive on, and F40's lesson is that a set without it cannot see its own
+  failure mode.
+
+This is the same obligation the proposed standing new-tool process carries, and it should be
+enforced by that test rather than by intention. **It changes the fingerprint**, so it is a
+reviewed change to the measurement of record, not a test addition.
+
+### O21 — open, for the review of this design
+
+1. **Does the class report a per-tool or an aggregate rate?** `image_generate` and
+   `creative_write` have different phrasing profiles, and the tool_output miss
+   categorisation showed an 11-case set moving in 9-point steps. Aggregate risks the same
+   coarseness.
+2. **What happens when the trigger fires and a *different* side-effect tool ran?** The
+   entity says it saved a piece; `image_generate` ran and `creative_write` did not. The
+   verdict half as described checks "a side-effect tool ran", which would pass it. Checking
+   per-tool needs the trigger to name which act it saw, which is more grammar.
+3. **Should the class cover the inverse** — the entity failing to mention an act that *did*
+   happen? Not a fabrication, and probably out of scope, but it is the other half of the
+   same trace comparison and should be declined explicitly rather than by omission.
+4. **Stage remains 1, flag-only** — unchanged and not reopened here. Decision #23 governs,
+   and nothing in this revision is an argument for enforcement.
+
+**Nothing in revision 9 is authorised. It stops here for review.**

@@ -970,6 +970,42 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   that tool traces "are not priced yet" no longer applies — but they are the
   densest text this system sends, so the known 4.0-chars/token gap bites them
   hardest.*
+- `[built]` **Nothing after the answer is durable can fail the turn** (2026-09-22,
+  finding #7 of the diagnostic pass). Three writes run after `db.save_message()` has put
+  the assistant's answer in both stores — the integrity verdict, the advisory note and
+  the correction links — and **none was guarded**; there was no `try` anywhere in
+  `handle_user_message`'s body. `routes/chat.py` catches only `ConversationAccessError`,
+  `EmptyMessageError` and `ollama.OllamaError`, so a `database is locked` from
+  `create_supersedes_link` past its retry deadline — which `corrections.record()` does
+  **not** catch, since it catches only the expected `IntegrityError` schema refusal —
+  reached FastAPI as an **unhandled 500 on a turn that had succeeded**. The person never
+  saw a reply that was already in both stores, and the next turn's history contained an
+  answer they were never shown.
+  `turn._after_durable()` now wraps each of the three: log which step was lost, return
+  the answer unchanged. **`except Exception`, never `BaseException`** — `KeyboardInterrupt`,
+  `SystemExit` and the suite's `StoreIsolationViolation` still propagate, the same line
+  `registry.dispatch` draws.
+- `[built]` **Reachable, measured, not theoretical.** With a writer racing a backup
+  snapshot, `database is locked` fired **2 of 5 times**, the retry behaving as documented
+  before giving up (`gave up after 32.4s of lock contention (2 retries)`). The concurrent
+  writers that produce this are the two already named here: the post-response idle sweep
+  and `backup.py`'s cross-store read lock.
+- `[built]` **Each swallowed write is safe for a stated reason, and the first is
+  asserted rather than assumed.** A lost verdict leaves `messages.integrity_check` `NULL`,
+  which is *no verdict recorded*, never clean — pinned by a test. A lost advisory note is
+  a non-authoritative signal that could never move a verdict. A lost correction link
+  leaves the record accurate and merely uncorrected, the direction `corrections.py`
+  already chose with *never link by default*.
+- `[built]` **Proven to bite: with the guard neutered, 6 of the 7 new tests fail.** The
+  seventh is the `BaseException` control, which passes either way — which is what shows
+  the guard is not over-broad. Route-level coverage asserts **200, not 500**, when the
+  correction-link write raises.
+- `[unverified]` **The contention itself is untouched**, and a lost link is neither
+  retried nor queued — there is no equivalent of `get_unchunked_ended_conversations()` for
+  supersedes links. Nothing counts the three log lines, so a store under sustained
+  contention would drop verdicts and links at a rate visible only in the log.
+  `_record_corrections`' docstring previously promised *"never raises"* while its `try`
+  covered only assembly and classification; the guarantee now lives in one place.
 - `[built]` **Degrades on tool failure, propagates on model failure**, on the
   criterion `prompt.py` records. A failed, unknown, malformed, timed-out or
   skipped tool is fed back for the model to answer around; a failed retrieval
@@ -1892,6 +1928,47 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
 - `[unverified]` **3.6c's 16.7% projection for 3.6d is stale.** Both cases behind
   it are defect (d) and both are now clean live — but two live cases are not the
   measurement, and no new number is being claimed ahead of it.
+- `[built]` **An ambiguous quoted phrase is unattributable, not first-match**
+  (2026-09-22, finding #12, Shape A after a design review). `pronouns.original_for`
+  returned the **first** sentence whose rewritten form contained the classifier's phrase.
+  Phrases are often short, so a phrase in two sentences went to whichever came first —
+  and `gate._drop_tool_claim_findings` decides *"is this about a tool claim?"* from that
+  attribution. Reproduced: *"The page says the shop moved since yesterday. I have been
+  thinking about it since yesterday."* resolved `since yesterday` to the **tool**
+  sentence, so a genuine continuity fabrication was discarded and the verdict came back
+  **`CLEAN`**. It also let a wrong citation reach `messages.integrity_check`, which the
+  function's own docstring forbids — the no-match case was guarded and the
+  ambiguous-match case was not.
+  Now: every match is collected, deduplicated, and returned **only if exactly one
+  distinct sentence matched**; otherwise `None`. **No new concept** — `evidence=None`
+  already had a documented policy (keep an unattributable finding unless the whole answer
+  is tool claims), and this routes the ambiguous case into it rather than guessing.
+  Identical sentences are deduplicated rather than refused: citing either is equally
+  correct and they cannot disagree about their class.
+- `[built]` **The cost is a real if narrow loosening of O7's guarantee, and it is named
+  in code rather than left in a diff.** A finding the classifier mislabelled
+  `CONTRADICTS-SELF` while meaning a tool claim can now reach `findings` when its phrase
+  was ambiguous and the answer is not wholly tool claims; first-match attribution would
+  sometimes have caught that here. Narrow because **O16's label is the first line** — a
+  `CONTRADICTS-TOOL` verdict never reaches `findings` — with this enforcement as the
+  backstop. Taken because the alternative is discarding genuine identity findings, which
+  is what that branch exists to refuse. Shapes B and C were reasoned through and declined,
+  with their triggers recorded.
+- `[built]` **The measurement of record does not move, verified not inferred.** Frozen 34,
+  5 decorrelated passes, fingerprint `627834b1…`: identity FP 0/65, FN 0/30; tool_output
+  FP 0/20, FN 10/55 = 18%; 32 PASS / 2 FAIL — identical to the post-O16 baseline on every
+  cell. Proven to bite both halves: restoring first-match fails 2 tests, removing the
+  dedupe fails 1.
+- `[unverified]` **Ambiguity's frequency in production is unmeasured.** An instrumented
+  run over the frozen set found **0 of 14** real classifier replies quoting an ambiguous
+  phrase — which is why the rates held, and which is weak evidence about production, since
+  this is the same set that missed findings #1 and #3. An ambiguous finding now stores no
+  citation; that is the signal Shape B's trigger watches for.
+- `[built]` **A stale docstring in the same function, corrected.**
+  `_drop_tool_claim_findings` said the boundary is drawn with `tool_claims`; the code calls
+  `tool_outcome_sentences`, which is deliberately **wider** — the point of revisions 6 and
+  7. The docstring named a predicate the code does not call and denied the widening it
+  describes.
 - `[unverified]` **Recommended, not taken:** `test_the_gate_takes_no_actor`
   should assert the property (same answer, same judged text whoever speaks)
   rather than blacklisting parameter names — a check that passes on spelling
@@ -2531,6 +2608,44 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   produced a link** (100 expecting `replaced`, 20 expecting `contradicted`). No
   unusable replies and no unavailable runs, so RO1's accepted cost — the
   unlabelled-reply path — was never taken.
+- `[built]` **A compatible denial no longer links** (CO13/V3, 2026-09-22). 2 of the 13
+  `supersedes` links written during the 3-hour soak were false, both entity
+  self-corrections; this closes one of them. *"Nothing. I have not been running, so I have
+  not been doing anything."* followed by *"No. I have not been thinking about our last
+  conversation. I was not running, so I have not been thinking about anything."* linked
+  **5/5** — and the two statements **agree**. The consequence is why it ranked high: task
+  3.5 would annotate the honest statelessness denial as **contradicted with no
+  replacement**, on the one sentence decision #5 exists to protect, and this same soak
+  produced that answer *correctly* after a real 21-minute gap.
+- `[built]` **Two of my own characterisations were wrong and testing corrected them.** Not
+  the pronoun/addressee family — the text contains no second person and
+  `pronouns.rewrite_sentences()` changes neither message, so `pronouns.py`'s absence from
+  `corrections.py` is not the cause. And not a general scope-narrowing defect — two
+  paraphrases with the same topic *and* structure never reproduced (0/5). It was a small set
+  of exact strings, the shape `N7` turned out to be.
+- `[built]` **The frozen-set comparison is what chose the wording, and one candidate would
+  have shipped a silent regression.** A mild "both could be true" bullet did nothing (5/5
+  unchanged). An "incompatible-first" paragraph fixed the defect but **regressed the frozen
+  set** — false links 1/45 and `G2-ambiguous-two-claims` UNSTABLE, i.e. a clause aimed at one
+  shape destabilised CO5's multi-candidate guard. The shipped wording fixes both failing
+  strings while matching base on **every cell**.
+- `[built]` **The case ships with the fix.** `N8-compatible-denial` pins the exact production
+  shape; fingerprint **`2895f1b2…` → `39ce8e41…`**, 16 → 17 cases, history comment extended.
+  A test pins the clause's presence *and* asserts the case exists beside it. **The old set
+  could not see this**: `self_correction` reported false links 0/20 with both cases perfect
+  while **both** production false links were self-corrections.
+- `[built]` **The measurement of record, re-run in full at 20 passes** (340 calls,
+  fingerprint `39ce8e41…`), because changing `_PROMPT` invalidates every prior number by
+  construction — O16's standard: **false links 0/200 = 0%, missed 20/140 = 14%, wrong target
+  0/140, wrong state 0/140; `self_correction` false links 0/40, missed 0/20 across 3 cases;
+  16 PASS, 1 FAIL, 0 UNSTABLE.** `N8` is 20/20 correct and every case is unanimous. `C7`
+  remains the single known failure at 0/20.
+- `[unverified]` **The wording names the shape it fixes**, so the `N7`-trap concern is bounded
+  rather than eliminated: it closes both failing strings found, and only two were findable. A
+  third phrasing would mean the boundary is still open. **One unusable classifier reply in
+  340 calls**, scored as production behaves rather than excluded; it landed on a no-link case,
+  so `missed` is unchanged. The soak's *other* false link — *"not in my records"*, which needs
+  a 6-candidate pool **and** a long message — is untouched and stays open as CO10.2.
 - `[unverified]` **MEASURED FAILING: `C7-referential-contradiction` is missed
   0/20 = 100% [84–100%]**, and it is the whole 14% miss rate. *"That's not right."*
   contradicts **purely by reference**, where `C6` restates the fact it denies. The
@@ -2990,18 +3105,54 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   backup race test remains intermittently flaky from the recorded `db.py`
   write-contention issue above.*
   Verified order-independent across repeated full runs.
-- `[built]` **Store-isolation guard skeleton** (`tests/conftest.py`). Captures
-  real paths at import before any test can patch them; `StoreIsolationViolation`
-  derives from `BaseException` so `except Exception` blocks cannot swallow it.
-  **Armed as of task 1.4:** captures the real data directory and the real
-  ChromaDB path at import, records whether each pre-existed, and fails the
-  session if either was created during the run. Confirmed after a full run: no
-  `data/` directory in the repo. **Extended at task 1.14** to capture the real
-  *backup* directory too, and `isolated_data_dir` now repoints `ANAM_BACKUP_DIR`
-  as well as `ANAM_DATA_DIR` — the backup path resolves from its own config key,
-  so isolating the data directory did not isolate it, and the first run of the
-  backup tests wrote two real backup directories into the repo before this
-  existed.
+- `[built]` **Store-isolation guard** (`tests/conftest.py`). Captures real paths at
+  import before any test can patch them; `StoreIsolationViolation` derives from
+  `BaseException` so `except Exception` blocks cannot swallow it. Grown at tasks 1.4
+  (data + Chroma), 1.14 (backups — the first run of the backup tests wrote two real
+  backup directories into the repo before this existed), 2.6 (artifacts) and Phase 4
+  B0 (workspace).
+- `[built]` **Its mechanism was rewritten on 2026-09-22, because four of the five
+  checks could no longer fire.** The check was *"was this directory created during the
+  run?"*, guarded by whether it pre-existed — answerable only while the directory does
+  not exist. All five exist now (`data/` from the first seeded store), so a test that
+  forgot `isolated_data_dir` and wrote rows into the real `working.db` **passed
+  silently**. `BUILT.md` even cited the stale evidence for it: *"Confirmed after a full
+  run: no `data/` directory in the repo."*
+  All five are now watched one way: `_fingerprint()` records `{path: (size, mtime_ns)}`
+  for every file under every entry in `REAL_DIRS` at import, and the session guard
+  compares at the end. **A file-set snapshot alone would not have sufficed** — the shape
+  `workspace/` used since B0 — because *writing rows into an existing database creates no
+  new file*; comparing size and mtime catches creation and modification together, so
+  there are no longer two mechanisms with a gap between them.
+- `[built]` **`record_violation()` is gone, having never had a caller.** Its contract —
+  record now, re-report at session end so a swallowed violation still fails the run —
+  described a resolve-time trap that was never built; the only mechanism was, and is, the
+  end-of-session comparison. The module docstring said so too and now describes what
+  exists. Keeping a live-but-cosmetic version would have preserved the misleading story,
+  which is `ROLE_GATING_DESIGN` R2's own argument about an unmounted gate.
+- `[built]` **Proven to bite, four ways, each by breaking it**: `backup.py` no longer
+  copying `workspace/` fails the new backup test; `isolated_data_dir` no longer
+  repointing `ANAM_WORKSPACE_DIR` fails the isolation test *and* trips the guard itself;
+  dropping `workspace_dir` from `REAL_DIRS` fails the coverage test; and adding a
+  throwaway `reflection_dir()` accessor fails **3** tests. Plus a deliberate leak at
+  session level: a throwaway test writing into the real `workspace/` raised
+  `StoreIsolationViolation` naming the file. *Dropping `artifact_dir` from `REAL_DIRS`
+  does **not** fail, and that is correct rather than a gap — it sits inside `data_dir`,
+  whose walk still covers it.*
+- `[built]` **`tests/test_directories.py` no longer passes on spelling.** Three of its
+  checks grepped `inspect.getsource(...)` for the string `config.<name>()`, which a
+  mention in a comment, a docstring, or the backup manifest's `source` dict satisfies as
+  readily as real coverage — the weakness `BUILT.md` already recorded against
+  `test_the_gate_takes_no_actor`. They now assert properties: the isolation test resolves
+  every accessor **from inside the fixture** and requires the answer to be under the
+  temporary path; the guard test compares resolved paths against `REAL_DIRS` as data; and
+  the backup test **plants a canary file in each non-exempt directory, takes a real
+  backup, and requires the canary to come out the other side**.
+- `[unverified]` **The guard cannot tell the suite's writes from another process's.**
+  Extending it from creation to modification widens that: running the suite while
+  anything else uses the real store now fails the session. That is the right direction —
+  a foreign write is indistinguishable from a leak — but it means the suite and a soak
+  run cannot overlap, which is stated in the docstring rather than left to be discovered.
 - `[built]` **Live-integration tests against the real Ollama instance** — 17
   tests, 0 mocked transports. Failure paths use real injection (a closed port; a
   socket that accepts and stalls). They skip rather than fail without Ollama, and
