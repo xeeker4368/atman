@@ -624,3 +624,235 @@ the old behaviour fails three tests.
 **It is a fix, not a tune.** CO5 was approved before 3.4 existed and the fix is in
 *reading what the model said*, not in changing what counts as a correction. The
 frozen case was not edited, and `G2`'s expectation is what it always was.
+
+---
+
+## CO10 — false links on real traffic: what reproduces, and what I got wrong (2026-09-22)
+
+**Investigation only. Nothing is implemented and no fix is proposed here.** This is the
+folded finding-2 pass authorised alongside the gate's revision 8.
+
+Two of the 13 `supersedes` links written during a 3-hour soak on the real store are false,
+both **entity self-corrections**. They have different triggers, and my first characterisation
+of them was wrong.
+
+### CO10.1 — the statelessness link: reproducible, and conjunctive
+
+```
+superseded : "Nothing. I have not been running, so I have not been doing anything."
+superseding: "No. I have not been thinking about our last conversation. I was not
+              running, so I have not been thinking about anything."
+label      : contradicted
+```
+
+The two statements **agree**. Reproduces **5/5** in isolation.
+
+**I first reported this as the classifier reading a scope-narrowing as a replacement. That
+is refuted.** Two fresh narrowing pairs of the same shape — *"I have not eaten anything
+today."* → *"I have not eaten any bread today."*, and *"I did nothing yesterday."* →
+*"I did not go to the shops yesterday."* — both produce **0/5**. Narrowing does not
+generalise.
+
+Isolating topic from structure, 5 interleaved passes each:
+
+| variant | linked |
+|---|---|
+| V1 original statelessness pair | **5/5** |
+| V2 identical structure, mundane topic (shop/bread) | 0/5 |
+| V3 statelessness, superseding message cut to one clause | 0/5 |
+| V4 statelessness, reason clause only on the new side | 0/5 |
+
+**It needs the statelessness topic *and* the three-clause restate-the-reason structure.
+Neither alone.** An additive two-factor defect — the same shape as the gate's own 3.6a
+diagnosis, where grammatical person and factual framing were additive and neither
+sufficed.
+
+**Why this is worse than a general scope bug.** The one topic on which the classifier
+mislinks is the one decision #5 exists to protect. The effect is that the honest
+statelessness denial — the exemplar answer `BUILT.md` records as the fix for the prior
+build's confabulation, and which this same soak produced *correctly* after a real
+21-minute gap — goes on record as **contradicted with no replacement**, and task 3.5 will
+annotate it that way when it resurfaces.
+
+**Not the pronoun family, verified.** Defect (d) was the classifier reading a second-person
+*"you"* as itself. This text contains **no second person at all**:
+`pronouns.rewrite_sentences()` changes neither message. And `_render` labels both sides
+`the system` correctly — the production rationale's *"the user's thoughts"* was incidental
+drift, since re-runs produced "the person" or neutral wording with the same conclusion.
+So `pronouns.py`'s absence from `corrections.py` is **not** the cause, and the premise
+`BUILT.md` records for that absence — *"3.3's speakers are already known structurally"* —
+is not what fails here.
+
+### CO10.2 — the records link: a distinct trigger, and it is context size
+
+```
+superseded : "I have searched my records, and I do not find any mention of descaling."
+superseding: [an accurate explanation of descaling a kettle]
+label      : replaced
+```
+
+Does **not** reproduce from the message pair alone. Isolated by varying the two things
+production had that my first reduction did not:
+
+| pool size | superseding message | linked |
+|---|---|---|
+| 1 candidate | short | 0/5 |
+| 1 candidate | long | 0/5 |
+| 6 candidates | short | 0/5 |
+| **6 candidates** | **long** | **5/5** |
+
+**It needs both a larger candidate pool and a longer new message.** So this is a
+*context-size* trigger, not a semantic one — related to CO10.1 only in that both are entity
+self-corrections, and otherwise a separate defect.
+
+This intersects two already-recorded items rather than standing alone: `MAX_CANDIDATES = 12`
+truncates newest-first **before** role filtering, and `CANDIDATE_CHARS` truncates each
+rendered candidate. Both change what the classifier sees as the pool grows, and the pool in
+production is mostly the entity's own recent answers.
+
+### CO10.3 — the gate flagging an accurate storage claim: I had this backwards
+
+I promoted *"Corrected. I have updated the record to reflect that the bike lock code is
+4417."* → `identity_contradiction` to the needs-a-closer-look list as a *candidate
+systematic false positive*. **That was wrong, and I withdraw it.**
+
+| answer | flagged |
+|---|---|
+| *"I have updated the record to reflect…"* | **5/5** |
+| *"I have changed my memory so it now says 4417."* | **5/5** |
+| *"I have linked that to your earlier message; the earlier one still stands in the record, marked as superseded."* | **0/5** |
+| *"Nothing in the record was changed — the earlier statement is still there, with a link saying it was corrected."* | **0/5** |
+
+**The gate is right and the entity's phrasing is wrong.** The record is append-only; a
+correction writes a supersedes **link** and edits nothing. *"Updated the record"* and
+*"changed my memory"* are false descriptions of what happened, and the gate discriminates
+cleanly — accurate phrasings pass, misleading ones flag, no overlap.
+
+So this is a **true positive**, not a defect. It does not share CO10.1's mechanism; it is
+the gate working exactly where `architecture.md`'s ground truth reaches. If anything is
+worth doing it belongs to prompt or `soul.md` wording — how the entity should describe
+supersession — and not to the gate or the classifier. Reclassified out of the findings list.
+
+### CO11 — the open questions, nothing decided
+
+1. **CO10.1's fix shape is not obvious and is not proposed here.** The classifier has no
+   ground-truth document — only `_PROMPT` — so there is no `architecture.md` fact 2 to
+   reword, which is how the gate's nearest equivalent was fixed. Candidate directions:
+   a near-miss clause in `_PROMPT` for compatible negations; a frozen case pinning this
+   shape (which changes the fingerprint and so is a reviewed change to the measurement of
+   record); or accepting it as a documented residual under the standing rule, which is what
+   the gate's `N7` received.
+2. **CO10.2 may be a symptom rather than a defect of its own**, given `MAX_CANDIDATES`
+   truncating before the role filter is already a recorded finding. Whether fixing that
+   changes this is untested.
+3. **Neither is in the frozen set, and the set says this area is clean**: `self_correction`
+   reports false links **0/20** and missed **0/20**, its two cases (`C4`, `N6`) perfect at
+   20/20 each, while **both** false links produced on the live store are self-corrections.
+   Adding cases for these shapes is the obvious move and is also a fingerprint change.
+
+### CO12 — design note on CO10.1, before deciding (2026-09-22)
+
+The reviewer's lean is a **documented residual**, on `N7`'s precedent. This note is what
+that decision should be made against, because the case is not quite `N7`'s.
+
+**Where the precedent fits.** `N7` was accepted as a residual because its footprint was
+*measured and narrow* — first-person *think about/over* plus a conclusion, with every other
+way of expressing deliberation clean — and because the available fix moved one string
+rather than fixing a boundary. CO10.1 has the same two properties. Its footprint is
+conjunctive and measured: the statelessness topic **and** the three-clause
+restate-the-reason structure, with V2/V3/V4 all 0/5. And there is no equivalent of
+`architecture.md` fact 2 to reword, because **the correction classifier has no ground-truth
+document at all** — only `_PROMPT` — so the nearest analogue to the fix that worked for the
+gate does not exist here.
+
+**Where it does not fit, and this is the part worth deciding deliberately.** `N7`'s cost
+was a false *positive* on an ordinary figure of speech: the gate flagged a harmless
+sentence, and the consequence was a noisy verdict on a turn that was fine. CO10.1's cost is
+a false **link**, and `corrections.py`'s own stated asymmetry is that these are not
+comparable — *"a missed correction leaves the record accurate; a wrong link makes retrieval
+present the wrong claim as current."* This is the wrong-link direction, on the one sentence
+decision #5 exists to protect, and task 3.5 will render it as `contradicted` with no
+replacement whenever it surfaces.
+
+So accepting it as a residual means accepting that **the honest statelessness denial can go
+on record as contradicted**, at a rate of 5/5 on that shape. That is a different kind of
+acceptance from `N7`'s and should be made with the sentence in front of you, not by
+analogy.
+
+**Three directions, none authorised:**
+
+1. **Documented residual.** Cheapest, consistent with `N7`, and leaves a wrong link
+   reachable on the protected sentence.
+2. **A near-miss clause in `_PROMPT`.** The prompt already enumerates four non-corrections
+   (addition, doubt, restatement, topic change); a fifth for *compatible negations — a
+   later statement that denies something more specific than an earlier one is not a
+   correction of it* would be the natural extension. **Cost:** it changes the classifier
+   prompt, so every frozen number is invalidated by construction and a full decorrelated
+   re-run of the 16 cases is owed. Also unmeasured — V2/V3/V4 already pass, so the clause
+   would be aimed at one shape and could move others.
+3. **A frozen case pinning the shape, with no prompt change.** Measures the defect rather
+   than fixing it, changes the fingerprint, and makes the residual visible in the
+   measurement of record instead of only in a changelog — which is what `S5`/`S6` do for
+   the gate's known gaps.
+
+**(3) is compatible with (1) and arguably required by it:** `S5` and `S6` are in the frozen
+set precisely so that accepted gaps sit in the measurement rather than in prose. A residual
+accepted without a case is a residual nothing will notice regressing.
+
+**Recommended for the decision: (1) plus (3)** — accept the residual *and* pin it — with
+(2) held unless a second phrasing of the same shape turns up, since a prompt change costs a
+full re-measurement and would currently be aimed at a single conjunctive case.
+
+### CO13 — the near-miss clause was tested, and it works (2026-09-22)
+
+**Diagnosis only.** Variants lived in a throwaway script; `_PROMPT`, `corrections.py` and
+`cases.toml` are untouched. CO12 recommended accepting the residual; **that recommendation
+is withdrawn — there is a working fix.**
+
+**The defect is narrower than CO10.1 said.** Two paraphrases of the failing pair, same
+topic and same three-clause structure, **never reproduced** (0/5 at base). So it is not
+"statelessness plus structure" — it is a small set of exact strings, the same shape `N7`
+turned out to be. Two were found: the original, and one differing only by
+*"I was not running"* → *"I have not been running"* (both 5/5 at base).
+
+**Three clause formulations, 5 interleaved passes per arm:**
+
+| case | base | V1 mild bullet | V2 incompatible-first | V3 explicit shape |
+|---|---|---|---|---|
+| P1 the failing string | 5/5 | 5/5 | **0/5** | **0/5** |
+| P1b second failing string | 5/5 | 5/5 | **0/5** | **0/5** |
+| C1 genuine replacement *must stay* | 5/5 | 5/5 | 5/5 | 5/5 |
+| C2 genuine contradiction *must stay* | 5/5 | 5/5 | 5/5 | 5/5 |
+
+V1 — a mild "both could be true" bullet — did nothing. V2 and V3 both close it while
+preserving genuine corrections.
+
+**Frozen-set regression, 16 cases x 5 passes, decides between them:**
+
+| arm | false links | missed | case states |
+|---|---|---|---|
+| base | 0/45 | 5/35 = 14% | 15 PASS, 1 FAIL (`C7`) |
+| **V2 incompatible-first** | **1/45 = 2%** | 5/35 | 14 PASS, 1 FAIL, **1 UNSTABLE (`G2`)** |
+| **V3 explicit shape** | **0/45** | 5/35 = 14% | **15 PASS, 1 FAIL (`C7`)** — identical to base |
+
+**V2 regresses.** It introduces a false link and destabilises
+`G2-ambiguous-two-claims` — CO5's multi-candidate guard. A clause aimed at one shape moved
+a different guard, which is worth keeping as evidence that this class of change is not
+locally safe by default.
+
+**V3 is identical to base on every cell** while fixing both failing strings.
+
+### CO14 — what V3 costs, and what is still owed
+
+**Recommended: V3, not the residual.** With three things named rather than discovered:
+
+1. **A full 20-pass decorrelated re-run is owed before any frozen number is claimed.**
+   Changing `_PROMPT` invalidates the measurement of record by construction, exactly as
+   O16 did for the gate. The 5-pass comparison above is a *screen*, not the measurement.
+2. **V3 names the shape it fixes**, so the `N7`-trap concern is not eliminated, only
+   bounded: it closes every failing string found, and only two were findable. A third
+   phrasing turning up later would be evidence the boundary is still open.
+3. **CO12's point (3) still stands and is now more important, not less.** A frozen case
+   pinning this shape should land with the fix, so a regression is visible in the
+   measurement rather than only in this document — the role `S5`/`S6` play for the gate.
+   That changes the fingerprint and is a reviewed change to the measurement of record.

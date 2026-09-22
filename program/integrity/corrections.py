@@ -86,6 +86,10 @@ These are NOT corrections:
   nothing has been asserted to be wrong yet
 - repeating or rephrasing the earlier statement
 - moving on to a related topic
+- denying a specific thing after denying everything: "I have not been doing
+  anything" followed by "I have not been thinking about it" are compatible — the
+  second is included in the first — so that is NOT a correction, and neither is any
+  restatement of the same denial with a different detail named.
 
 Say which of two kinds it is:
 REPLACED     - the new message gives the correct value

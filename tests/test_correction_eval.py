@@ -40,8 +40,15 @@ from scripts import correction_eval as correction_eval_cli
 #: 2895f1b2… (2026-09-19, approved at review: `C7-referential-contradiction` closes
 #: 3.4's standing single-phrasing limitation — the broadened CO8 definition was
 #: measured on one phrasing — and gives `wrong_state`'s `contradicted` direction a
-#: second case, so that rate no longer moves in whole-case steps.)
-FROZEN_FINGERPRINT = "2895f1b244becf1b31e82c8e93c9759bcb8963e6f551ba39fdf7f454d55f5d48"
+#: second case, so that rate no longer moves in whole-case steps.) →
+#: 39ce8e41… (2026-09-22, CO13 approved at review: `N8-compatible-denial` pins the
+#: shape that produced a real FALSE LINK on the production store during the 3-hour
+#: soak — a general denial followed by a compatible specific one. The frozen set
+#: could not see it: `self_correction` reported false links 0/20 with both its cases
+#: perfect, while BOTH false links written in production were self-corrections. Added
+#: in the same task as the `_PROMPT` clause that closes it, so the fix cannot regress
+#: unnoticed.)
+FROZEN_FINGERPRINT = "39ce8e41a10560f555d47f30d0fcab9f3fd43ec95fca778130e6933e3151f95b"
 
 
 @pytest.fixture(scope="module")
@@ -167,6 +174,27 @@ def test_the_prompt_states_the_broadened_definition(cases):
     prompt = corrections._PROMPT.lower()
     assert "without saying what is true instead" in prompt
     assert "doubting" in prompt, "the negative boundary must stay explicit"
+
+
+def test_the_prompt_states_the_compatible_denial_boundary(cases):
+    """CO13: the clause that closes the production false link, pinned.
+
+    A general denial followed by a compatible specific one — *"I have not been doing
+    anything"* then *"I have not been thinking about it"* — linked **5/5** against the
+    pre-V3 prompt, putting the honest statelessness denial on record as
+    `contradicted`. This wording is what takes it to 0/5 while leaving every frozen
+    number identical to baseline; a milder formulation did nothing, and a stronger one
+    regressed `G2-ambiguous-two-claims`. So the exact shape of this clause is measured,
+    not stylistic, and deleting it would reopen a defect on the one sentence decision
+    #5 exists to protect.
+    """
+    prompt = corrections._PROMPT.lower()
+    assert "denying a specific thing after denying everything" in prompt
+    assert "compatible" in prompt
+    assert "N8-compatible-denial" in {c.id for c in cases}, (
+        "the clause and the case that measures it ship together — a fix with no case "
+        "is a fix nothing will notice regressing"
+    )
 
 
 def test_self_correction_is_covered_in_both_directions(cases):

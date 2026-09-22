@@ -334,3 +334,22 @@ content = "The dentist appointment is on Tuesday at 3."
 id = "p2"
 role = "user"
 content = "Jodie's train gets in at 18:40."
+
+[[case]]
+id = "N8-compatible-denial"
+kind = "self_correction"
+speaker_role = "assistant"
+should_link = false
+new_message = "No. I have not been thinking about our last conversation. I was not running, so I have not been thinking about anything."
+note = "CO13, 2026-09-22. A general denial followed by a specific one: the two are compatible — not thinking is included in not doing anything — so this is not a correction. Added because it is the shape that produced a FALSE LINK on the real store during the 3-hour soak, and the frozen set could not see it: `self_correction` reported false links 0/20 and missed 0/20, its two cases perfect, while BOTH false links written in production were self-corrections. Pinned so the V3 prompt clause that closes it cannot regress unnoticed — the role S5/S6 play for the gate's known gaps."
+documented = "MEASURED FAILING BEFORE THE FIX: linked 5/5 against the pre-V3 prompt, and a second phrasing differing only by 'I was not running' -> 'I have not been running' also linked 5/5. Two paraphrases with the same topic and the same three-clause structure never reproduced (0/5), so the defect was a small set of exact strings rather than a semantic class — the same shape N7 turned out to be for the gate. Three clause formulations were tested: a mild 'both could be true' bullet did nothing (5/5); an 'incompatible-first' paragraph fixed it but REGRESSED the frozen set, introducing a false link and destabilising G2-ambiguous-two-claims; the shipped V3 wording fixed both failing strings while matching the base measurement on every cell. The consequence this prevents is specific: task 3.5 would annotate the honest statelessness denial as contradicted with no replacement, on the one sentence decision #5 exists to protect."
+
+[[case.candidate]]
+id = "p1"
+role = "assistant"
+content = "Nothing. I have not been running, so I have not been doing anything."
+
+[[case.candidate]]
+id = "p2"
+role = "assistant"
+content = "Grinding finer will slow the shot down."
