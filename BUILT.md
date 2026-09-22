@@ -963,7 +963,522 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   that recompute it.
 
 ## Media
-- *(nothing yet)*
+
+- `[built]` **Phase 4 P0 — the shared floor, no tool yet** (2026-09-21). Design of
+  record `docs/MEDIA_AND_CREATIVE_DESIGN.md`, recording all fourteen review
+  decisions. **No image is generated and nothing is written to `workspace/`** —
+  this is the attribution and artifact-kind plumbing both clusters need first.
+  28 tests.
+- `[built]` **`AttributionContext` (`program/attribution.py`) is deliberately not an
+  `Actor`.** It carries a `user_id` and nothing else — no role, no permission, no
+  authorization meaning. The naming is load-bearing: several tests assert nothing in
+  the tool path takes an `actor`, `role` or `user` parameter, and they protect a
+  real property (fabrication checks, retrieval and corrections treat both household
+  members identically). An authorization object in the tool path is how that would
+  quietly stop being true.
+- `[built]` **Three invariants on attribution, two proven by breaking them.**
+  **Declared, not inferred** (`Tool.takes_attribution`) — the contract is written
+  down, the same reason `parameters` is. **Never model-settable** — `__post_init__`
+  refuses a tool that puts `attribution` in its `parameters`, because a model that
+  could set it could attribute a write to the other household member; removing the
+  guard fails the test. **Never in the recorded arguments** — `ToolResult.arguments`
+  reaches the tool trace the fabrication gate reasons over, so a value the model
+  never sent must not change that shape; leaking it fails two tests.
+- `[built]` **A declaring tool with no context raises rather than degrading.** There
+  is no honest value to substitute — the caller knows whose record it is and the
+  model does not — and it is a wiring bug of the same class as a duplicate
+  registration. `turn.py` always supplies it (Q2b: the person present), asserted
+  from inside the dispatch rather than by reading two lines.
+- `[built]` **The three Phase 2 tools are proven unchanged** — `memory_search`,
+  `web_search` and `web_fetch` dispatch identically with and without attribution,
+  compared on the envelope (outcome, arguments, `ran`, `timeout_seconds`, trace key
+  set), plus a registry-wide check that none declares `takes_attribution` and no
+  handler could accept it by accident. *Their own `value` and `error` are excluded:
+  two live calls to a search engine legitimately differ, and the first version of
+  this test failed on exactly that — a test that fails for that reason trains the
+  next reader to ignore it.*
+- `[built]` **`program/artifacts/kinds.py` — artifact kinds as a table**, carrying
+  storage root, `source_type` and `source_trust`, the same data-not-conditionals
+  shape `permissions.CAPABILITIES` and `store.SETTINGS` use. `upload` is registered
+  beside `creative_writing` and `generated_image`, and **`ingest.py` now reads its
+  root and vocabulary from there** rather than keeping its own copies, so one kind
+  cannot have its directory in one file and its provenance in another. Roots resolve
+  per call, never captured at import.
+- `[built]` **Both new kinds live in `workspace/`, uploads stay in
+  `artifact_dir()`** (Q1) — the split is uploads-versus-entity-output, not
+  text-versus-binary. **An unregistered type raises**: a wrong root writes bytes
+  somewhere the backup, the go-live wipe and the governance blocklist do not expect,
+  and a silent default is how that happens without an error.
+- `[built]` **The entity has its own `users` row, and it was not trivial** (Q2c).
+  `users.role` is `CHECK (role IN ('admin', 'user'))` — a third value would need the
+  table recreated, against a decision specifying no schema change — so the row takes
+  **`user`** on least privilege. **The role is not what keeps it from being an
+  account: `password_hash` stays `NULL`, and a NULL hash never authenticates.**
+  Created lazily on first use rather than in `init_databases()`, so an empty store
+  stays empty; `UNIQUE` on `name` makes two concurrent first writes safe.
+- `[built]` **The entity row carries an unspeakable sentinel, `__entity__`, and
+  never renders.** `users.name` is `NOT NULL UNIQUE` so the row needs a string, and
+  CLAUDE.md says the entity *"has no name and must not be given one — not by code,
+  prompt, config, or docs."* `"the system"` was the first choice and **a
+  reachability trace killed it**: `chunking._format_line()` renders user messages as
+  `f"{user_name}: {content}"`, so a conversation owned by this row would bake its
+  name into **chunk text — and therefore FTS5, the embedding vector and the
+  retrieved-records block** — permanently, since re-chunking reproduces it and an
+  embedding cannot be edited afterwards. Separately, `db.get_actor()` would build a
+  valid `Actor` from the row and `turn.py` passes `actor.name` into the correction
+  classifier's prompt and the situation block.
+  **Neither is reachable today** (the row owns no conversation and cannot log in),
+  but an entity-owned conversation is one ordinary Phase 5 task away and the
+  chunk-text path cannot be un-taken. Three tests pin the *finding*, not just the
+  conclusion, so if either path closes the reasoning fails loudly.
+- `[unverified]` **Residual: an operator could set a password on the entity row**
+  with `scripts/set_password.py`, after which it could authenticate and every route
+  behind `require_actor` would accept it. Closing it needs an auth-side guard, which
+  falls under `AGENTS.md`'s authentication checkpoint — its own Tier 3 change.
+  **Tracked as a named item in `NOW.md`'s backlog**, not left in a changelog.
+- `[unverified]` **Nothing uses any of it yet.** Attribution is exercised by a
+  TEST-ONLY tool and by the loop/turn tests; `AttributionContext.for_entity()` is
+  reachable and tested but has no caller. `workspace/` is still **not gitignored, not
+  backed up and not isolated in tests** — that is B0, and nothing writes there until
+  it lands.
+- **Q5 and Q6 are deliberately open**, pending A1b's measurement: whether generation
+  fits inside a turn, and whether a chat model and an image model share 32 GB. **No
+  async mechanism and no memory-unload step is being built speculatively.**
+  `agent.tool_budget_seconds` feeds `IN_FLIGHT_GRACE_FLOOR_MINUTES = 35`, so a
+  change there moves a Tier 3 floor.
+- **Decided and recorded, not yet built:** `enabled` only for `image_generate` with
+  no `approval_required` mechanism (Q4 — *and that reasoning assumes image
+  generation stays live-turn-only; wiring it into an autonomous session means
+  revisiting it, not inheriting it*); SDXL base (Q7); `ops/comfyui/` as the recreate
+  record (Q8); "private" means not proactively announced, with no retrieval-time
+  exclusion (Q9); no extra gate on image prompts, as a considered decision (Q12);
+  text confirmation plus path and id in the gate criteria (Q13); the prompt is what
+  gets embedded, `extraction_status = metadata_only` (Q14).
+- `[built]` **ComfyUI runs from OUTSIDE the repository** —
+  **`/Volumes/Dock Storage/ComfyUI`**, a sibling of `Atman/` and the same structural
+  choice SearXNG already made. ComfyUI 0.37.0, pinned commit `b0f4b7b2…`, own venv on
+  Python 3.13.13 with torch 2.14.0, MPS confirmed available. Checkpoint
+  `sd_xl_base_1.0.safetensors` (6.5 GB) plus the `sdxl_lightning_{4,8}step` LoRAs
+  (376 MB each). Bind verified loopback-only. **`ops/comfyui/` holds only the recreate
+  record** — README plus an 84-package frozen `requirements.txt`, never the
+  installation. Start with `cd /Volumes/Dock\ Storage/ComfyUI && ./venv/bin/python
+  main.py`, **without `--listen`** (which broadens the bind to `0.0.0.0`); it is not
+  left running.
+- `[built]` **It was briefly installed inside the repo, and that cost three things**
+  (all measured 2026-09-21, all resolved by the move): `git status` collapsed an 8.5 GB
+  untracked tree to one entry, leaving a 6.5 GB checkpoint one `git add .` from the
+  index; **`ruff check .` went from 110 files to 1,024, of which 914 were ComfyUI's own
+  source**, because `pyproject.toml` declares no `exclude`; and generated images landed
+  in the tree. **Nothing had ever been staged** — `git ls-files ComfyUI` and
+  `git diff --cached` both returned 0 before the move, so there was no history to
+  rewrite. After: 110 files in ruff's scope, 0 inside ComfyUI.
+- `[built]` **Moving a venv breaks its console scripts**, found and fixed here.
+  `bin/python` survives (`sys.prefix` resolves from `pyvenv.cfg` at runtime, and MPS
+  was confirmed working afterwards), but entry-point scripts carry the **absolute**
+  interpreter path in their shebang — `pip`, `pip3`, `pip3.13`, `typer`, `dotenv`,
+  `activate.fish` all pointed at the old path and `pip` was silently broken. Rewritten
+  and verified; recorded in `ops/comfyui/README.md` for the next move.
+- `[built]` **A1b measured: generation does NOT fit a turn at default settings**
+  (2026-09-21). SDXL base, 20 steps, 1024×1024, euler/normal, cfg 8.0, wall-clock
+  from `/prompt` to `/history` — what a tool call would wait. **Cold 117.9 s**
+  (includes the 6.5 GB checkpoint load), **warm median 107.6 s** (105.8 · 107.6 ·
+  108.3), **~5.25 s per step**; latency is linear in steps.
+  **With `gemma4:26b` resident — the realistic case, since ollama's keep-alive means
+  it has just answered — generation takes 125.1 s and 133.1 s, which exceeds
+  `agent.tool_budget_seconds = 120` outright.** And that budget is for the *whole
+  turn*, so even uncontended one image spends 90% of it and a second tool call would
+  be `SKIPPED`.
+- `[built]` **The latency curve** (uncontended, one sample each): 20 steps @ 1024²
+  104.8 s · 15 steps 81.1 s · 10 steps 55.2 s · 8 steps 44.7 s · 20 steps @ 768²
+  53.5 s · **10 steps @ 768² 27.6 s** — the only setting measured under
+  `tools.default_timeout_seconds = 30`, and off-distribution for SDXL.
+- `[built]` **Q6 answered: nothing is forced out, so no unload step is needed.**
+  Neither model evicts the other; the chat model stayed resident at 17 GB / 100% GPU
+  through a generation and answered in **5.4 s** afterwards. **The cost is swap:**
+  loading the chat model with SDXL resident took `vram_free` from **17.1 → 2.6 GiB**
+  and grew the swap file from **2 GB to 10 GB with 9.2 GB used**, alongside a
+  **16–24% generation slowdown**. Sustained SSD pressure rather than a correctness
+  problem — the number to re-measure if a third resident model appears.
+- `[built]` **No async "check later" mechanism is needed**, per the brief's
+  build-only-if-measured rule: a synchronous call completes.
+- `[built]` **Q5 ANSWERED by reopening Q7: 4-step SDXL Lightning fits, with ~62 s of
+  turn budget spare** (2026-09-21). Lightning **LoRA** on the existing SDXL base —
+  376 MB rather than a ~6.9 GB checkpoint, keeping SDXL base's permissive
+  CreativeML OpenRAIL++ licence (Turbo is Stability Non-Commercial) and changing one
+  variable against the A1b baseline rather than two. Requires euler / sgm_uniform /
+  **cfg 1.0**.
+  **4 steps: cold 30.5 s · warm 12.8 s · contended 51–58 s (48% of the 120 s turn
+  budget). 8 steps: warm 23.1 s · contended 65–68 s.**
+  **No change to `agent.tool_budget_seconds`, so `IN_FLIGHT_GRACE_FLOOR_MINUTES` stays
+  35** — option (b) is not needed and option (a)'s quality cost is avoided.
+- `[built]` **The honest speedup is 2.3×, not 8.4×.** Warm-to-warm is 8.4×
+  (107.6 → 12.8 s), but the operative comparison is contended-to-contended, because
+  the chat model has just answered and is resident: **125–133 s → 51–58 s.**
+- `[built]` **The contention penalty is additive, not proportional, and it punishes
+  short jobs.** +18–25 s at 20 steps (+17–23%); **+38–45 s at 4 steps (+300%)**. With
+  `gemma4:26b` resident `vram_free` falls to 2.1 GiB and SDXL is paged back in per
+  generation — a fixed cost that was amortised over 107 s and now dominates a 13 s
+  job. **A faster sampler cannot shrink it**: it is memory, not compute.
+- `[built]` **Part of the speedup is cfg 1.0, not the step count** — per-step cost
+  falls 5.25 s → ~3.2 s because at cfg 1.0 the sampler skips the unconditional branch.
+  **Consequence for A2: the negative prompt is inert at cfg 1.0**, so
+  `image_generate` should not expose one while Lightning is the configuration — a
+  parameter accepted and silently ignored is the "gate mounted on nothing" shape one
+  layer down.
+- `[built]` **4-step Lightning is the shipping configuration** (decided 2026-09-21
+  after Lyle compared the samples directly: no visible difference between 4-step,
+  8-step and the 20-step base at a casual glance, so the option with the most budget
+  margin won). cfg 1.0, euler/sgm_uniform, 1024x1024.
+- `[built]` **ComfyUI client** (`program/media/comfyui.py`, A1c, 2026-09-21) —
+  transport only: submits a workflow, waits, returns image **bytes**. Registers no
+  tool (A2) and stores nothing (A3). `ollama.py`'s shape: explicit timeout on every
+  request, nothing that can hang, and **six named exceptions**, each a state a caller
+  acts on differently — unreachable, timeout, workflow rejected, **model missing**,
+  generation failed, not-loopback. 24 tests.
+- `[built]` **A missing model is detected structurally, not by string matching.**
+  `ComfyUIModelMissing` fires on a 400 whose `node_errors[*].errors[*].type` is
+  `value_not_in_list`, and **subclasses** `ComfyUIWorkflowRejected` so catching the
+  parent still works — separable because the action is a download rather than a code
+  fix, the distinction `ToolResult` draws between `INVALID_ARGUMENTS` and `TOOL_ERROR`.
+  `ComfyUITimeout` is its own outcome for `ToolResult.TIMEOUT`'s reason: the job may
+  still be running, so whether an image was produced is **unknown**.
+- `[built]` **Written against the responses the instance actually returns**, captured
+  from ComfyUI 0.37.0 and pinned as test fixtures — the discipline `web_search.py`
+  established. Notably `GET /history/<id>` returns **`{}` while queued or running**,
+  which means "not yet" and not "finished with nothing"; a test drives that
+  distinction.
+- `[built]` **`PreviewImage`, not `SaveImage`.** `SaveImage` writes a permanent file
+  into ComfyUI's own `output/`; `PreviewImage` writes to `temp/`, cleared on startup.
+  Since the caller stores the bytes itself, `SaveImage` would make **every generated
+  image exist twice** — one copy in a directory that grows without bound, outside the
+  backup story and outside the go-live wipe. A test asserts `SaveImage` appears
+  nowhere.
+- `[built]` **A fresh random seed when none is given**, and not only for variety: a
+  fixed default would silently hit **ComfyUI's execution cache** and return the
+  previous image in milliseconds — exactly what was misread as a 0.2-second cold
+  generation during A1b's follow-up. `secrets.randbelow`, because this is the one
+  value that must not repeat and a seeded global RNG elsewhere could make it do so.
+- `[built]` **The loopback guard, because ComfyUI has no authentication** — its API
+  executes any workflow posted to it, so a reachable instance is an unauthenticated
+  execution endpoint. Refused at the point of use rather than trusted to config.
+  **Every resolved address is checked**, not the first, and IPv4-mapped IPv6 is
+  unwrapped first (`::ffff:127.0.0.1` is loopback in a costume; `::ffff:192.168.0.5`
+  is routable in the same one). **Proven to bite:** neutering it fails 4 tests, and a
+  separate test asserts it runs before anything reaches the wire.
+- `[built]` **`comfyui.timeout_seconds = 90`, derived** from A1b: warm 12.8 s, cold
+  30.5 s, contended 51–58 s, worst plausible cold-and-contended ~70–75 s given the
+  measured +38–45 s penalty. Stays under `agent.tool_budget_seconds` (120) so the call
+  is reachable rather than clipped. `comfyui_generation()` returns the eight settings
+  **as one dict**, because they are not independent dials — Lightning requires cfg 1.0
+  with euler/sgm_uniform, and reading them together makes the coupling visible.
+- `[built]` **No `enabled` flag yet**, deliberately: Q4 decided `image_generate` is
+  gated by one, but nothing reads it and an unread flag is R2's *"an unmounted gate is
+  worse than an absent one."* A2 adds it with its consumer.
+- `[built]` **Verified live end to end**: `available()` reported ComfyUI 0.37.0 on
+  `mps`; `generate()` returned **1,935,372 bytes of real PNG in 13.2 s** with full
+  metadata; a second identical call produced a different seed and different bytes in
+  12.7 s (no cache hit); an absent checkpoint raised `ComfyUIModelMissing` quoting
+  what ComfyUI said *is* installed. **The two live tests skip rather than fail when
+  ComfyUI is down** — verified by stopping it: 22 passed, 2 skipped.
+- `[unverified]` **Four limits of the client**, recorded not fixed: the 90 s deadline
+  covers **queue time as well as generation**, so a busy instance eats it; there is
+  **no progress reporting** (ComfyUI has a websocket, the client polls, because
+  polling needs no connection state); **batch size is fixed at 1**; and
+  `PreviewImage`'s temp file is cleaned by ComfyUI's next startup rather than by us.
+- `[unverified]` **`GeneratedImage.to_metadata()` has no consumer yet** — it exists
+  for A3, which indexes the **prompt** as the image's searchable text (Q14).
+- `[built]` **`image_generate` tool** (`program/tools/image_generate.py`, A2,
+  2026-09-21) plus generated-image storage (`program/artifacts/generated.py`). A thin
+  wrapper in `memory_search`'s shape: the client talks to ComfyUI, storage writes the
+  artifact, this makes the pair callable. 26 tests.
+- `[built]` **One parameter, `prompt` — and no `negative_prompt`** (Q15). At cfg 1.0
+  the sampler skips the unconditional branch, so one would be **accepted and silently
+  ignored**, which is worse than absent because the model could not notice its
+  instruction had no effect. A test asserts its absence *and* that cfg is still 1.0,
+  so the revisit trigger is checkable rather than remembered.
+- `[built]` **The result tells the model nothing has seen the image.** The entity has
+  no vision, so a result reading "here is your image" would invite it to describe
+  something it has not seen — the exact fabrication the integrity gate exists to
+  catch. Cheaper to make the tool's own output truthful than to catch the consequence
+  downstream.
+- `[built]` **`enabled` behaves like decision #12's first axis.** A disabled
+  capability is **not offered to the model** — the schema never enters the prompt —
+  rather than offered and refused, which burns a turn on the discovery.
+  `Tool.enabled` is a **call-time predicate** so `default_registry()` filters on live
+  config, while `catalog.TOOLS` still lists the tool unconditionally so the full set
+  stays greppable. **No `approval_required`** (Q4), and a test asserts the key does
+  not exist.
+- `[built]` **Attribution's first real consumer** — the handler declares
+  `takes_attribution`, so P0's plumbing carries the person present into
+  `artifacts.user_id`. Tests assert the model cannot supply it and that it never
+  reaches the recorded arguments.
+- `[built]` **Storage follows `ingest.py` rather than paralleling it**: sharded path
+  from the generated id (a test stores a prompt of `"../../etc/passwd"` and asserts
+  the path is unaffected), sha256 of the stored bytes, and **bytes before the row** —
+  a file with no row wastes space and is walkable, a row with no file points at
+  nothing. `workspace/` via `kinds.root_for()` (Q1), so the module names no directory.
+- `[built]` **`extraction_status = metadata_only` and the prompt in
+  `extracted_text`** (Q14). `metadata_only` on task 2.6's scanned-PDF precedent —
+  `extracted` would claim the opposite of the truth for a PNG. Generation settings go
+  in `extraction_note` as JSON, so a reader can tell a 4-step Lightning image from a
+  20-step one without a migration per sampler parameter.
+- `[built]` **A2 took the file and the row; A3 keeps indexing.** Q13 needs a path and
+  an id, and a tool that generates and discards has neither — it would be the
+  placeholder `catalog.py` refuses. This is `ingest.py`'s own seam (store, then
+  `_index_text`). A test asserts `get_artifact_chunks()` is still empty, so A3 landing
+  fails it and points at the change.
+- `[built]` **A DERIVED CONSTANT WAS WRONG, and live use caught it.**
+  `comfyui.timeout_seconds` was 90, derived at A1c from an *estimated* 70–75 s worst
+  case ("cold **or** contended"). The real worst case is cold **and** contended:
+  measured **87.0 s**, with one live turn **passing at 83.8 s** and another, cold,
+  **failing past 90 s**. **The constant sat inside its own measurement's variance
+  band**, which turns a slow generation into a lost one non-deterministically — the
+  worst kind of wrong, because it passes in testing.
+  **Re-derived: client 90 → 110, tool 100 → 115.** Chain intact
+  (110 < 115 < `agent.tool_budget_seconds` 120), so an overrun still surfaces as
+  `ComfyUITimeout` rather than the loop's opaque one, and
+  **`IN_FLIGHT_GRACE_FLOOR_MINUTES` stays 35**. Verified by re-running the exact case
+  that failed: **88.2 s, ok**, 21.8 s of margin. Pinned by a test asserting the client
+  timeout clears the measured 87 s by 20% — the test the first derivation needed and
+  did not have.
+- `[built]` **The failure mode was graceful while the constant was wrong.** The
+  timeout produced `TOOL_ERROR`, the loop fed it back, and the entity said plainly
+  *"The image generation failed because the process timed out. I am unable to provide
+  the picture."* No fabrication, no crash, no invented image.
+- `[built]` **An image turn is an image-only turn.** 88 s of a 120 s aggregate budget
+  leaves ~5 s, so a second tool call in the same turn is `SKIPPED`. True at 90 too;
+  now explicit in the config comment.
+- `[built]` **Verified live end to end**: the model wrote its own richer prompt, the
+  tool ran in 83.8 s, and a 1,880,297-byte PNG landed in `workspace/28/28ee33f0…`
+  with `metadata_only`, the prompt in `extracted_text`, the settings in
+  `extraction_note`, and **0 chunks** — A3's half correctly absent.
+- `[unverified]` **`enabled` cannot be flipped at runtime.** `default_registry()`
+  caches, so a change needs a restart or `reset_default_registry()`. That collides
+  with decision #8's "no setting requires a restart" and needs attention when the
+  admin panel makes capability flags live-editable; it is config-file-only today, so
+  nothing can flip it at runtime yet.
+- `[unverified]` **No duplicate detection**, unlike `ingest.py`'s sha256 refusal: two
+  identical prompts produce two artifacts, because the seed differs and so do the
+  bytes. Deliberate — an image is not a re-upload — but named.
+- `[built]` **`workspace/` is protected (B0, 2026-09-21)** — and one of the three
+  costs I reported was wrong. **It was already gitignored**: `.gitignore` has carried
+  `workspace/*/*` plus `!workspace/*/.gitkeep` since Phase 0, deliberately, so the
+  skeleton stays tracked while contents do not. I had tested
+  `git check-ignore workspace` — the *directory*, which must not be ignored for the
+  markers to be trackable — and read that as the contents being exposed. Corrected
+  wherever it was stated. *Residual: a file written directly at `workspace/<file>`
+  (depth one) does not match the pattern; every writer shards, so nothing produces
+  that path.*
+- `[built]` **Artifact kinds route to the tracked subdirectories.** Phase 0 created
+  `workspace/{generated,uploads,writing,research,journals}/` and tracks each with a
+  `.gitkeep`; **A2 had ignored that and sharded flat**, putting 66 hex directories
+  beside the five intended ones. `ArtifactKind.subdirectory` now sends
+  `generated_image` → `workspace/generated`, `creative_writing` → `workspace/writing`,
+  `upload` → none (`artifact_dir()` is already dedicated). `storage_path` stays
+  relative to the kind's root, so no row encodes which subdirectory the root was. A
+  test asserts every workspace-rooted kind declares one, so a future kind cannot shard
+  flat by omission.
+- `[built]` **`backup.py` covers `workspace/`** (`_copy_workspace`), recorded in the
+  manifest beside the artifact directory, with both paths now in `source` — they
+  resolve from their own config keys, so a manifest naming only the databases would not
+  tell a restore where to put them back. The note says what it is: **the least
+  rebuildable artifact in the set** — an uploaded file still exists on whoever's
+  machine it came from and vectors regenerate from `chunks`, but nothing the entity
+  wrote exists anywhere else. Still `best-effort`, honestly: a directory copy outside
+  the read lock, so something written mid-backup may be missing beside its row, and the
+  row carries a sha256. **Proven to bite**: removing the two lines fails 2 tests.
+- `[built]` **The isolation guard covers `workspace/`, and it had already leaked.**
+  **65 real PNGs from `tests/test_image_generate.py` were sitting in the repository's
+  own `workspace/`** — the same trap as the backup directory at 1.14 and the artifact
+  directory at 2.6, for the third time, because it resolves from its own config key.
+  **It needed a different check**: the other four ask "was this directory created?",
+  which can never fire for a directory that is part of the tracked skeleton. The guard
+  **snapshots the file set at import and reports anything new**, naming the paths and
+  saying to take `isolated_data_dir`. **Proven by writing a deliberate leak** rather
+  than by reading — a throwaway test that unsets `ANAM_WORKSPACE_DIR` raises
+  `StoreIsolationViolation`. The 65 strays are removed; `workspace/` holds exactly its
+  five tracked markers.
+- `[built]` **An image turn is a single-tool turn, and it is documented where the next
+  reader looks** — directly under `agent.tool_budget_seconds` in
+  `config/defaults.toml`, rather than being re-derivable from three timeout values in
+  two files. 83.8–88.2 s measured against a 120 s aggregate budget is 70–73%, so a
+  second call needing more than a few seconds is `SKIPPED`. Recorded as hardware
+  rather than choice, with the note that raising the budget was reviewed and declined
+  because it moves `IN_FLIGHT_GRACE_FLOOR_MINUTES`.
+- `[built]` **The runtime-directory trap is now a standing item AND a structural
+  guard** (2026-09-21). `AGENTS.md` gains "Adding a runtime directory": any directory
+  resolved from its own config key gets `backup.py` and test-isolation coverage **in
+  the same task that introduces it**. It names the three occurrences
+  (`backup_dir` 1.14, `artifact_dir` 2.6, `workspace_dir` Phase 4) and the mechanism
+  they share — a new directory starts outside every existing guard by default.
+  **`tests/test_directories.py` enumerates every `config` accessor returning a `Path`**
+  and fails on one neither covered nor explicitly exempted with a written reason, the
+  `test_every_write_in_db_carries_the_retry` pattern applied to directories.
+  Exemptions are real answers and are recorded as such: `backup_dir` is the
+  destination, `config_dir` holds `auth.session_secret` and must never be copied,
+  `data_dir` is covered by its contents through SQLite's backup API rather than as a
+  directory. **Proven by adding a fourth directory** — a throwaway `reflection_dir()`
+  fails three of six tests, naming the accessor, the env var, the file to edit and the
+  `AGENTS.md` section. A test also asserts the enumeration found at least five
+  directories, because one that silently finds nothing makes every check above it pass
+  by vacuity.
+- `[built]` **One indexing path, not two** (`program/artifacts/indexing.py`, A3).
+  `ingest._index_text` was upload-specific — it hardcoded `file`/`secondhand` — so it
+  was extracted, parameterised by artifact kind, and **`ingest.py` now calls it too**,
+  which is what the Cluster A brief asked for rather than a second implementation.
+  `source_type`/`source_trust` come from the kind registry, so an artifact cannot be
+  indexed under provenance that disagrees with its own row. Behaviour-preserving for
+  uploads: 25 ingestion tests pass unchanged. *It did move where the embedding call
+  lives, so four test files now patch `indexing.ollama.embed` — a real consequence of
+  the extraction, since the patch has to sit where the call is made.*
+- `[built]` **A generated image is findable by its prompt** (A3, Q14). The prompt is
+  chunked and embedded after the row is written — `ingest()`'s order, because the row is
+  the record and chunks are derived and rebuildable while chunks pointing at an
+  artifact_id no row claims are not. Verified through real FTS5, real RRF and the real
+  renderer: `search("copper kettle slate")` returns the image chunk with
+  `source_type == "generated_image"`. **Embedding still precedes every chunk write**, so
+  an unreachable model leaves the image stored and unindexed rather than half-indexed —
+  a test kills the embedder and asserts file and row survive with zero chunks.
+- `[built]` **A retrieved artifact announces its kind, at presentation.** An image
+  chunk's text is the prompt, so rendered bare it read as *something someone said* —
+  handing the model a description with no way to know it describes a picture nothing
+  has looked at, which is the fabrication the gate exists to catch. Now
+  `[record 1 · generated image, prompt only · …]`, with **`prompt only` as the
+  load-bearing half**: the text *is* the prompt, not a description of how the image
+  looks. At presentation rather than in chunk text, on task 1.3's rule — a label in the
+  indexed body would feed "generated image" into the embedding and BM25, and every
+  image would match a query mentioning images. `creative_writing` and `file` get labels
+  too. **Conversation chunks render byte-identically**, pinned for both
+  `"conversation"` and `None`, so nothing any prior turn or test saw has shifted.
+  **Proven to bite:** neutering the label fails 2 tests.
+### Creative writing (task B4, 2026-09-21)
+
+- `[built]` **`creative_write` tool** (`program/tools/creative_write.py`) and storage
+  (`program/artifacts/writing.py`). Decision #10's mechanism. 23 tests.
+- `[built]` **It keeps writing; it does not produce it.** An image is made by a separate
+  program and fetched; creative writing is made by the entity, which composes the piece
+  in its own output and calls this to persist it. So the parameter is the **text**, not
+  a prompt; **there is no model call anywhere in this path** (the live run took 0.05 s);
+  `extracted_text` and the bytes on disk are the **same content**; and
+  `extraction_status` is **`extracted`** rather than `metadata_only`, because the
+  content genuinely is available — trivially, since the system wrote it.
+- `[built]` **`title` is optional and a missing one is derived from the opening
+  words** — deliberately dumb. Generating a title would mean a second model call
+  producing a paraphrase presented as the work's own, which is a small fabrication of
+  the kind this build keeps refusing.
+- `[built]` **Three deliberate absences, each tested as an absence.** **No gate**
+  (decision #10 — lowest-risk category, no external effect, nothing irreversible): a
+  test stores a piece a content check would plausibly object to and asserts it is kept
+  verbatim. **No capability and no `enabled` flag**: both members may do this (#17) so
+  `role` draws no line, and unlike image generation nothing external can be
+  unavailable, so a flag would describe nothing — a test asserts `CAPABILITIES` is
+  still exactly the two settings entries. **No retrieval-time exclusion** (Q9): a test
+  asserts a stored piece **is** indexed and findable, which is the opposite of what
+  "private" might be mistaken for.
+- `[built]` **"Private" means not proactively announced, not hidden.** The result text
+  says what the storage actually means rather than overclaiming: *"It is kept, not
+  published. Nothing shows it to anyone unless it comes up."* **Refusal is not here and
+  could not be** — the entity declining to share a piece is a `soul.md` values
+  statement and its own Tier 3 thread.
+- `[built]` **Reuse rather than reimplementation**: sharded path from the generated id,
+  sha256, bytes-then-row-then-chunks ordering, root from `kinds.root_for()`
+  (`workspace/writing/`), indexing through the shared `indexing.index_text`. The size
+  ceiling **reuses `ingestion.max_extracted_chars`** because what it bounds is the same
+  work — characters to split, pack and embed — and a second constant would drift.
+- `[unverified]` **`user_id` records whose record it is, not who wrote it.**
+  `source_trust = firsthand` says the entity wrote it; `user_id` is the person present
+  (Q2b). **The distinction is sharper here than for an image**, where the person at
+  least asked for the thing — a piece of writing is the entity's own work filed in the
+  record of whoever was there. Consistent with Q2b, and worth seeing stated before B5
+  makes the no-person case real.
+- `[built]` **Verified live**: asked for a short prose piece and to keep it, the model
+  wrote five sentences, **titled it itself** (`The Unattended Kettle`), and stored 418
+  bytes to `workspace/writing/ad/ad492a30…` as `the-unattended-kettle-ad492a30.md`,
+  `extracted`, one chunk. `search("kettle hob")` returned it rendered as
+  `[record 1 · creative writing · …]` — so A3's label works for a second artifact kind,
+  and without it the piece would read as something said in conversation.
+- `[unverified]` **The on-disk filename is the artifact id, not the readable title.**
+  `storage_path` shards on the id, deliberately — that is what keeps paths
+  collision-free and free of untrusted input — so browsing `workspace/writing/` shows
+  hex while the readable name lives in `artifacts.filename`. True of uploads and images
+  too: browsing is by row, not by directory listing.
+- `[unverified]` **No dedupe, and no edit or delete path.** Saving the same piece twice
+  produces two artifacts (arguably right, but nobody decided it), and a rewrite is not
+  linked to its predecessor — corrections are `supersedes`' business and nothing joins
+  a revision to what it revises. Worth knowing before the entity first wants to revise
+  something.
+- `[built]` **B5: writing with nobody present is a proven property** (2026-09-21).
+  Decision #10 wants creative writing in autonomous sessions; **no such session mode
+  exists**, so the reviewed scope was to prove the path works with nobody there rather
+  than build a seam into something that cannot happen (R2). Run for real first: with
+  **no users, no conversation, no turn and no actor**,
+  `registry.dispatch("creative_write", …, attribution=AttributionContext.for_entity())`
+  returned OK, stored the piece, indexed one chunk with `conversation_id = None`, and
+  retrieval found it labelled `creative writing`. **Nothing in `program/` needed
+  changing** — P0 put attribution rather than an actor in the tool path, and built
+  `for_entity()` for exactly this. What was missing was evidence: 9 tests.
+- `[built]` **The foreign key is what makes the entity row's lazy creation
+  load-bearing.** `artifacts.user_id` and `chunks.user_id` **both**
+  `REFERENCES users(id)` with `PRAGMA foreign_keys` **on**, so a write attributed to an
+  id with no row fails at the first insert. Pinned two ways: a test asserts the FK
+  rejects a rowless id, and **breaking the lazy creation fails 6 of the 9 tests** with
+  `FOREIGN KEY constraint failed`. Without it the no-person path was one schema detail
+  away from not working, with nothing to say so.
+- `[built]` **Q2b and Q2c are pinned as a pair** — a live turn files to the person, an
+  unattended write files to the entity — so they cannot both pass by everything being
+  attributed one way. And a guard on the fixture asserts the store really has no users,
+  because one that quietly seeded a person would make every no-person test pass without
+  touching the case.
+- `[built]` **B5 built no session mode, and that is asserted**: no `scheduler`,
+  `reflection`, `autonomous`, `session` or `daemon` module anywhere under `program/`.
+  The same idiom as the tables-asserted-absent entries and the seed module's
+  no-wipe-surface test — if one appears it should arrive with its own task, and this is
+  the test that fails and points at it.
+- `[unverified]` **`image_generate` inherits the property but is not covered by those
+  tests** — its handler takes the same `AttributionContext`, so an entity-attributed
+  generation should work identically, but asserting it would put a running ComfyUI in
+  the unit suite. Untested rather than unsupported.
+- `[unverified]` **Nothing calls the unattended path yet**, and no entity-authored
+  content exists in any real store — so nothing has been retrieved months later and
+  read back by the entity as its own past work. That is the interesting case and it
+  needs time rather than a test.
+
+- `[unverified]` **The label vocabulary is a fixed dict**, so a future `source_type`
+  renders unlabelled and silently reads as a conversation. Task 1.7 owns that
+  vocabulary and has still not landed; the two should be reconciled when it does.
+- `[unverified]` **One chunk per image in practice** — a prompt is short, so splitting
+  and packing are inherited rather than exercised. **No re-indexing command** for
+  artifact chunks (conversation chunks have `scripts/reconcile_vectors.py`). **Nothing
+  dedupes identical prompts**, so two images of one prompt produce two near-identical
+  chunks competing for the same retrieval slots.
+- `[unverified]` **Nothing prunes `workspace/`**, and images are ~2 MB each. Backup
+  copies it whole, so both grow without bound — go-live tooling's problem, not built.
+  **The backup has still never been restored**, now with one more directory in it.
+- `[unverified]` **Quality is unassessed beyond a casual look.** The numbers
+  are latency only. **26 comparable samples** (same prompt throughout) are in
+  `/Volumes/Dock Storage/ComfyUI/output/`: `lightning4_*`, `lightning8_*`, `cold_*`
+  against `a1b_*` and `curve_*` from the 20-step baseline.
+- `[built]` **Two measurement artifacts caught and corrected in this pass**, both of
+  the "passes for the wrong reason" family. The first Lightning run was **discarded**:
+  `gemma4:26b` and `nomic-embed-text` were already resident when "uncontended" phase 1
+  began, because the test suite had just run — the script now **asserts** `ollama ps`
+  is empty rather than trusting it. And the first cold figure came back **0.2 s**, a
+  ComfyUI **execution-cache hit** on a graph the aborted run had already executed; the
+  30.5 s figure was taken after a restart with a never-used seed.
+- `[unverified]` **Quality was not assessed at any setting.** The curve is latency
+  only; whether 10 steps looks acceptable is a judgment nobody has made, and it should
+  be made by looking at images. *Untested suggestion: `dpmpp_2m` + `karras` usually
+  recovers most low-step quality on SDXL — not measured here.*
+- `[unverified]` **Two contended samples, one per curve point.** Enough to separate
+  107 s from 130 s, not enough for an interval. Decision #22 does not apply — nothing
+  here is model-judged; it is wall-clock, and phase 1's three warm runs spread 2.5 s.
+  Sustained swap over hours is unmeasured.
+- `[built]` **The 16 orphan ComfyUI packages are gone** (authorized, 2026-09-21).
+  `Atman/venv` went **130 → 113 packages**; nothing now matches
+  `comfy|transformers|safetensors|spandrel`. **Verified rather than assumed**, because
+  "nothing imports them" was the hypothesis and not the evidence: full suite **1,044
+  passed** (unchanged), every package imported explicitly afterwards, `ruff` clean.
+  `requirements.txt` still declares the intended five.
 
 ## Memory integrity
 
@@ -2394,7 +2909,7 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   no state and asserts about state — has ~20 `db.init_databases()` call sites in
   `tests/` worth a deliberate pass. Not done.*
 
-- `[built]` **Test suite** — 1,010 tests passing plus 3 skipped (`pytest`), `ruff check` clean
+- `[built]` **Test suite** — 1,140 tests passing plus 2 skipped (`pytest`), `ruff check` clean
   (2026-09-18). *Two standing failures, both known and neither from this work:
   `test_a_missing_session_secret_stops_the_server_from_starting`, caused by an
   uncommitted `session_secret` in `config/defaults.toml` (confirmed local-only,

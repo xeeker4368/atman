@@ -167,6 +167,23 @@ max_iterations = 5
 # generation becomes asynchronous (submit, return a handle, notify) or this
 # budget rises knowingly and the grace floor rises with it.
 tool_budget_seconds = 120.0
+#
+# WHAT THIS MEANS FOR IMAGE GENERATION, stated so nobody has to re-derive it from
+# three timeout values in two files: **a turn that generates an image is
+# structurally a single-tool turn.**
+#
+# `image_generate` declares a 115 s timeout over a client that allows 110 s, against
+# a measured worst case of 87 s (cold ComfyUI with both models resident). A real
+# generation inside a live turn measured 83.8-88.2 s. That is 70-73% of this
+# aggregate budget, and the budget is for the WHOLE turn across ALL tool calls — so
+# whatever the model asks for after an image gets the remainder, and a second call
+# needing more than a few seconds is returned as SKIPPED.
+#
+# This is a consequence of the hardware, not a choice: SDXL on an M4 with a 17 GB
+# chat model resident costs what it costs, and the contention penalty is additive
+# rather than proportional (see [comfyui].timeout_seconds for the measurements). It
+# is recorded rather than fixed because the alternative is raising this value, which
+# moves IN_FLIGHT_GRACE_FLOOR_MINUTES — reviewed and declined 2026-09-21.
 
 # Ceiling on one tool result's text where it re-enters the prompt.
 #
@@ -193,6 +210,111 @@ max_tool_result_chars = 4000
 # "entered, outcome unknown, side effects possible" - deliberately distinct
 # from `tool_error`, which means it ran and failed.
 default_timeout_seconds = 30.0
+
+[comfyui]
+# The local ComfyUI instance behind image generation (Phase 4, Cluster A).
+#
+# LOOPBACK, DELIBERATELY, and on sharper grounds than SearXNG's: ComfyUI has no
+# authentication of any kind. Its HTTP API will execute any workflow graph posted
+# to it, which on this machine means arbitrary model loading and file writes under
+# its own tree. A LAN-reachable ComfyUI is an unauthenticated execution endpoint,
+# so `program/media/comfyui.py` refuses a non-loopback host rather than trusting
+# this value to stay sane.
+#
+# The installation lives OUTSIDE this repo, at /Volumes/Dock Storage/ComfyUI —
+# a sibling, as SearXNG is. See ops/comfyui/README.md for the recreate record and
+# why it is not in the tree.
+#
+# Bootstrap-only, like ollama.host and searxng.host: a service endpoint rather
+# than a tuning value.
+# Decision #12's FIRST axis only: does this capability exist at all right now.
+# There is deliberately no `approval_required` beside it — a generated image has no
+# external effect, GUIDANCE.md reserves those flags for unattended execution, and a
+# second axis here would gate nothing. See MEDIA_AND_CREATIVE_DESIGN Q4, including
+# the trigger that would reopen it (wiring generation into an autonomous session).
+#
+# A disabled tool is NOT OFFERED to the model rather than offered and refused, which
+# is what "does not exist" honestly means — and saves the schema's context cost on
+# every tool-bearing call.
+#
+# KNOWN LIMIT: `registry.default_registry()` caches, so this is read when the
+# registry is first built. Changing it needs a restart or
+# `registry.reset_default_registry()`. That collides with decision #8's "no setting
+# requires a restart" and will need attention when the admin panel makes capability
+# flags live-editable; it is config-file-only today, so nothing can flip it at
+# runtime yet.
+enabled = true
+
+host = "http://127.0.0.1:8188"
+
+# JUDGMENT VALUE, derived from measurement rather than chosen.
+#
+# Nothing inside ComfyUI bounds its own generation — unlike SearXNG, which has a
+# 3s per-engine ceiling — so the bound has to come from what a turn can afford,
+# the same reasoning web_fetch.total_timeout_seconds uses.
+#
+# MEASURED 2026-09-21, SDXL base + 4-step Lightning LoRA, 1024x1024, cfg 1.0:
+#   warm, nothing else resident                          12.8 s
+#   cold (6.5 GB checkpoint + 376 MB LoRA), alone        30.5 s
+#   warm, gemma4:26b resident                            51-58 s
+#   warm, gemma4:26b AND nomic-embed-text resident       60.8 s
+#   inside a real turn (both resident, retrieval ran)    83.8 s
+#   COLD inside a real turn / cold + both resident       87.0 s  <- the worst case
+#
+# THIS VALUE WAS 90 AND THAT WAS WRONG — recorded because the mistake is
+# instructive. 90 was derived from "cold OR contended" (~70-75 s estimated). The
+# real worst case is cold AND contended, which measured 87.0 s, and a live turn was
+# observed both passing at 83.8 s and FAILING past 90 s. A constant sitting inside
+# its own measurement's variance band is the wrong constant: it converts a slow
+# generation into a lost one, non-deterministically.
+#
+# 110 covers the 87 s worst case with 23 s of margin and still leaves the chain
+# intact: client 110 < image_generate's tool timeout 115 < agent.tool_budget_seconds
+# 120. So a real overrun surfaces as ComfyUITimeout, which says the outcome is
+# unknown, rather than as the loop's opaque TIMEOUT.
+#
+# CONSEQUENCE, stated rather than discovered: a turn that generates an image has
+# ~5 s of its aggregate tool budget left. An image turn is an image-only turn. That
+# was already true at 90 (84 of 120 spent); it is now explicit.
+#
+# The contention penalty is ADDITIVE, not proportional (+18-25 s at 20 steps,
+# +38-45 s at 4): with gemma4:26b resident, MPS free memory falls to ~2 GiB and
+# SDXL is paged back in per generation. A faster sampler cannot shrink it, so this
+# floor holds for any step count while both models coexist. The cold penalty is a
+# further +26.2 s and applies only to the first image after a ComfyUI restart.
+timeout_seconds = 110.0
+
+# How often the client asks whether the job has finished. Negligible against a
+# 13-58 s generation; ComfyUI also exposes a progress websocket, which is not used
+# because polling needs no connection state and the interval costs nothing here.
+poll_interval_seconds = 0.5
+
+# The generation settings. These are a matched set, NOT independent dials:
+# SDXL Lightning requires cfg 1.0 with euler/sgm_uniform, and changing one without
+# the others measures a misconfigured sampler rather than a different image.
+#
+# 4 steps chosen 2026-09-21 after a visual comparison against 8-step and the
+# 20-step base at cfg 8.0 showed no casual difference — so the option with the most
+# budget margin won.
+#
+# cfg = 1.0 has a consequence worth stating where the value lives: at cfg 1.0 the
+# sampler skips the unconditional branch, so THERE IS NO NEGATIVE PROMPT PASS. The
+# `image_generate` tool deliberately exposes no negative_prompt parameter, because
+# one would be accepted and silently ignored. If cfg ever rises above 1.0 that
+# becomes functional and exposing it should be reconsidered — the trigger is a cfg
+# change, not a phase.
+checkpoint = "sd_xl_base_1.0.safetensors"
+lora = "sdxl_lightning_4step_lora.safetensors"
+steps = 4
+cfg = 1.0
+sampler = "euler"
+scheduler = "sgm_uniform"
+
+# SDXL's native training resolution. Going smaller is off-distribution for the
+# model, not merely faster: 768x768 measured 53.5 s at 20 steps but is not what
+# SDXL was trained to produce.
+width = 1024
+height = 1024
 
 [searxng]
 # The local SearXNG instance behind the `web_search` tool (task 2.4).
