@@ -284,3 +284,59 @@ def test_a_backup_without_an_artifact_directory_warns_rather_than_fails(populate
 
     assert "artifacts" not in {a.name for a in result.artifacts}
     assert any("artifact directory" in w for w in result.warnings)
+
+
+# --- workspace coverage (Phase 4 B0) -----------------------------------------
+
+
+def test_the_backup_covers_the_workspace(populated, tmp_path):
+    """The entity's own output — creative writing and generated images.
+
+    **The least rebuildable thing in the system.** An uploaded file still exists on
+    whoever's machine it came from and vectors regenerate from `chunks`; nothing the
+    entity wrote exists anywhere else. It was uncovered until B0, and the gap was
+    real: A2 began writing generated images into `workspace/` while `backup.py` knew
+    nothing about the directory.
+    """
+    from program import config
+
+    written = config.workspace_dir() / "generated" / "ab"
+    written.mkdir(parents=True, exist_ok=True)
+    (written / "abcdef").write_bytes(b"\x89PNG\r\n\x1a\n" + b"pretend image")
+
+    result = backup.create_backup(tmp_path / "b")
+
+    names = {a.name for a in result.artifacts}
+    assert "workspace" in names, "the entity's own output was not captured"
+    copied = result.directory / "workspace" / "generated" / "ab" / "abcdef"
+    assert copied.is_file()
+    assert copied.read_bytes().startswith(b"\x89PNG")
+
+
+def test_the_workspace_artifact_says_it_is_the_least_rebuildable(populated, tmp_path):
+    """The manifest must not overstate the guarantee, and must not understate what is
+    at stake — the same honesty the chroma copy's `best-effort` note carries."""
+    from program import config
+
+    target = config.workspace_dir() / "writing" / "cd"
+    target.mkdir(parents=True, exist_ok=True)
+    (target / "story").write_text("a story nobody else has")
+
+    result = backup.create_backup(tmp_path / "b")
+    [entry] = [a for a in result.artifacts if a.name == "workspace"]
+
+    assert entry.consistency == backup.BEST_EFFORT
+    assert "nothing the entity wrote exists" in entry.note
+    assert "NOT captured under the databases' read lock" in entry.note
+
+
+def test_the_manifest_records_where_the_copied_directories_came_from(populated, tmp_path):
+    """Both resolve from their own config keys, so a manifest naming only the
+    databases would not tell a restore where to put these back."""
+    import json
+
+    result = backup.create_backup(tmp_path / "b")
+    manifest = json.loads((result.directory / "manifest.json").read_text())
+
+    assert "workspace_dir" in manifest["source"]
+    assert "artifact_dir" in manifest["source"]

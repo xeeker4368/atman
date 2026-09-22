@@ -17,7 +17,7 @@ import hashlib
 import pytest
 
 from program import config
-from program.artifacts import ingest
+from program.artifacts import indexing, ingest
 from program.engine import ollama
 from program.memory import db, migrations, retrieval, vectors
 
@@ -33,7 +33,9 @@ def _deterministic_embedding(text: str, **kwargs) -> list[float]:
 
 @pytest.fixture
 def store(isolated_data_dir, monkeypatch):
-    monkeypatch.setattr(ingest.ollama, "embed", _deterministic_embedding)
+    # The embedding call lives in `indexing` since A3 extracted the shared
+    # pipeline out of `ingest._index_text`. Patched where it is made.
+    monkeypatch.setattr(indexing.ollama, "embed", _deterministic_embedding)
     monkeypatch.setattr(retrieval.ollama, "embed", _deterministic_embedding)
     db.init_databases()
     return db.create_user("Lyle", role="admin")
@@ -332,7 +334,7 @@ def test_an_unreachable_embedder_leaves_no_chunks(store, monkeypatch):
     def unreachable(text, **kwargs):
         raise ollama.OllamaUnreachable("nothing is listening")
 
-    monkeypatch.setattr(ingest.ollama, "embed", unreachable)
+    monkeypatch.setattr(indexing.ollama, "embed", unreachable)
 
     with pytest.raises(ollama.OllamaUnreachable):
         ingest.ingest(("paragraph. " * 900).encode(), "doc.txt", store)

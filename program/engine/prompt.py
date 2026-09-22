@@ -453,17 +453,42 @@ _SUPERSESSION_UNRESOLVED = (
 )
 
 
+#: How a non-conversation record announces itself, at presentation.
+#:
+#: A conversation chunk is the default and gets **no** label, so its rendering stays
+#: byte-identical to what every prior turn and test has seen. Everything else needs
+#: one, because without it a retrieved artifact reads as something that was *said*.
+#:
+#: ``generated_image`` carries the sharpest version of the problem and the reason the
+#: label says **prompt only**: an image's indexed text is the prompt that made it
+#: (Q14), so a bare rendering would hand the model a description and no way to know it
+#: describes a picture nothing has looked at. The entity has no vision; the label is
+#: what stops the prompt being read as an observation.
+#:
+#: At presentation rather than in chunk text, on task 1.3's rule: putting this in the
+#: indexed body would feed "generated image" into the embedding and the BM25 index,
+#: and every image would match a query mentioning images.
+_SOURCE_LABELS = {
+    "generated_image": "generated image, prompt only",
+    "creative_writing": "creative writing",
+    "file": "uploaded file",
+}
+
+
 def _render_chunk(chunk: RetrievedChunk, marker: str) -> str:
-    """One chunk with its timestamp.
+    """One chunk with its timestamp, and its kind when that is not a conversation.
 
     Task 1.3 deliberately stripped timestamps from chunk *text* so that date
     strings would not enter the embedding or the BM25 index — a query naming a
     month otherwise matched every chunk from that month. The timestamp lives on
     the row and is rendered here, at presentation, which is where the capability
-    is restored without polluting either index.
+    is restored without polluting either index. The kind label is here for the same
+    reason and by the same rule.
     """
     when = chunk.created_at or "time unknown"
-    return f"[{marker} · {when}]\n{chunk.text}"
+    label = _SOURCE_LABELS.get(chunk.source_type or "")
+    parts = [marker] + ([label] if label else []) + [when]
+    return f"[{' · '.join(parts)}]\n{chunk.text}"
 
 
 def render_retrieved(result: RetrievalResult | None) -> str:

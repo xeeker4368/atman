@@ -19,7 +19,7 @@ from fastapi.testclient import TestClient
 
 from program import auth, config
 from program.api.app import create_app
-from program.artifacts import blocklist, ingest
+from program.artifacts import blocklist, indexing, ingest
 from program.memory import db
 
 SECRET = "test-signing-secret-that-is-long-enough"
@@ -35,7 +35,7 @@ def _deterministic_embedding(text: str, **kwargs) -> list[float]:
 
 @pytest.fixture
 def store(isolated_data_dir, monkeypatch):
-    monkeypatch.setattr(ingest.ollama, "embed", _deterministic_embedding)
+    monkeypatch.setattr(indexing.ollama, "embed", _deterministic_embedding)
     db.init_databases()
     return db.create_user("Lyle", role="admin")
 
@@ -46,7 +46,7 @@ def client(isolated_data_dir, monkeypatch):
     monkeypatch.setenv("ANAM_AUTH_SCRYPT_N", "4096")
     config.reload()
     auth.throttle.reset()
-    monkeypatch.setattr(ingest.ollama, "embed", _deterministic_embedding)
+    monkeypatch.setattr(indexing.ollama, "embed", _deterministic_embedding)
     db.init_databases()
     for name, role in (("Lyle", "admin"), ("Jodie", "user")):
         db.set_password_hash(db.create_user(name, role=role), auth.hash_password(PASSWORD))

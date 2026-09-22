@@ -25,6 +25,8 @@ registration over import-time decorators.
 
 from __future__ import annotations
 
+from program.tools.creative_write import CREATIVE_WRITE
+from program.tools.image_generate import IMAGE_GENERATE
 from program.tools.memory_search import MEMORY_SEARCH
 from program.tools.registry import Tool
 from program.tools.web_fetch import WEB_FETCH
@@ -35,4 +37,10 @@ from program.tools.web_search import WEB_SEARCH
 #: File ingestion is its own task in Phase 2 and appends itself here when built.
 #: Nothing is placed here to have something to register — a placeholder tool
 #: would read as built while being nothing.
-TOOLS: tuple[Tool, ...] = (MEMORY_SEARCH, WEB_SEARCH, WEB_FETCH)
+#:
+#: **This is the full set, not the active set.** A tool declaring an ``enabled``
+#: predicate is listed here regardless and filtered by ``default_registry()``, so
+#: the catalogue stays greppable while config decides what the model is offered.
+TOOLS: tuple[Tool, ...] = (
+    MEMORY_SEARCH, WEB_SEARCH, WEB_FETCH, IMAGE_GENERATE, CREATIVE_WRITE,
+)

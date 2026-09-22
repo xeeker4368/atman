@@ -146,6 +146,9 @@ _ENV_MAP: dict[str, tuple[str, str, str]] = {
     ),
     "ANAM_API_HOST": ("api", "host", "str"),
     "ANAM_API_PORT": ("api", "port", "int"),
+    "ANAM_COMFYUI_ENABLED": ("comfyui", "enabled", "bool"),
+    "ANAM_COMFYUI_HOST": ("comfyui", "host", "str"),
+    "ANAM_COMFYUI_TIMEOUT_SECONDS": ("comfyui", "timeout_seconds", "float"),
     "ANAM_OLLAMA_HOST": ("ollama", "host", "str"),
     "ANAM_OLLAMA_TIMEOUT_SECONDS": ("ollama", "timeout_seconds", "int"),
     "ANAM_CHAT_MODEL": ("models", "chat", "str"),
@@ -595,6 +598,90 @@ def tool_default_timeout_seconds() -> float:
 def searxng_url() -> str:
     """Base URL of the local SearXNG instance. Loopback by design."""
     return str(get("searxng", "url", "http://127.0.0.1:8080")).rstrip("/")
+
+
+def image_generation_enabled() -> bool:
+    """Whether the ``image_generate`` tool exists at all right now (decision #12).
+
+    Read at call time by ``catalog``/``default_registry()`` so a disabled capability
+    is never offered to the model. Not settings-backed yet — see the note in
+    ``config/defaults.toml`` about the registry cache.
+    """
+    return bool(get("comfyui", "enabled", True))
+
+
+def comfyui_host() -> str:
+    """Base URL of the local ComfyUI instance. Bootstrap-only.
+
+    Not validated for loopback here — `config` reads values, it does not enforce
+    policy. `program/media/comfyui.py` refuses a non-loopback host at the point of
+    use, which is where the reason lives: ComfyUI has no authentication, so a
+    LAN-reachable one is an unauthenticated execution endpoint.
+    """
+    return str(get("comfyui", "host", "http://127.0.0.1:8188")).rstrip("/")
+
+
+def comfyui_timeout_seconds() -> float:
+    """How long one generation may take before the client abandons it.
+
+    Derived from measurement, not chosen — see `config/defaults.toml` for the
+    numbers. Nothing inside ComfyUI bounds its own generation, so the ceiling comes
+    from what a turn can afford.
+    """
+    value = float(get("comfyui", "timeout_seconds", 110.0))
+    if value <= 0:
+        raise ConfigError(
+            f"comfyui.timeout_seconds is {value}; it must be positive. A "
+            f"generation with no timeout makes the turn unbounded, and the "
+            f"in-flight-grace floor is derived from a bounded turn."
+        )
+    return value
+
+
+def comfyui_poll_interval_seconds() -> float:
+    value = float(get("comfyui", "poll_interval_seconds", 0.5))
+    if value <= 0:
+        raise ConfigError(
+            f"comfyui.poll_interval_seconds is {value}; it must be positive. Zero "
+            f"would spin on the history endpoint for the length of a generation."
+        )
+    return value
+
+
+def comfyui_generation() -> dict[str, Any]:
+    """The matched set of generation settings, validated together.
+
+    Returned as one dict rather than six accessors because they are **not
+    independent dials**: SDXL Lightning requires ``cfg 1.0`` with
+    ``euler``/``sgm_uniform``, and a caller picking one without the others would be
+    running a misconfigured sampler. Reading them together is what makes the
+    coupling visible at the call site.
+    """
+    settings = {
+        "checkpoint": str(get("comfyui", "checkpoint", "sd_xl_base_1.0.safetensors")),
+        "lora": str(get("comfyui", "lora", "sdxl_lightning_4step_lora.safetensors")),
+        "steps": int(get("comfyui", "steps", 4)),
+        "cfg": float(get("comfyui", "cfg", 1.0)),
+        "sampler": str(get("comfyui", "sampler", "euler")),
+        "scheduler": str(get("comfyui", "scheduler", "sgm_uniform")),
+        "width": int(get("comfyui", "width", 1024)),
+        "height": int(get("comfyui", "height", 1024)),
+    }
+    if settings["steps"] < 1:
+        raise ConfigError(
+            f"comfyui.steps is {settings['steps']}; it must be at least 1."
+        )
+    if settings["cfg"] <= 0:
+        raise ConfigError(f"comfyui.cfg is {settings['cfg']}; it must be positive.")
+    for axis in ("width", "height"):
+        if settings[axis] < 64 or settings[axis] % 8:
+            raise ConfigError(
+                f"comfyui.{axis} is {settings[axis]}; it must be at least 64 and a "
+                f"multiple of 8, which is what the latent space requires."
+            )
+    if not settings["checkpoint"].strip():
+        raise ConfigError("comfyui.checkpoint is empty; there is nothing to load.")
+    return settings
 
 
 def searxng_timeout_seconds() -> float:
