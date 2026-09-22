@@ -121,12 +121,39 @@ def original_for(phrase: str, pairs: list[tuple[str, str]]) -> str | None:
     ``None`` rather than a best guess: the classifier may paraphrase or quote
     across a sentence boundary, and a wrong citation in the permanent record is
     worse than no citation. **Never returns rewritten text.**
+
+    **An ambiguous phrase is also ``None``**, and that is the same rule rather than
+    a new one. This used to return the *first* match in document order, which is a
+    best guess wearing a lookup's clothes. Quoted phrases are often short — a date,
+    a name, "since yesterday" — so a phrase occurring in two sentences was
+    attributed to whichever came first. Two things went wrong with that.
+
+    The citation stored in ``messages.integrity_check`` could name a sentence the
+    classifier was not talking about, which is exactly what the paragraph above
+    forbids: the no-match case was guarded and the ambiguous-match case was not.
+
+    Worse, ``gate._drop_tool_claim_findings`` decides *"is this finding about a tool
+    claim?"* **from this attribution**. A real identity finding whose phrase also
+    appeared in an earlier tool-outcome sentence was therefore discarded, and the
+    verdict came back ``CLEAN``. Reproduced: *"The page says the shop moved since
+    yesterday. I have been thinking about it since yesterday."* — a genuine
+    continuity fabrication, dropped because ``since yesterday`` resolved to the tool
+    sentence.
+
+    ``None`` routes both into the policy the gate already documents for an
+    unattributable finding: keep it unless the whole answer is tool claims, and say
+    plainly that attribution failed.
+
+    **Identical sentences are not ambiguous** and are deduplicated before counting —
+    if a phrase matches two byte-identical sentences, citing either is equally
+    correct, and they cannot disagree about whether they are a tool claim.
     """
     needle = " ".join(phrase.split()).casefold()
     if not needle:
         return None
-    for original, rewritten in pairs:
-        haystack = " ".join(rewritten.split()).casefold()
-        if needle in haystack:
-            return original.strip()
-    return None
+    matched = [
+        original.strip() for original, rewritten in pairs
+        if needle in " ".join(rewritten.split()).casefold()
+    ]
+    distinct = list(dict.fromkeys(matched))
+    return distinct[0] if len(distinct) == 1 else None

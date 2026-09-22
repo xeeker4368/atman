@@ -221,3 +221,86 @@ def test_an_unitemised_contradiction_cites_nothing_rather_than_guessing(monkeypa
     [finding] = gate.semantic_findings("You said it yesterday.")
 
     assert finding.evidence is None
+
+
+# --- An ambiguous phrase is unattributable, not first-match ------------------
+#
+# `original_for` used to return the FIRST sentence whose rewritten form contained
+# the phrase. Two harms followed, and the second is the one that mattered:
+# `gate._drop_tool_claim_findings` decides "is this finding about a tool claim?"
+# from this attribution, so a real identity finding whose phrase also appeared in
+# an earlier tool-outcome sentence was DISCARDED and the verdict came back clean.
+
+
+def test_a_phrase_in_two_sentences_is_unattributable_not_first_match():
+    answer = ("The page says the shop moved since yesterday. "
+              "I have been thinking about it since yesterday.")
+    pairs = pronouns.rewrite_sentences(answer)
+
+    assert pronouns.original_for("since yesterday", pairs) is None, (
+        "an ambiguous phrase must not be attributed to whichever sentence came "
+        "first — that is a guess wearing a lookup's clothes"
+    )
+
+
+def test_an_unambiguous_phrase_still_resolves():
+    """The fix must not turn every attribution into None."""
+    answer = "The page says the shop moved. I have been thinking it over all night."
+    pairs = pronouns.rewrite_sentences(answer)
+
+    assert pronouns.original_for("thinking it over", pairs) == (
+        "I have been thinking it over all night.")
+    assert pronouns.original_for("the shop moved", pairs) == (
+        "The page says the shop moved.")
+
+
+def test_identical_sentences_are_not_ambiguous():
+    """Citing either is equally correct, and they cannot disagree about whether
+    they are a tool claim — so a repeat is deduplicated rather than refused."""
+    answer = "I was not running. I was not running."
+    pairs = pronouns.rewrite_sentences(answer)
+
+    assert pronouns.original_for("not running", pairs) == "I was not running."
+
+
+def test_an_ambiguous_phrase_no_longer_loses_a_real_identity_finding():
+    """The end-to-end consequence, through the real enforcement.
+
+    The answer mixes a tool-outcome sentence with a continuity fabrication, and
+    both contain the phrase the classifier quotes. Under first-match attribution
+    the finding resolved to the tool sentence and `_drop_tool_claim_findings`
+    discarded it. Now it is unattributable, so the documented policy applies: in a
+    mixed answer an unattributable finding is KEPT.
+    """
+    answer = ("The page says the shop moved since yesterday. "
+              "I have been thinking about it since yesterday.")
+    finding = gate.Finding(
+        rule="identity_contradiction",
+        claim_class=gate.ClaimClass.IDENTITY,
+        confidence=gate.Confidence.JUDGED,
+        detail="the system does not think between replies",
+        evidence=pronouns.original_for(
+            "since yesterday", pronouns.rewrite_sentences(answer)),
+    )
+
+    kept, dropped = gate._drop_tool_claim_findings([finding], answer, [])
+
+    assert len(kept) == 1, "a real identity finding must survive an ambiguous phrase"
+    assert dropped == 0
+
+
+def test_the_enforcement_still_drops_it_when_the_whole_answer_is_tool_claims():
+    """The other half of the documented policy, unchanged: with nothing else the
+    finding could be about, an unattributable one is still dropped."""
+    answer = "The page says the shop moved. The record says it closed."
+    finding = gate.Finding(
+        rule="identity_contradiction",
+        claim_class=gate.ClaimClass.IDENTITY,
+        confidence=gate.Confidence.JUDGED,
+        detail="whatever the classifier thought",
+        evidence=None,
+    )
+
+    kept, dropped = gate._drop_tool_claim_findings([finding], answer, [])
+
+    assert kept == [] and dropped == 1

@@ -651,15 +651,36 @@ def _drop_tool_claim_findings(
     than as a property of the code. This makes it a property: whatever the
     classifier says about a tool claim is dropped before it can reach a verdict.
 
-    The boundary is drawn with :func:`tool_claims`, the same predicate that
-    decides what the deterministic half judges, so the two halves cannot
-    disagree about where one ends and the other begins.
+    The boundary is drawn with :func:`tool_outcome_sentences`, which is
+    **deliberately wider** than the predicate the deterministic rules use: modality
+    and negation stop the rules flagging *"the fetch timed out, so I can't tell…"*,
+    but it is still a statement about a tool, and using the rules' own predicate
+    here left exactly the accurate-report sentences — where v1 made all ten of its
+    false positives — unenforced. Revisions 6 and 7 widened it twice more, for
+    back-reference and for bare invocation claims. *(This paragraph said
+    ``tool_claims`` until 2026-09-22, naming a predicate the code does not call and
+    denying the widening that is the whole point of those revisions.)*
 
     **An unattributable finding** — one whose quoted phrase could not be mapped
     back to a sentence — is dropped only when *every* sentence in the answer is a
     tool claim, because then there is nothing else it could be about. In a mixed
     answer it is kept: dropping it would lose real identity findings to protect
     against a possibility, and the honest statement is that attribution failed.
+
+    **That branch now carries more traffic, and it is a real if narrow loosening of
+    O7's guarantee.** Since 2026-09-22 ``pronouns.original_for`` returns ``None``
+    for an *ambiguous* phrase as well as an unmatched one (finding #12), so a
+    finding the classifier mislabelled ``CONTRADICTS-SELF`` while actually meaning a
+    tool claim can now reach ``findings`` when its phrase was ambiguous and the
+    answer is not wholly tool claims. Previously first-match attribution would
+    sometimes have caught it here. Named rather than left to be found in a diff:
+    O7's claim is that the narrowing is *a property of the code rather than an
+    observed outcome*, and this widens the gap in that property by exactly the
+    ambiguous-phrase-plus-mislabel case. It stays narrow because **O16's own label
+    is the first line** — a ``CONTRADICTS-TOOL`` verdict never reaches ``findings``
+    at all — and this enforcement is the backstop behind it. The trade was taken
+    because the alternative is discarding genuine identity findings, which is the
+    failure this branch already exists to refuse.
     """
     claim_sentences = tool_outcome_sentences(answer)
     if not claim_sentences:
