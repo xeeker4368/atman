@@ -73,7 +73,12 @@ def test_bad_integer_env_raises_rather_than_silently_defaulting(layered, monkeyp
     assert "ANAM_API_PORT" in str(exc.value)
 
 
-def test_relative_paths_resolve_against_project_root(layered):
+def test_relative_paths_resolve_against_project_root(layered, monkeypatch):
+    # Every test is isolated by default since B15, which sets ANAM_DATA_DIR; this
+    # test is about the unset default, so it removes it. `data_dir()` computes a
+    # path and opens nothing, so the open-time store guard is not involved.
+    monkeypatch.delenv("ANAM_DATA_DIR", raising=False)
+    config.reload()
     assert config.data_dir() == config.PROJECT_ROOT / "data"
     assert config.data_dir().is_absolute()
 

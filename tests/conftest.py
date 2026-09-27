@@ -26,13 +26,29 @@ The violation type derives from ``BaseException`` deliberately: retrieval and
 indexing paths wrap store access in ``except Exception``, and a guard those can
 swallow is not a guard.
 
+**A second layer, at the moment a store is opened** (B15, 2026-09-24). The
+fingerprint sees only what a test *changed*, so a test that lost its isolation and
+merely *read* the real store passed silently. That happened: a B3 test draft called
+``monkeypatch.undo()``, which also reverted ``isolated_data_dir``'s environment, and
+its recovery check then ran migrations and assertions against the real
+``working.db`` — already at the latest version, so nothing was written, nothing
+changed, and the test passed without testing anything. ``sqlite3.connect`` and
+``chromadb.PersistentClient`` are therefore wrapped for the whole session: opening
+anything under a real runtime directory raises ``StoreIsolationViolation`` there and
+then, read or write. Each violation is also recorded and re-reported at session end,
+so one raised inside code that catches ``BaseException`` still fails the run. The
+fingerprint stays as the backstop for writes that go around both entry points.
+
 **Known limit, stated rather than implied:** the comparison cannot tell the suite's
 writes from another process's. Running the suite while anything else is using the
 real store will fail the session, and that is the right direction — a foreign write
 is indistinguishable from a leak, and reporting it is safer than filtering it out.
 """
 
+import os
+import sqlite3
 from pathlib import Path
+from urllib.parse import unquote, urlparse
 
 import pytest
 
@@ -130,10 +146,86 @@ class StoreIsolationViolation(BaseException):
     """
 
 
+# --- the open-time layer (B15) ------------------------------------------------
+
+_REAL_ROOTS = [os.path.realpath(root) for root in REAL_DIRS.values()]
+
+#: Every open of a real store, recorded before raising so the session-end check
+#: still reports one that something caught.
+_OPEN_VIOLATIONS: list[str] = []
+
+
+def _real_root_for(target: object) -> str | None:
+    """The real runtime directory ``target`` lies in, or ``None``."""
+    if target is None:
+        return None
+    text = os.fspath(target) if isinstance(target, (str, os.PathLike)) else None
+    if text is None or text == ":memory:" or text == "":
+        return None
+    if text.startswith("file:"):
+        parsed = urlparse(text)
+        if parsed.query and "mode=memory" in parsed.query:
+            return None
+        text = unquote(parsed.path)
+    resolved = os.path.realpath(text)
+    for root in _REAL_ROOTS:
+        if resolved == root or resolved.startswith(root + os.sep):
+            return root
+    return None
+
+
+def _refuse(what: str, target: object) -> None:
+    root = _real_root_for(target)
+    if root is None:
+        return
+    message = (
+        f"{what} opened {os.fspath(target)!r}, inside the real runtime directory "
+        f"{root!r}. A read counts: a test that lost its isolation and only reads "
+        f"passes without testing anything. Take `isolated_data_dir`, and never call "
+        f"`monkeypatch.undo()` in a test that uses it — the fixture's environment "
+        f"lives on the same monkeypatch."
+    )
+    _OPEN_VIOLATIONS.append(message)
+    raise StoreIsolationViolation(message)
+
+
+_real_sqlite_connect = sqlite3.connect
+
+
+def _guarded_connect(database, *args, **kwargs):
+    _refuse("sqlite3.connect", database)
+    return _real_sqlite_connect(database, *args, **kwargs)
+
+
+sqlite3.connect = _guarded_connect
+
+try:
+    import chromadb as _chromadb
+except ImportError:  # pragma: no cover - chromadb is a declared dependency
+    _chromadb = None
+
+if _chromadb is not None:
+    _real_persistent_client = _chromadb.PersistentClient
+
+    def _guarded_persistent_client(path=None, *args, **kwargs):
+        # Chroma 1.x opens its own SQLite from Rust, so the sqlite3 wrapper above
+        # never sees it; the client constructor is the Python-side entry point.
+        _refuse("chromadb.PersistentClient", path)
+        return _real_persistent_client(path, *args, **kwargs)
+
+    _chromadb.PersistentClient = _guarded_persistent_client
+
+
 @pytest.fixture(scope="session", autouse=True)
 def _guard_runtime_store():
-    """Fail the session if the suite created or modified anything real."""
+    """Fail the session if the suite opened, created or modified anything real."""
     yield
+
+    if _OPEN_VIOLATIONS:
+        raise StoreIsolationViolation(
+            f"the suite opened a real runtime store {len(_OPEN_VIOLATIONS)} time(s); "
+            f"the first:\n  {_OPEN_VIOLATIONS[0]}"
+        )
 
     after = _fingerprint()
     created = sorted(set(after) - set(_FINGERPRINT_AT_IMPORT))
@@ -166,9 +258,19 @@ def _guard_runtime_store():
     )
 
 
-@pytest.fixture
+@pytest.fixture(autouse=True)
 def isolated_data_dir(tmp_path, monkeypatch):
-    """Point the configured data directory at a temporary path for one test.
+    """Point the configured data directory at a temporary path — for EVERY test.
+
+    **Autouse since B15 (2026-09-24).** It used to be opt-in, and 77 tests never
+    opted in: they call settings-backed ``config`` accessors (``chat_model()``,
+    ``model_options()``, ``num_ctx``, the classifier settings), which go through
+    ``settings.store.resolve()`` to the real ``working.db``. Harmless only because
+    the real settings table happened to be empty — the first setting saved through
+    the admin panel would have had those tests silently running against production
+    configuration. Isolation is now the default rather than something each test has
+    to remember, the same shape as B4 (correct behaviour by default, not opt-in).
+    Tests that still name ``isolated_data_dir`` get this same instance and its path.
 
     Works because ``program.config`` resolves values through accessor functions at
     call time rather than binding module-level constants at import — see the

@@ -116,7 +116,7 @@ def test_the_isolation_fixture_actually_repoints_every_runtime_directory(
     )
 
 
-def test_the_session_guard_watches_every_runtime_directory():
+def test_the_session_guard_watches_every_runtime_directory(monkeypatch):
     """Repointing is not enough: a test that forgets the fixture still writes into
     the real directory, and the session guard is what notices.
 
@@ -127,11 +127,21 @@ def test_the_session_guard_watches_every_runtime_directory():
     """
     watched = [str(Path(p).resolve()) for p in conftest.REAL_DIRS.values()]
 
+    # Which accessors are directories is found under isolation (autouse since B15),
+    # where calling every accessor is safe. Their REAL locations are then resolved
+    # with the isolation variables removed — calling only those path accessors,
+    # which compute a path and open nothing. Calling `directory_accessors()` itself
+    # unisolated would also call the settings-backed accessors, which read the real
+    # `working.db`, and the open-time guard would (rightly) stop it.
+    names = [n for n in directory_accessors() if n not in ISOLATION_EXEMPT]
+    for var in ("ANAM_DATA_DIR", "ANAM_BACKUP_DIR", "ANAM_ARTIFACT_DIR",
+                "ANAM_WORKSPACE_DIR"):
+        monkeypatch.delenv(var, raising=False)
+    config.reload()
+
     missing = []
-    for name, path in directory_accessors().items():
-        if name in ISOLATION_EXEMPT:
-            continue
-        resolved = str(Path(path).resolve())
+    for name in names:
+        resolved = str(Path(getattr(config, name)()).resolve())
         if not any(resolved == w or resolved.startswith(w + os.sep) for w in watched):
             missing.append(name)
 

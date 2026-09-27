@@ -3463,6 +3463,57 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   temporary path; the guard test compares resolved paths against `REAL_DIRS` as data; and
   the backup test **plants a canary file in each non-exempt directory, takes a real
   backup, and requires the canary to come out the other side**.
+- `[built]` **77 tests were reading the production settings table, and nothing could
+  see it** (found and fixed 2026-09-24, B15). Plainly: every test that called a
+  settings-backed `config` accessor — `chat_model()`, `model_options()`, `num_ctx`, the
+  classifier settings — without asking for `isolated_data_dir` read the **real**
+  `data/working.db` settings table, across 11 test files. It cost nothing only because
+  that table is empty (0 rows, checked read-only). **The first setting saved through the
+  admin panel would have had those 77 tests silently running against production
+  configuration**, passing or failing on the operator's model and temperature rather
+  than on the code, with no signal. The end-of-run fingerprint could not see it, because
+  a read changes nothing.
+- `[built]` **Isolation is now the default for every test.** `isolated_data_dir` is
+  `autouse`: every test runs on a temporary data, backup, artifact and workspace
+  directory whether it asks or not, and tests that name the fixture get the same
+  instance. Isolation is no longer something each test has to remember — the omission
+  that produced the 77 cannot recur. Two tests genuinely need the *unisolated* paths and
+  now say so: `test_relative_paths_resolve_against_project_root` (the default
+  `data_dir()`) and `test_the_session_guard_watches_every_runtime_directory`, which finds
+  directory accessors under isolation and then resolves only those path accessors with
+  the isolation variables removed — calling every accessor unisolated would read the
+  real settings table. Both open nothing. **Confirmed by running the full suite, not by
+  inspection**: those two were the only failures under the new default.
+- `[built]` **A second layer at the moment a store is opened** (`tests/conftest.py`).
+  `sqlite3.connect` and `chromadb.PersistentClient` are wrapped for the whole session
+  (Chroma separately, since 1.x opens SQLite from Rust): opening anything under a real
+  runtime directory — **read or write**, including a read-only URI — raises
+  `StoreIsolationViolation` there and then. Each violation is recorded first and
+  re-reported at session end, so one swallowed by code catching `BaseException` still
+  fails the run. This now guards genuine escapes rather than ordinary omission — the B3
+  near-miss (`monkeypatch.undo()` reverting the fixture's environment, then checks run
+  against the real `working.db` and passing without testing anything) is exactly its
+  shape. The fingerprint stays as the backstop for writes that go around both entry
+  points. **Acceptance tests** (`tests/test_isolation_guard.py`, 6): a read-only
+  escape, the B3 `undo()` shape, a swallowed violation still recorded, the Chroma
+  client, and read-only URI versus in-memory databases. **Proven to bite**: removing the
+  sqlite3 wrapper fails 4; making the fixture opt-in again fails the default-isolation
+  test and every `test_history` test; dropping `workspace_dir` from `REAL_DIRS` still
+  fails the coverage test. **The Chroma half is proven by a forced failure too, on a
+  decoy**: removing that wrapper against the real path would construct a real client on
+  the production Chroma directory, which can write on open. So a test adds a throwaway
+  directory to the guard's `_REAL_ROOTS`, which is its entire notion of "real", making it
+  indistinguishable from production to the guard, and asserts that both wrappers refuse
+  it before anything is created. Removing only the Chroma wrapper fails the Chroma decoy
+  test with *"DID NOT RAISE"*; removing only the `sqlite3` wrapper fails the SQLite one.
+  Both mutation runs deselected the real-path test, and the real `chromadb/` mtime is
+  unchanged.
+- `[unverified]` **Plain file reads are not intercepted — tracked as queue item B16**
+  (low priority, raised at review 2026-09-24). The same class of gap as B15 itself: a test
+  that reads a file under `workspace/` or `data/artifacts/` with `open()` or
+  `Path.read_bytes()` is not caught at open time; only SQLite and Chroma are, and the
+  end-of-run fingerprint sees only writes. Mitigated but not closed by autouse isolation,
+  since a test would first have to remove its own isolation.
 - `[unverified]` **The guard cannot tell the suite's writes from another process's.**
   Extending it from creation to modification widens that: running the suite while
   anything else uses the real store now fails the session. That is the right direction —
