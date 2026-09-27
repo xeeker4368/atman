@@ -461,3 +461,25 @@ def test_a_live_ingestion_with_real_embeddings(isolated_data_dir):
     assert found.results
     assert found.vector.ran and found.vector.kept > 0
     assert any(c.source_type == "file" for c in found.results)
+
+
+def test_chunks_carry_the_provenance_of_the_type_the_row_records(store):
+    """Merged-queue item 22a: `ingest(artifact_type=...)` set the path and the row
+    from the argument but indexed under `upload` regardless, so the row and its
+    chunks could disagree about provenance."""
+    from program.artifacts import kinds
+
+    result = ingest.ingest(
+        b"A short piece about the kettle.", "piece.txt", store,
+        artifact_type="creative_writing",
+    )
+
+    row = db.get_artifact(result.artifact_id)
+    chunks = db.get_artifact_chunks(result.artifact_id)
+    expected = kinds.kind("creative_writing")
+    assert row["artifact_type"] == "creative_writing"
+    assert chunks and all(
+        c["source_type"] == expected.source_type
+        and c["source_trust"] == expected.source_trust
+        for c in chunks
+    )

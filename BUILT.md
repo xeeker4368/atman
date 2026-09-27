@@ -902,6 +902,19 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   that: no way to request a later part of a page, and no duplicate-call
   detection in the loop — a known non-feature from task 2.2, now with a real
   example behind it. **Flagged, not decided.**
+- `[built]` **The 20-second budget now covers the body, not only the hops**
+  (2026-09-24, merged-queue item 13). It was checked only at the top of each redirect
+  hop; the request's read timeout bounds each socket read, so a server dripping one
+  byte at a time held the read — and the abandoned handler thread and its socket —
+  for as long as it liked. **A clock check between chunks would not have fixed it**:
+  measured against a local 20-bytes-a-second server, `iter_content(16384)` returned
+  **no chunk in 25 s**, because it blocks filling 16 KB. `_read_capped` now arms a
+  timer that `shutdown()`s the socket at the deadline, which wakes the blocked read
+  (measured: 2.01 s against a 2 s timer), and **the timer's flag, not the exception,
+  decides** — with no `Content-Length` a shutdown reads as a clean end of body and
+  would otherwise return a partial page as whole. Refused, not truncated. Tested
+  against real local drip servers with and without a length; a socket that cannot be
+  found fails closed. *DNS resolution still sits outside the budget.*
 - **What is deliberately not claimed:** this blocks address-based SSRF. It does
   not make fetched content trustworthy — the header frames it as content rather
   than instruction, which is a framing and not a defence — and it does not do
@@ -1292,6 +1305,15 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   12.7 s (no cache hit); an absent checkpoint raised `ComfyUIModelMissing` quoting
   what ComfyUI said *is* installed. **The two live tests skip rather than fail when
   ComfyUI is down** — verified by stopping it: 22 passed, 2 skipped.
+- `[built]` **The image fetch gets what is left of the deadline** (2026-09-24,
+  merged-queue item 18). `_fetch_image` was passed the **total** deadline, so a
+  generation finishing at 108 s could be followed by a 60 s `/view` fetch — ~168 s
+  against the client's 110, breaking the 110 < 115 < 120 chain whose point is that an
+  overrun surfaces as `ComfyUITimeout` rather than the dispatcher's opaque one. It now
+  gets the remaining time, and with none left raises `ComfyUITimeout` saying the image
+  **was produced and not retrieved**. *urllib's timeout is per socket operation, so a
+  loopback ComfyUI dripping bytes could still stretch the fetch — the class of problem
+  item 13 fixed for `web_fetch`, accepted here because the peer is local.*
 - `[unverified]` **Four limits of the client**, recorded not fixed: the 90 s deadline
   covers **queue time as well as generation**, so a busy instance eats it; there is
   **no progress reporting** (ComfyUI has a websocket, the client polls, because
@@ -2980,6 +3002,29 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   runs the repair automatically. **No `extraction_status` value was added and no schema
   changed**; an artifact whose indexing failed outright is still `extracted` with zero
   chunks, and nothing re-indexes it.
+- `[built]` **The upload size limit applies before the body is in memory**
+  (2026-09-24, merged-queue item 15). The route did `await file.read()` and only
+  `ingest()` checked the size, so the limit bounded extraction and embedding but not
+  what one request could make the process hold. `routes/upload.py` now reads in 1 MB
+  pieces and returns 413 as soon as it passes `max_upload_bytes`, having read at most
+  one piece beyond it; `ingest()` keeps its own check for other callers. *Starlette
+  still spools the multipart body to a temp file before the handler runs, so disk —
+  not memory — takes the full upload; bounding that needs a body-size limit in front
+  of the app.*
+- `[unverified]` **Duplicate-upload race: known, DEFERRED** (queue item B9, deferred at
+  review 2026-09-24). `ingest()` checks `get_artifact_by_hash` and inserts later, with no
+  `UNIQUE` on `artifacts.sha256`, so two concurrent identical uploads would produce two
+  rows rather than an `IntegrityError`. **Unreachable through HTTP today**: the route is
+  `async def` on a single worker, which serialises `ingest()`. Revisit if uploads ever
+  run concurrently (more workers, a thread pool, a background importer). If taken up, the
+  planned shape is a partial `UNIQUE (sha256, user_id) WHERE artifact_type = 'upload'` —
+  a plain `UNIQUE` would also bind `generated.store` and `writing.store` and reverse
+  creative writing's documented no-dedupe behaviour.
+- `[built]` **`ingest(artifact_type=...)` now indexes under that type** (2026-09-24,
+  merged-queue item 22a). The path and the row used the argument while `_index_text`
+  hardcoded `upload`, so any other type would have written a row and chunks that
+  disagree about provenance. No production caller passes another type today;
+  proven to bite against the previous `ingest.py`.
 - `[built]` **`source_type="file"`, `source_trust="secondhand"`** (O1). An
   uploaded document is not the entity's own experience. Nothing assumes
   otherwise — every consumer was traced, there is no CHECK constraint, and

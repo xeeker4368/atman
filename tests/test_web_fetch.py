@@ -76,6 +76,9 @@ class FakeSocket:
             raise OSError("not connected")
         return (self._peer, 443)
 
+    def shutdown(self, how):
+        """What `_read_capped`'s budget watchdog calls; nothing to wake here."""
+
 
 class FakeResponse:
     """Enough of a requests.Response to drive the fetch loop.
@@ -549,3 +552,110 @@ def test_a_live_fetch_of_a_real_page(bench):
     assert "Example Domain" in result.value
     assert "<html" not in result.value.lower()
     assert len(result.value) < config.agent_max_tool_result_chars()
+
+
+# --- The total budget covers the body, not only the hops (merged-queue item 13) -
+
+
+def _drip_server(*, content_length: bool, rate_seconds: float = 0.05):
+    """A real local server that sends a slow body, one byte at a time.
+
+    The request goes straight through `requests` rather than through `fetch()`:
+    layer 2 refuses 127.0.0.1 by design, and what is under test here is the read,
+    not the guard.
+    """
+    import threading
+    import time
+
+    listener = socket.socket()
+    listener.bind(("127.0.0.1", 0))
+    listener.listen(1)
+
+    def serve():
+        conn, _ = listener.accept()
+        conn.recv(4096)
+        header = b"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n"
+        header += b"Content-Length: 100000\r\n" if content_length else b"Connection: close\r\n"
+        conn.sendall(header + b"\r\n")
+        try:
+            for _ in range(100000):
+                conn.sendall(b"x")
+                time.sleep(rate_seconds)
+        except OSError:
+            pass
+        finally:
+            conn.close()
+            listener.close()
+
+    threading.Thread(target=serve, daemon=True).start()
+    port = listener.getsockname()[1]
+    return requests.get(f"http://127.0.0.1:{port}/", stream=True, timeout=(2, 1.0))
+
+
+@pytest.mark.parametrize("content_length", [True, False])
+def test_a_slow_body_is_cut_off_at_the_budget(content_length):
+    """Each socket read returns inside the read timeout, so nothing but the
+    budget stops this. Before the watchdog it ran for as long as the server
+    cared to drip (measured: no chunk at all in 25 s).
+
+    Without a Content-Length the cut looks like a clean end of body, which is
+    why the flag and not the exception decides — that case must raise too,
+    rather than return a partial page as though it were whole."""
+    import time
+
+    response = _drip_server(content_length=content_length)
+    started = time.monotonic()
+
+    with pytest.raises(web_fetch.WebFetchError, match="did not finish downloading"):
+        web_fetch._read_capped(response, 1_000_000, remaining=1.0)
+
+    assert time.monotonic() - started < 5.0
+
+
+def test_a_body_inside_the_budget_is_returned_whole_and_the_watchdog_stands_down(
+    monkeypatch,
+):
+    import threading
+
+    timers = []
+
+    class RecordingTimer(threading.Timer):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            timers.append(self)
+
+    monkeypatch.setattr(web_fetch.threading, "Timer", RecordingTimer)
+
+    listener = socket.socket()
+    listener.bind(("127.0.0.1", 0))
+    listener.listen(1)
+
+    def serve():
+        conn, _ = listener.accept()
+        conn.recv(4096)
+        conn.sendall(
+            b"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n"
+            b"Content-Length: 5\r\n\r\nhello"
+        )
+        conn.close()
+        listener.close()
+
+    threading.Thread(target=serve, daemon=True).start()
+    port = listener.getsockname()[1]
+    response = requests.get(f"http://127.0.0.1:{port}/", stream=True, timeout=(2, 2))
+
+    assert web_fetch._read_capped(response, 1_000_000, remaining=5.0) == (b"hello", False)
+    # The timer is cancelled on return, not left armed for the budget's length.
+    (timer,) = timers
+    timer.join(timeout=1.0)
+    assert not timer.is_alive()
+
+
+def test_a_body_whose_socket_cannot_be_found_is_refused_not_read_unbounded():
+    """No socket means no way to enforce the budget, so it fails closed — the
+    same stance layer 3 takes on an unreadable peer."""
+    response = FakeResponse("93.184.216.34", has_socket=False)
+
+    with pytest.raises(web_fetch.WebFetchError, match="time budget"):
+        web_fetch._read_capped(response, 1_000_000, remaining=5.0)
+    assert response.body_reads == 0

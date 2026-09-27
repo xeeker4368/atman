@@ -26,6 +26,7 @@ import logging
 
 from fastapi import APIRouter, File, HTTPException, UploadFile, status
 
+from program import config
 from program.api.routes.auth import CurrentActor
 from program.artifacts import blocklist, ingest
 from program.engine import ollama
@@ -35,6 +36,31 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+#: How much of the upload is pulled into memory per read.
+_READ_SIZE = 1024 * 1024
+
+
+async def _read_capped(file: UploadFile, limit: int) -> bytes | None:
+    """Read the upload, or ``None`` as soon as it is known to exceed ``limit``.
+
+    The size limit used to apply only after ``await file.read()`` had pulled the
+    whole body into memory, so it bounded extraction and embedding but not what
+    one request could make this process hold. Reading in pieces and stopping at
+    ``limit + 1`` bytes means an oversize upload costs at most one read beyond the
+    limit, however large it is. ``ingest()`` keeps its own check for callers that
+    do not come through this route.
+    """
+    parts: list[bytes] = []
+    total = 0
+    while True:
+        part = await file.read(_READ_SIZE)
+        if not part:
+            return b"".join(parts)
+        total += len(part)
+        if total > limit:
+            return None
+        parts.append(part)
+
 
 @router.post("/api/upload")
 async def upload(
@@ -42,7 +68,17 @@ async def upload(
     actor: Actor = CurrentActor,
 ) -> dict:
     """Accept one file, store it, and index whatever text it holds."""
-    data = await file.read()
+    limit = config.ingestion_max_upload_bytes()
+    data = await _read_capped(file, limit)
+    if data is None:
+        raise HTTPException(
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+            detail=(
+                f"{file.filename or 'unnamed'!r} is over the {limit:,}-byte limit. "
+                f"That limit bounds extraction time and the number of embedding "
+                f"calls one upload can cost."
+            ),
+        )
 
     try:
         result = ingest.ingest(data, file.filename or "unnamed", actor.user_id)

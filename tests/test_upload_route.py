@@ -112,6 +112,63 @@ def test_a_file_over_the_limit_is_413(client, monkeypatch):
     assert "limit" in response.json()["detail"]
 
 
+class _CountingFile:
+    """Stands in for `UploadFile`: serves `size` bytes and counts what was read."""
+
+    def __init__(self, size: int):
+        self.remaining = size
+        self.served = 0
+
+    async def read(self, n: int = -1) -> bytes:
+        n = self.remaining if n < 0 else min(n, self.remaining)
+        self.remaining -= n
+        self.served += n
+        return b"x" * n
+
+
+def test_an_oversize_upload_is_refused_without_reading_it_all():
+    """Merged-queue item 15: the limit used to apply after `file.read()` had pulled
+    the whole body into memory. Now reading stops one piece past the limit."""
+    import asyncio
+
+    from program.api.routes import upload as route
+
+    limit = 3 * route._READ_SIZE
+    body = _CountingFile(50 * route._READ_SIZE)
+
+    assert asyncio.run(route._read_capped(body, limit)) is None
+    assert body.served <= limit + route._READ_SIZE
+    assert body.remaining > 0  # most of the body was never read
+
+
+def test_an_upload_exactly_at_the_limit_is_read_whole():
+    import asyncio
+
+    from program.api.routes import upload as route
+
+    limit = 2 * route._READ_SIZE + 7
+    data = asyncio.run(route._read_capped(_CountingFile(limit), limit))
+
+    assert data is not None and len(data) == limit
+
+
+def test_an_oversize_upload_never_reaches_ingestion(client, monkeypatch):
+    monkeypatch.setenv("ANAM_INGESTION_MAX_UPLOAD_BYTES", "50")
+    config.reload()
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("an oversize upload must be refused before ingest()")
+
+    from program.artifacts import ingest
+
+    monkeypatch.setattr(ingest, "ingest", forbidden)
+
+    response = upload(client, token_for(client, "Lyle"), content=b"x" * 500)
+
+    assert response.status_code == 413
+    assert db.list_artifacts() == []
+
+
 def test_an_empty_file_is_400(client):
     response = upload(client, token_for(client, "Lyle"), content=b"")
 

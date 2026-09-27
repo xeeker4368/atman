@@ -119,16 +119,23 @@ def _storage_path(artifact_id: str, artifact_type: str = ARTIFACT_TYPE) -> tuple
     return kinds.storage_path(artifact_type, artifact_id)
 
 
-def _index_text(artifact_id: str, user_id: str, text: str) -> tuple[int, list[str]]:
-    """Chunk, embed and store an upload's extracted text.
+def _index_text(
+    artifact_id: str, user_id: str, text: str, artifact_type: str
+) -> tuple[int, list[str]]:
+    """Chunk, embed and store an ingested file's extracted text.
 
     Delegates to ``indexing.index_text``, which Phase 4 A3 extracted from this
     function so generated images could use the same pipeline with their own
-    provenance instead of a second copy of it. The behaviour for an upload is
-    unchanged: ``kinds`` supplies the same ``file``/``secondhand`` pair this module
-    hardcoded before.
+    provenance instead of a second copy of it. For an upload ``kinds`` supplies the
+    same ``file``/``secondhand`` pair this module hardcoded before.
+
+    ``artifact_type`` is passed through rather than fixed to ``ARTIFACT_TYPE``
+    (merged-queue item 22a): ``ingest()`` used the caller's type for the path and
+    the row but indexed under ``upload`` regardless, so any other type would have
+    written a row and chunks disagreeing about provenance — the state
+    ``indexing.index_text`` exists to make impossible.
     """
-    return indexing.index_text(artifact_id, user_id, text, ARTIFACT_TYPE)
+    return indexing.index_text(artifact_id, user_id, text, artifact_type)
 
 
 def ingest(
@@ -202,7 +209,9 @@ def ingest(
 
     written, chunk_ids = 0, []
     if result.status is ExtractionStatus.EXTRACTED and result.text.strip():
-        written, chunk_ids = _index_text(artifact_id, user_id, result.text)
+        written, chunk_ids = _index_text(
+            artifact_id, user_id, result.text, artifact_type
+        )
 
     logger.info(
         "ingested %s (%s, %d bytes) as %s: %s, %d chunk(s)",

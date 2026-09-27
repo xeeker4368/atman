@@ -71,6 +71,7 @@ import ipaddress
 import logging
 import re
 import socket
+import threading
 import time
 from dataclasses import dataclass, field
 from html.parser import HTMLParser
@@ -521,17 +522,87 @@ def render_page(page: FetchedPage, limit: int | None = None) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _read_capped(response: requests.Response, cap: int) -> tuple[bytes, bool]:
-    """Read at most ``cap`` bytes. Returns ``(body, was_truncated)``."""
+def _live_socket(response: requests.Response) -> Any:
+    """The socket the body is being read from, or ``None``.
+
+    Two places, both private API. ``_connection.sock`` is where
+    :func:`peer_address` looks, but ``http.client`` detaches it from the
+    connection when the body is delimited by the connection closing (or has no
+    length at all) — measured: ``None`` for ``Connection: close``, set for
+    ``Content-Length``. The response's file object still holds it, and a
+    ``shutdown()`` through that reference wakes a blocked read (measured, 2.01 s
+    against a 2 s timer).
+    """
+    sock = getattr(getattr(response.raw, "_connection", None), "sock", None)
+    if sock is not None:
+        return sock
+    fp = getattr(getattr(response.raw, "_fp", None), "fp", None)
+    return getattr(getattr(fp, "raw", None), "_sock", None)
+
+
+def _read_capped(
+    response: requests.Response, cap: int, remaining: float
+) -> tuple[bytes, bool]:
+    """Read at most ``cap`` bytes within ``remaining`` seconds.
+
+    Returns ``(body, was_truncated)``; raises :class:`WebFetchError` if the body
+    has not finished arriving when the fetch's total budget runs out.
+
+    **The budget needs a watchdog, not a clock check.** The request's read
+    timeout bounds each socket read, not the body, so a server sending one byte
+    every half second never trips it; and a check between chunks cannot help,
+    because ``iter_content(16384)`` blocks until it has filled 16 KB — measured
+    against a local 20-bytes-a-second server, no chunk came back in 25 s. So a
+    timer shuts the socket down at the deadline, which wakes the blocked read.
+    Found as merged-queue item 13: the budget was checked only between redirect
+    hops, and the abandoned handler thread held the socket for as long as the
+    remote cared to drip.
+
+    Whether the timer fired is read from the flag, never inferred from the
+    exception: with no ``Content-Length`` a shutdown reads as a clean end of
+    body, which would otherwise return a truncated page as though it were whole.
+    """
+    sock = _live_socket(response)
+    if sock is None:
+        # Without a socket the budget cannot be enforced, and an unbounded read
+        # is what this function exists to prevent — so refuse, as layer 3 does.
+        raise WebFetchError(
+            "refusing to read the page: its connection could not be reached to "
+            "enforce the fetch's time budget."
+        )
+    expired = threading.Event()
+
+    def cut() -> None:
+        expired.set()
+        try:
+            sock.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass  # already closed: nothing left to wake
+
+    watchdog = threading.Timer(max(remaining, 0.0), cut)
+    watchdog.daemon = True
+    watchdog.start()
     chunks: list[bytes] = []
     total = 0
-    for chunk in response.iter_content(chunk_size=16384):
-        if not chunk:
-            continue
-        chunks.append(chunk)
-        total += len(chunk)
-        if total >= cap:
-            return b"".join(chunks)[:cap], True
+    try:
+        for chunk in response.iter_content(chunk_size=16384):
+            if not chunk:
+                continue
+            chunks.append(chunk)
+            total += len(chunk)
+            if total >= cap:
+                return b"".join(chunks)[:cap], True
+    except (requests.exceptions.RequestException, OSError):
+        if not expired.is_set():
+            raise
+    finally:
+        watchdog.cancel()
+    if expired.is_set():
+        raise WebFetchError(
+            f"the page did not finish downloading within the fetch's budget "
+            f"({_describe_bytes(total)} received). Nothing is returned rather "
+            f"than a partial page presented as whole."
+        )
     return b"".join(chunks), False
 
 
@@ -610,7 +681,9 @@ def fetch(url: str) -> FetchedPage:
                         f"{target.url} returned HTTP {response.status_code}."
                     )
 
-                body, truncated = _read_capped(response, max_bytes)
+                body, truncated = _read_capped(
+                    response, max_bytes, deadline - time.monotonic()
+                )
                 return FetchedPage(
                     url=url,
                     final_url=target.url,
