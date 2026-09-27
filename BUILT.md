@@ -380,6 +380,9 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   the backup snapshot's held lock, so the suite is itself a concurrent-writer
   workload — this is the recorded issue firing, not a new one. It makes the
   backup race test **intermittently flaky** until the Tier 3 fix lands.
+  *Resolved 2026-09-24: that flake was B14 — a stall in `backup.py`'s two-connection
+  snapshot, not the `db.py` lock behaviour this entry is about — and is fixed there. The
+  general contention note below still stands.*
   **Not fixed.** Resolving it means editing `program/memory/db.py` and choosing
   between `busy_timeout` tuning, a retry, and write serialisation — each with
   atomicity implications — so it needs its own **Tier 3** task rather than an
@@ -3439,13 +3442,14 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   connection A holding `BEGIN` + a read on both databases (SHARED on each,
   writers excluded) while connection B runs `backup()` for `main` and for the
   attached `archive`.
-- `[built]` **Two connections because one deadlocks — established by running
-  it.** `conn.backup()` while that same connection holds `BEGIN IMMEDIATE` hangs
-  indefinitely. A *read* transaction on a second connection is compatible with
-  the backup's own read lock while still excluding writers. Also verified
-  directly: `backup(name="archive")` does reach an ATTACHed database, and a
-  concurrent writer does get `database is locked` while the snapshot holds.
-  *Writers block for the snapshot's duration — milliseconds at this size.*
+- `[built]` **One connection, since B14 (2026-09-24). The original "two connections
+  because one deadlocks" design was half right.** `conn.backup()` does hang on a
+  connection holding `BEGIN IMMEDIATE` — but a connection holding only a *read*
+  transaction was never tried, and it works. The second connection was the defect: it
+  needed a **new** SHARED lock, which any writer holding PENDING (i.e. mid-COMMIT)
+  refuses, while that writer waited on the holder — a cycle broken only by the writer's
+  10 s busy timeout. The holder now runs both `backup()` calls itself, under the lock it
+  already holds. *Writers still block for the snapshot's duration — milliseconds.*
 - `[built]` **ChromaDB is best-effort and the manifest says so.** No snapshot API
   exists for its HNSW files, so it is a directory copy, recorded as
   `best-effort` rather than `transactional`; a test asserts the manifest does not
@@ -3460,6 +3464,28 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   working.db 233,472 B and archive.db 61,440 B both `integrity=ok`, chroma
   551,076 B best-effort, row counts matching (20/20 messages, 10 chunks). An
   immediate second run produced `...-2` rather than colliding.
+- `[built]` **Manifest row counts are read from the captured copies** (2026-09-24,
+  merged-queue item 19). They were taken from the live source **before** the snapshot's
+  lock, in eight separate reads, so a write in between made the manifest disagree with
+  its own backup — outside the consistency guarantee this module documents. Counting
+  the copies ties them to the transactional capture and touches no live lock. A test
+  writes a message between the old counting point and the snapshot and asserts the
+  manifest matches the copy; it fails against the previous code.
+- `[built]` **A writer committing during a backup no longer stalls it or fails**
+  (B14, 2026-09-24, Tier 3). Found when Group A item 19 removed the source reads that
+  had preceded the snapshot and the race test started failing 4 of 6: those reads had
+  only been keeping it out of the window by timing. **Diagnosed with a per-statement
+  lock-timing probe and then reproduced deterministically** — writer forced to be
+  mid-COMMIT when the snapshot starts: the two-connection shape stalled **10.5 s and the
+  writer's commit failed, 3/3**; the snapshot's own connection reading under its held
+  lock took **5 ms, writer committed, copies consistent, 3/3**. A `BEGIN IMMEDIATE`
+  holder was rejected: it takes RESERVED on `main` then `archive` while `save_message`
+  writes `archive` then `main`, a cross-database lock-ordering deadlock measured to fail
+  the backup itself. The production shape was a chat turn arriving during a backup.
+  **Proven**: the new deterministic test fails against the old shape with *"the snapshot
+  stalled for 10.8s"*; the race test passes **20/20 in isolation** (18 at 0.22 s, two at
+  0.43–0.46 s) and in two full-suite runs (0.17–0.18 s), and its `xfail` is removed.
+  **`db.py` is untouched** — no lock order, retry or busy-timeout change.
 - `[unverified]` **A backup has never been restored.** The files pass
   `PRAGMA integrity_check` and open as databases, which is not the same thing as
   a tested recovery path. **Restore is Tier 3 and deliberately not built or

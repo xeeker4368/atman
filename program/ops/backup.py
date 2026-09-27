@@ -24,21 +24,32 @@ A plain file copy is wrong here for two separate reasons:
    was built to prevent. The whole atomicity guarantee would survive in the live
    stores and be lost in the copy of them.
 
-So the snapshot is taken as:
+So the snapshot is taken on **one connection**:
 
-* connection **A** opens a deferred transaction and reads from *both*
-  databases, taking a SHARED lock on each. No writer can commit while it is
-  held — verified, a concurrent writer gets ``database is locked``.
-* connection **B** runs ``backup()`` for ``main`` and for the attached
-  ``archive`` while A holds it.
-* A commits, releasing.
+* it opens a deferred transaction and reads from *both* databases, taking a
+  SHARED lock on each. No writer can commit while it is held;
+* it runs ``backup()`` for ``main`` and for the attached ``archive`` **itself**,
+  inside that read transaction;
+* it commits, releasing.
 
-**Why two connections.** ``Connection.backup()`` on a connection that is itself
-holding a write transaction hangs — Python's backup loop retries ``SQLITE_BUSY``
-against a lock only that same connection could release. This was established by
-running it, not assumed. A *read* transaction on a *second* connection is
-compatible with the backup's own read lock, which is what makes the pattern
-work.
+**Why one connection, and why it used to be two** (B14, 2026-09-24). This module
+first took the snapshot with a *second* connection running ``backup()`` while the
+first held the read lock, because ``backup()`` on a connection holding a **write**
+transaction (``BEGIN IMMEDIATE``) hangs. A connection holding only a *read*
+transaction was never tried, and it works. The two-connection shape had a real
+defect: the second connection needs a **new** SHARED lock to read, and SQLite
+refuses new SHARED locks while any writer holds PENDING — which a writer does from
+the moment it starts to COMMIT. So a writer committing when a snapshot began
+waited for the holder, the backup reader waited for the writer, and nothing moved
+until the writer's 10 s busy timeout lapsed. Reproduced deterministically: the
+snapshot stalled 10.5 s and the writer's commit failed, every time. In production
+that is a chat turn arriving during a backup. Here the backup reads under the lock
+it already holds, so a pending writer cannot stall it; the writer simply commits
+when the snapshot releases.
+
+*Rejected alongside it:* a ``BEGIN IMMEDIATE`` holder takes RESERVED on ``main``
+then ``archive``, while ``db.save_message`` writes ``archive`` then ``main`` — a
+cross-database lock-ordering deadlock, measured to fail the backup itself.
 
 The cost is that writers block for the duration of the snapshot. At this
 scale that is milliseconds, and correctness is worth more than that here.
@@ -153,29 +164,39 @@ def _integrity_check(path: Path) -> str:
         conn.close()
 
 
-def _row_counts() -> dict[str, int]:
-    """Counts recorded in the manifest, for comparing against a restore later."""
+def _row_counts(destination: Path) -> dict[str, int]:
+    """Counts recorded in the manifest, for comparing against a restore later.
+
+    **Read from the captured copies, not the live source.** They used to be taken
+    from the source before the snapshot's lock was held, as eight separate reads,
+    so they described an instant the snapshot did not capture — a message written
+    between the count and the snapshot made the manifest disagree with its own
+    backup (merged-queue item 19). Counting the copies ties the numbers to the
+    transactional capture, and touches the live store and its locks not at all.
+    """
     counts: dict[str, int] = {}
-    with db.connection() as conn:
-        for label, sql in (
-            ("archive.messages", "SELECT COUNT(*) FROM archive.messages"),
-            ("archive.users", "SELECT COUNT(*) FROM archive.users"),
-            ("working.messages", "SELECT COUNT(*) FROM messages"),
-            ("working.users", "SELECT COUNT(*) FROM users"),
-            ("working.conversations", "SELECT COUNT(*) FROM conversations"),
-            ("working.chunks", "SELECT COUNT(*) FROM chunks"),
-            ("working.settings", "SELECT COUNT(*) FROM settings"),
-            ("working.supersedes", "SELECT COUNT(*) FROM supersedes"),
-        ):
-            counts[label] = conn.execute(sql).fetchone()[0]
+    for store, filename, tables in (
+        ("archive", "archive.db", ("messages", "users")),
+        ("working", "working.db",
+         ("messages", "users", "conversations", "chunks", "settings", "supersedes")),
+    ):
+        conn = sqlite3.connect(f"file:{destination / filename}?mode=ro", uri=True)
+        try:
+            for table in tables:
+                counts[f"{store}.{table}"] = conn.execute(
+                    f"SELECT COUNT(*) FROM {table}"
+                ).fetchone()[0]
+        finally:
+            conn.close()
     return counts
 
 
 def _snapshot_databases(destination: Path) -> list[BackupArtifact]:
     """Capture both databases at one consistent instant.
 
-    See the module docstring for why this is shaped the way it is: a read lock
-    held on one connection across both ``backup()`` calls made on another.
+    One connection holds a read lock on both databases and runs both
+    ``backup()`` calls itself. See the module docstring for why it is one
+    connection and not two (B14).
     """
     working_dest = destination / "working.db"
     archive_dest = destination / "archive.db"
@@ -188,18 +209,20 @@ def _snapshot_databases(destination: Path) -> list[BackupArtifact]:
             holder.execute("SELECT COUNT(*) FROM sqlite_schema").fetchone()
             holder.execute("SELECT COUNT(*) FROM archive.sqlite_schema").fetchone()
 
-            with db.connection() as reader:
-                target = sqlite3.connect(str(working_dest))
-                try:
-                    reader.backup(target)
-                finally:
-                    target.close()
+            # The same connection reads, under the lock it already holds. A second
+            # connection would need a NEW shared lock, which a committing writer's
+            # PENDING lock blocks — the B14 stall.
+            target = sqlite3.connect(str(working_dest))
+            try:
+                holder.backup(target)
+            finally:
+                target.close()
 
-                target = sqlite3.connect(str(archive_dest))
-                try:
-                    reader.backup(target, name="archive")
-                finally:
-                    target.close()
+            target = sqlite3.connect(str(archive_dest))
+            try:
+                holder.backup(target, name="archive")
+            finally:
+                target.close()
         finally:
             holder.execute("COMMIT")
 
@@ -366,12 +389,12 @@ def create_backup(
             f"destination or move the existing one aside."
         )
 
-    counts = _row_counts()
     target.mkdir(parents=True)
 
     warnings: list[str] = []
     try:
         artifacts = _snapshot_databases(target)
+        counts = _row_counts(target)
         if include_vectors:
             vector_artifact = _copy_vector_store(target, warnings)
             if vector_artifact is not None:

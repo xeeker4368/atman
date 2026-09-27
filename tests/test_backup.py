@@ -340,3 +340,104 @@ def test_the_manifest_records_where_the_copied_directories_came_from(populated, 
 
     assert "workspace_dir" in manifest["source"]
     assert "artifact_dir" in manifest["source"]
+
+
+def test_manifest_counts_describe_the_captured_copy_not_an_earlier_instant(
+    populated, monkeypatch
+):
+    """Merged-queue item 19. The counts used to be read from the live source
+    before the snapshot's lock was taken, so a write landing in between made the
+    manifest disagree with its own backup. The race is reproduced exactly: a
+    message is written just before the snapshot runs."""
+    uid = db.list_users()[0]["id"]
+    cid = db.get_open_conversations_with_activity()[0]["id"]
+    real_snapshot = backup._snapshot_databases
+
+    def write_then_snapshot(destination):
+        db.save_message(cid, uid, "user", "landed between count and snapshot")
+        return real_snapshot(destination)
+
+    monkeypatch.setattr(backup, "_snapshot_databases", write_then_snapshot)
+    result = backup.create_backup(include_vectors=False)
+
+    for store, filename in (("working", "working.db"), ("archive", "archive.db")):
+        conn = sqlite3.connect(str(result.directory / filename))
+        try:
+            in_copy = conn.execute("SELECT COUNT(*) FROM messages").fetchone()[0]
+        finally:
+            conn.close()
+        assert result.row_counts[f"{store}.messages"] == in_copy
+
+
+def test_a_writer_committing_during_the_snapshot_neither_stalls_it_nor_fails(
+    populated, monkeypatch
+):
+    """B14, forced rather than raced. The writer starts its COMMIT after the
+    snapshot holds its read lock and before the first `backup()` call, so it waits
+    on that lock with PENDING held — the state the race only reaches by luck.
+
+    With the old two-connection shape the backup reader then needed a NEW shared
+    lock, which PENDING refuses: the snapshot stalled 10.5 s and the writer's commit
+    failed, deterministically. Reading on the holder's own connection needs no new
+    lock, so the snapshot finishes and the writer commits as soon as it releases."""
+    uid = db.list_users()[0]["id"]
+    cid = db.get_open_conversations_with_activity()[0]["id"]
+
+    with db.connection() as conn:
+        before = conn.execute("SELECT COUNT(*) FROM messages").fetchone()[0]
+
+    writer = sqlite3.connect(str(db.working_path()), timeout=10, check_same_thread=False)
+    writer.execute("ATTACH DATABASE ? AS archive", (str(db.archive_path()),))
+    writer.execute("BEGIN")
+    mid = db.new_id()
+    for table in ("archive.messages", "messages"):
+        writer.execute(
+            f"INSERT INTO {table} (id, conversation_id, user_id, role, content, timestamp) "
+            "VALUES (?, ?, ?, 'user', 'committed mid-snapshot', ?)",
+            (mid, cid, uid, db.now_iso()),
+        )
+    outcome: dict[str, object] = {}
+
+    def commit():
+        try:
+            writer.execute("COMMIT")
+            outcome["committed"] = True
+        except sqlite3.OperationalError as exc:
+            outcome["error"] = exc
+            writer.execute("ROLLBACK")
+
+    committer = threading.Thread(target=commit)
+    real_connect = sqlite3.connect
+    started: list[bool] = []
+
+    def connect(path, *args, **kwargs):
+        # The first connect to a backup destination happens after the holder's
+        # reads and before the first backup() call: start the writer's COMMIT
+        # there and give it time to be waiting.
+        if not started and "anam-backup" in str(path):
+            started.append(True)
+            committer.start()
+            time.sleep(0.3)
+        return real_connect(path, *args, **kwargs)
+
+    monkeypatch.setattr(sqlite3, "connect", connect)
+    t0 = time.monotonic()
+    result = backup.create_backup(include_vectors=False)
+    snapshot_seconds = time.monotonic() - t0
+    committer.join(timeout=30)
+    monkeypatch.setattr(sqlite3, "connect", real_connect)
+    writer.close()
+
+    assert started, "the hook never fired, so the collision was never set up"
+    assert snapshot_seconds < 2.0, f"the snapshot stalled for {snapshot_seconds:.1f}s"
+    assert outcome.get("committed"), f"the writer failed: {outcome.get('error')}"
+
+    counts = {}
+    for name in ("working.db", "archive.db"):
+        conn = real_connect(str(result.directory / name))
+        try:
+            counts[name] = conn.execute("SELECT COUNT(*) FROM messages").fetchone()[0]
+        finally:
+            conn.close()
+    # The in-flight write is wholly absent from the copy, in both stores.
+    assert counts == {"working.db": before, "archive.db": before}
