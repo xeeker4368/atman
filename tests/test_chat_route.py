@@ -184,6 +184,49 @@ def test_an_unreachable_model_is_a_503_that_says_what_to_check(
     assert db.count_messages() == (1, 1)
 
 
+def test_a_truncated_reply_is_a_503_with_no_answer_and_no_artifact(
+    client, monkeypatch, store
+):
+    """Plan B8. The observed shape: a valid creative_write call cut off mid-phrase.
+
+    Dispatched, it would store the fragment as a finished piece — so the real
+    tool is registered here, and the assertion is that nothing reached it.
+    """
+    headers = token_for(client, "Lyle")
+
+    def truncated(*args, **kwargs):
+        return {
+            "message": {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    {
+                        "id": "call_cnh2zuq5",
+                        "function": {
+                            "index": 0,
+                            "name": "creative_write",
+                            "arguments": {"text": "It begins as a secret, a low"},
+                        },
+                    }
+                ],
+            },
+            "done_reason": "length",
+            "eval_count": 2048,
+        }
+
+    monkeypatch.setattr(loop.ollama, "chat", truncated)
+    response = client.post(
+        "/api/chat",
+        json={"message": "Compose something brief about a kettle. Save it."},
+        headers=headers,
+    )
+
+    assert response.status_code == 503
+    assert "output cap" in response.json()["detail"]
+    assert db.count_messages() == (1, 1)  # the user's message only
+    assert db.list_artifacts() == []
+
+
 # --- The post-turn sweep ----------------------------------------------------
 
 

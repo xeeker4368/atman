@@ -591,14 +591,19 @@ chars_per_token = 4.0
 # in the right direction (over-charging is the safe direction here too).
 message_overhead_tokens = 4
 
-# Context space held back for the model's own reply, never given to history.
+# Context space held back for the model's own reply, never given to history —
+# AND, since plan B8, the reply's hard length cap: the agent loop sends it as
+# `num_predict` on every chat call, so the reservation is enforced rather than
+# assumed. A reply that reaches it raises OllamaOutputTruncated (503, nothing
+# saved, no tool dispatched). Must be positive for that reason.
 #
-# JUDGMENT VALUE, NOTHING MEASURED BEHIND IT. 2048 tokens is ~92 seconds of
-# generation at the 22.2 tok/s measured on this hardware at full context, which
-# is a plausible ceiling for a long answer but is not a measurement of what
-# answers this system actually produces — there is no chat endpoint yet to
-# measure. Under-reserving here truncates the reply; over-reserving only costs
-# history. Revisit once real turns exist.
+# 2048 tokens is ~75-92 s of generation at 22.2-27.5 tok/s on this hardware.
+# MEASURED since (2026-09-27): across 11,860 completed generations in every
+# Ollama log the longest is 797 tokens, so 2048 is ~2.6x the longest real reply.
+# The one generation past it was a runaway (7,564+ tokens on a "brief" request)
+# that only the 300 s timeout stopped. Setting this too low now truncates real
+# replies into 503s; setting it too high costs history and lets a runaway run
+# longer before it is cut off.
 output_reserve_tokens = 2048
 
 # Unallocated slack. Absorbs estimator error on text denser than the prose the

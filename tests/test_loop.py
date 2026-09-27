@@ -19,7 +19,7 @@ import pytest
 from program import config
 from program.engine import loop
 from program.engine.loop import ANSWERED, ITERATION_LIMIT
-from program.engine.ollama import OllamaUnreachable
+from program.engine.ollama import OllamaOutputTruncated, OllamaUnreachable
 from program.tools.registry import Tool, ToolOutcome, ToolRegistry
 
 # --- test-only scaffolding ---------------------------------------------------
@@ -73,18 +73,27 @@ def calls(*specs) -> dict:
     }
 
 
+class Raw(dict):
+    """A whole Ollama response, returned as-is — for scripting ``done_reason``."""
+
+
 class FakeModel:
-    """A scripted ``ollama.chat``. Records every call it was handed."""
+    """A scripted ``ollama.chat``. Records every call it was handed.
+
+    A scripted item is a message dict (wrapped as ``{"message": ...}``) or a
+    ``Raw`` full response.
+    """
 
     def __init__(self, *responses):
         self.responses = list(responses)
         self.calls: list[dict] = []
 
     def __call__(self, messages, *, model=None, options=None, tools=None, timeout=None):
-        self.calls.append({"messages": messages, "tools": tools})
+        self.calls.append({"messages": messages, "tools": tools, "options": options})
         if not self.responses:
             raise AssertionError("the loop called the model more times than scripted")
-        return {"message": self.responses.pop(0)}
+        response = self.responses.pop(0)
+        return response if isinstance(response, Raw) else {"message": response}
 
     @property
     def call_count(self) -> int:
@@ -404,3 +413,175 @@ def test_tool_results_are_priced_against_the_window_not_appended_freely(
     assert len(first_history) < len(history), "history was not windowed at all"
     assert second[-1]["role"] == "tool", "the newest content must survive"
     assert any(m.get("tool_calls") for m in second)
+
+
+# --- Output cap and truncation (plan B8) ------------------------------------
+#
+# The truncated shapes below are the ones gemma4:26b actually returned on
+# 2026-09-27 (changelog/2026-09-27-b8-model-call-stall-investigation.md): a
+# truncated tool call is a complete, valid call with its argument cut off, and
+# `done_reason` is the only thing that says so.
+
+
+def truncated(message: dict, eval_count: int = 2048) -> Raw:
+    return Raw(message=message, done_reason="length", eval_count=eval_count)
+
+
+@pytest.fixture
+def recorder():
+    """A TEST-ONLY tool that records every call that reaches its handler."""
+    seen: list[str] = []
+    tool = Tool(
+        name="scaffold_record",
+        description="TEST-ONLY scaffolding. Records the text it was given.",
+        parameters={
+            "type": "object",
+            "properties": {"text": {"type": "string"}},
+            "required": ["text"],
+        },
+        handler=lambda text: seen.append(text) or "kept",
+    )
+    return ToolRegistry([tool]), seen
+
+
+def test_every_call_carries_num_predict_equal_to_the_reply_reserve(model, registry):
+    """The reservation history.py makes is enforced, on every iteration."""
+    fake = model(calls(("scaffold_echo", {"text": "hi"})), answer("done"))
+
+    loop.run_turn(HISTORY, registry=registry)
+
+    reserve = config.history_output_reserve_tokens()
+    assert [c["options"]["num_predict"] for c in fake.calls] == [reserve, reserve]
+
+
+def test_a_truncated_tool_call_is_never_dispatched(model, recorder):
+    """The observed shape: valid call, argument cut mid-phrase, done_reason length."""
+    registry, seen = recorder
+    fake = model(
+        truncated(
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    {
+                        "id": "call_cnh2zuq5",
+                        "function": {
+                            "index": 0,
+                            "name": "scaffold_record",
+                            "arguments": {
+                                "text": "It begins as a secret, a low-frequency "
+                                "hum that vibrates against the"
+                            },
+                        },
+                    }
+                ],
+            },
+            eval_count=25,
+        )
+    )
+
+    with pytest.raises(OllamaOutputTruncated, match="output cap"):
+        loop.run_turn(HISTORY, registry=registry)
+
+    assert seen == [], "a truncated call reached a tool handler"
+    assert fake.call_count == 1
+
+
+def test_a_truncated_call_with_an_empty_required_argument_is_not_dispatched(
+    model, recorder
+):
+    """np=10 shape: the required key is present and empty, so validation passes."""
+    registry, seen = recorder
+    model(truncated(calls(("scaffold_record", {"text": ""})), eval_count=10))
+
+    with pytest.raises(OllamaOutputTruncated):
+        loop.run_turn(HISTORY, registry=registry)
+
+    assert seen == []
+
+
+def test_a_reply_truncated_before_anything_was_emitted_raises(model, registry):
+    """np=6 shape: empty content, no tool calls — not an empty answer to save."""
+    model(truncated(answer(""), eval_count=6))
+
+    with pytest.raises(OllamaOutputTruncated):
+        loop.run_turn(HISTORY, registry=registry)
+
+
+def test_truncated_prose_raises_rather_than_becoming_the_answer(model, registry):
+    model(truncated(answer("To understand why bread goes stale, it is important")))
+
+    with pytest.raises(OllamaOutputTruncated):
+        loop.run_turn(HISTORY, registry=registry)
+
+
+def test_truncation_on_the_final_tool_free_call_raises_too(model, registry):
+    fake = model(
+        calls(("scaffold_echo", {"text": "hi"})),
+        truncated(answer("It said echo and then it kept going and")),
+    )
+
+    with pytest.raises(OllamaOutputTruncated, match="iteration 2"):
+        loop.run_turn(HISTORY, registry=registry, max_iterations=2)
+
+    assert fake.calls[1]["tools"] is None
+
+
+def test_a_finished_reply_is_unaffected(model, registry):
+    model(Raw(message=answer("Grind finer."), done_reason="stop", eval_count=3))
+
+    assert loop.run_turn(HISTORY, registry=registry).text == "Grind finer."
+
+
+def test_a_zero_reserve_refuses_rather_than_capping_every_reply_at_nothing(
+    model, registry, monkeypatch
+):
+    fake = model(answer("never sent"))
+    monkeypatch.setattr(loop.config, "history_output_reserve_tokens", lambda: 0)
+
+    with pytest.raises(config.ConfigError, match="must be positive"):
+        loop.run_turn(HISTORY, registry=registry)
+
+    assert fake.call_count == 0
+
+
+@pytest.mark.skipif(
+    not loop.ollama.is_available(), reason="Ollama is not reachable; live test skipped"
+)
+def test_live_a_truncated_tool_call_has_the_shape_the_handler_assumes():
+    """Pins the observed shape, so an Ollama change fails here, not silently.
+
+    If a future version returned a truncated call as malformed JSON in content,
+    or as an HTTP error, `done_reason` might no longer be the signal and the
+    handler would need revisiting.
+    """
+    schema = [
+        {
+            "type": "function",
+            "function": {
+                "name": "creative_write",
+                "description": "Save a piece of writing.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"text": {"type": "string"}},
+                    "required": ["text"],
+                },
+            },
+        }
+    ]
+    data = loop.ollama.chat(
+        [
+            {
+                "role": "user",
+                "content": "Write a 300-word piece about the sound of a kettle and "
+                "save it with the creative_write tool. Call the tool now.",
+            }
+        ],
+        options={"temperature": 0, "num_predict": 25},
+        tools=schema,
+    )
+
+    assert data["done_reason"] == "length"
+    tool_calls = data["message"].get("tool_calls")
+    assert tool_calls, f"expected a (truncated) tool call, got {data['message']!r}"
+    assert isinstance(tool_calls[0]["function"]["arguments"], dict)

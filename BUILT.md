@@ -1036,6 +1036,53 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   timeout, what remains)`. A test proves the aggregate bites: two calls, each
   inside its own 5s timeout, together past a 0.1s turn budget — the first is cut
   to the remaining budget, the second never starts.
+- `[built]` **A reply's length is bounded, and a truncated reply is never used**
+  (2026-09-27, plan B8).
+  - Before this, nothing bounded a reply except the 300 s client timeout. In the soak,
+    a *"compose something brief"* turn decoded **7,564+ tokens** at ~27.5 tok/s until
+    that timeout cancelled it. The longest of 11,860 completed generations in every
+    Ollama log is **797**.
+  - Report #15's stall-under-exhausted-swap reading is refuted. Ollama was decoding
+    throughout, and `free_swap="0 B"` appears in 355 of 355 of its memory lines on this
+    machine.
+  - `loop.py` now sends `num_predict = history.output_reserve_tokens` on every call, so
+    the reservation is enforced rather than assumed. A 0 reserve raises.
+  - `done_reason == "length"` raises `OllamaOutputTruncated` (503) before content or
+    tool calls are read.
+  - **Measured live:** a truncated tool call is a complete, valid call with its argument
+    cut mid-phrase, and a required key can be present and empty. `done_reason` is the
+    only signal. Dispatching it would store a fragment as a finished piece.
+  - Nothing is saved. The user's message stays unanswered.
+  - Proven to bite: disabling the check stores real `creative_write` artifacts in the
+    route test. A live test pins the truncated shape.
+  - See `changelog/2026-09-27-b8-model-call-stall-investigation.md`.
+- `[built]` **The 2048-token ceiling is a DELIBERATE TRADEOFF, reviewed and accepted
+  (2026-09-27, B8 close-out), not an oversight.** Any reply that needs more than
+  `history.output_reserve_tokens` fails as a **503 with no partial output**.
+  - **`creative_write` is the tool most exposed.** A long piece is composed inside the
+    tool call's `text` argument, so the whole piece, arguments included, has to fit
+    under the cap.
+  - **What happens to a request that doesn't fit:**
+    - the turn fails;
+    - nothing is stored, not even a fragment;
+    - the person sees a 503 whose detail names the output cap;
+    - the user's message stays unanswered.
+  - **The entity cannot know the cap exists.** It isn't in `soul.md`, the prompt or the
+    tool description. It can't write shorter to fit, and no failed turn is recorded
+    anywhere it could later read about. The failure is invisible from the entity's side.
+  - **Why this was accepted over the alternatives.** Saving the partial text would put
+    a truncated or degenerate piece into the append-only archive and retrieval as if it
+    were finished work. Leaving replies uncapped means a runaway runs for the full 300 s
+    timeout instead of ~75–92 s.
+  - **Measured context:** across 11,860 completed generations the longest is 797
+    tokens, so the cap is ~2.6× the longest real reply.
+  - **If a long creative-writing request ever fails with "output cap" in the error,
+    this is why.** The lever is `history.output_reserve_tokens`. Raising it trades
+    history window for reply length, and lengthens how long a runaway runs before it is
+    cut.
+- `[unverified]` **A runaway is bounded, not prevented.** It still spends ~75–92 s of
+  generation before the cap. Why the model looped is unknown, because Ollama does not
+  log output.
 - `[built]` **The turn's tool-call trace is a first-class return value**, built
   from `ToolResult.to_trace_entry()` with the iteration number added, and stored
   as JSON on the assistant message's existing `tool_trace` column. Every call

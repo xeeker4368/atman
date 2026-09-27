@@ -51,6 +51,24 @@ can be corrupted and a person is waiting.* A failed tool is information the
 model can use and answer around, so it is fed back. An unreachable model leaves
 nothing to answer with, so it raises and the route reports it honestly.
 
+A reply is bounded in length, and a truncated one is never used
+----------------------------------------------------------------
+Every call carries ``num_predict = history.output_reserve_tokens`` — the space
+``history.py`` already reserves for the reply — so the reservation the budget
+makes is enforced rather than assumed. Before plan B8 nothing bounded a reply but
+the 300 s client timeout, and in the soak one *"compose something brief"* turn
+decoded 7,564+ tokens until that timeout cancelled it; the longest of 11,860
+completed generations was 797.
+
+A reply that stops at the cap (``done_reason == "length"``) raises
+``OllamaOutputTruncated`` **before its content or tool calls are read**. Measured
+against the live model: a truncated tool call is a well-formed call with its
+argument cut off mid-phrase, indistinguishable by shape from a finished one, so
+dispatching it would store a fragment as a finished piece or send a half prompt
+to image generation. A truncated answer is not saved either — degenerate output
+does not belong in the append-only archive or in retrieval. The turn fails the
+way a timeout does: the user's message stays, unanswered, which is accurate.
+
 The trace
 ---------
 ``TurnResult.trace`` is a list of structured entries built from
@@ -77,6 +95,23 @@ from program.tools import registry as tools
 from program.tools.registry import ToolRegistry, ToolResult
 
 logger = logging.getLogger(__name__)
+
+
+def _output_cap() -> int:
+    """``num_predict`` for every agent call: the reply space the budget reserves.
+
+    One source on purpose — a separate cap could drift from the reservation and
+    either overflow the window or truncate replies the budget made room for.
+    """
+    cap = config.history_output_reserve_tokens()
+    if cap <= 0:
+        # The reserve may be 0 for budgeting; as a cap, 0 would make every
+        # reply empty-and-truncated.
+        raise config.ConfigError(
+            f"history.output_reserve_tokens is {cap}; it caps every reply's "
+            f"length (num_predict) and must be positive."
+        )
+    return cap
 
 #: Why the loop stopped. Recorded rather than inferred from the shape of the
 #: result, because "the model chose to answer" and "the model ran out of
@@ -231,6 +266,10 @@ def run_turn(
         else config.agent_tool_budget_seconds()
     )
 
+    cap = _output_cap()
+    # A caller's explicit num_predict wins (diagnostics); otherwise the reserve.
+    options = {"num_predict": cap, **(options or {})}
+
     extras: list[dict[str, Any]] = []
     trace: list[dict[str, Any]] = []
     spent = 0.0
@@ -250,6 +289,14 @@ def run_turn(
         response = ollama.chat(
             assembled.to_messages(), model=model, options=options, tools=payload
         )
+        if response.get("done_reason") == "length":
+            # Before content or tool_calls are read: see "A reply is bounded".
+            raise ollama.OllamaOutputTruncated(
+                f"The model's reply reached the {options['num_predict']}-token "
+                f"output cap without finishing (iteration {iteration}, "
+                f"eval_count {response.get('eval_count')}). Nothing from it was "
+                f"used or saved."
+            )
         message = response.get("message") or {}
         content = message.get("content") or ""
         calls = message.get("tool_calls") or []

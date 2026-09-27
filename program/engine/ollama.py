@@ -11,6 +11,10 @@ carries a timeout, and every failure mode maps to a distinct exception:
 * ``OllamaTimeout``       — reachable but did not answer in time.
 * ``OllamaModelNotFound`` — the model is not pulled on this machine.
 * ``OllamaResponseError`` — answered, but not with what was asked for.
+* ``OllamaOutputTruncated`` — answered, but stopped at the output cap. Raised by
+  the agent loop rather than here: a classifier call hits its own small cap on
+  purpose, so whether ``done_reason == "length"`` is a failure depends on the
+  caller.
 
 That granularity is the point. "Something went wrong talking to the model" is
 not a useful thing for a caller to receive when the actual situation is "you
@@ -54,6 +58,16 @@ class OllamaModelNotFound(OllamaError):
 
 class OllamaResponseError(OllamaError):
     """Responded, but the payload was not usable."""
+
+
+class OllamaOutputTruncated(OllamaError):
+    """The reply stopped because it reached ``num_predict``, not because it ended.
+
+    Measured 2026-09-27 (plan B8): a truncated tool call comes back as a
+    complete, valid ``tool_calls`` entry whose argument value is simply cut off
+    — HTTP 200, parsed JSON, a required key present and possibly empty. The
+    only thing distinguishing it from a finished call is ``done_reason``.
+    """
 
 
 class EmbeddingDimensionError(OllamaError):
