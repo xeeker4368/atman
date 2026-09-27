@@ -43,6 +43,19 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   proof that `ANAM_API_PORT` changes the port the server actually binds.
 - `[built]` **FastAPI application factory** (`program/api/app.py`) with routers
   split by domain. OpenAPI and docs endpoints disabled.
+- `[built]` **Startup creates and migrates the databases** (2026-09-24, merged-queue
+  item 12, plan B4). Nothing called `db.init_databases()` at startup — only the seed
+  script — while `docs/DB_SCHEMA.md` said it re-ran on every startup and the go-live
+  wipe procedure (delete both databases, recreate) rested on that. On a fresh data
+  directory the first login was an **unhandled 500** (`no such table`). The lifespan
+  now calls it **after** the secret check (so an unconfigured server touches nothing on
+  disk — tested) and **before** the vector store (so a failed migration stops startup —
+  tested, with the store's version and schema unchanged, relying on B3's transactional
+  migrations). Idempotent on an existing store — tested. **Proven to bite**: removing
+  the call fails with `500 == 401`, the reported defect. **Verified live**: the real
+  server on a throwaway data directory created both databases at schema version 6,
+  login returned 401, no errors logged, port released on shutdown. `DB_SCHEMA.md` and
+  the backup CLI's hint now describe this.
 - `[built]` **Health endpoint** — `GET /api/health` returns `{"status": "ok"}`.
   Liveness only; reports on no dependencies. Verified live, not mocked.
 - `[built]` **`run_server.py`** — `--debug` and `--port`, logging to console

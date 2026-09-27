@@ -377,7 +377,7 @@ def create_backup(
     if not db.working_path().exists() or not db.archive_path().exists():
         raise BackupError(
             f"no databases to back up. Expected {db.working_path()} and "
-            f"{db.archive_path()}. Run init_databases() first."
+            f"{db.archive_path()}. Start the server once (it creates them) or run init_databases()."
         )
 
     created_at = (now or datetime.now(timezone.utc)).isoformat()

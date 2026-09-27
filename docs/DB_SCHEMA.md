@@ -239,8 +239,10 @@ version number describes:
 
 - **New objects** — a new table, index, trigger or virtual table — can be added
   to `working.sql` directly. Every statement there is `CREATE ... IF NOT
-  EXISTS`, and `init_databases()` re-runs the whole file on every startup, so a
-  new object appears on existing databases without a migration.
+  EXISTS`, and `init_databases()` re-runs the whole file on every startup — the
+  application lifespan in `program/api/app.py` calls it (since 2026-09-24, B4;
+  before that nothing did, and this sentence was false) — so a new object appears
+  on existing databases without a migration.
 - **Anything that changes or backfills existing data** — `ALTER TABLE`, a column
   type change, a data rewrite — needs a `Migration` in
   `program/memory/migrations.py`. `IF NOT EXISTS` cannot express those, and they
@@ -257,7 +259,8 @@ claiming to be version N.
 **Confirmed procedure, recorded here so Phase 10 does not have to rediscover it.**
 
 Delete both `archive.db` and `working.db` outright, then recreate the schema
-fresh and empty via `init_databases()`. That is the whole operation.
+fresh and empty via `init_databases()` — which starting the server now does on its
+own (B4). That is the whole operation.
 
 - **No special handling for the archive.** Append-only and frozen describe how
   it behaves in normal operation, not a protection against deliberate deletion.

@@ -17,7 +17,7 @@ from fastapi import FastAPI
 
 from program import config
 from program.api.routes import auth, chat, health, upload
-from program.memory import vectors
+from program.memory import db, vectors
 
 
 @asynccontextmanager
@@ -34,8 +34,21 @@ async def lifespan(app: FastAPI):
     real startup path — ``run_server.py`` and uvicorn both run it — while
     ``create_app()`` is also called by tests that never serve a request. An
     unconfigured secret must stop the server, not merely stop it being imported.
+
+    **Creates and migrates the databases** (merged-queue item 12, plan B4). Nothing
+    called ``db.init_databases()`` at startup — only the seed script did — while
+    ``docs/DB_SCHEMA.md`` said it re-ran on every startup and the go-live wipe
+    procedure depends on that. On a fresh data directory ChromaDB would create the
+    directory, SQLite would create an empty ``working.db`` with no tables on the
+    first request, and the first login was an unhandled 500. It is idempotent
+    (``CREATE ... IF NOT EXISTS`` plus versioned migrations, which run inside their
+    transaction since B3), so an existing store is left as it is. It runs after the
+    secret check, so an unconfigured server stops without touching the store, and
+    before the vector store, so a failed migration stops startup before anything
+    else is built.
     """
     config.auth_session_secret()
+    db.init_databases()
     vectors.get_vector_store()
     yield
 
