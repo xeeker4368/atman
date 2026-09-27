@@ -968,6 +968,22 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   would otherwise return a partial page as whole. Refused, not truncated. Tested
   against real local drip servers with and without a length; a socket that cannot be
   found fails closed. *DNS resolution still sits outside the budget.*
+- `[built]` **Layer 3 no longer refuses close-delimited responses** (B13, 2026-09-24,
+  Tier 3 — a change to a security check). Found while building the item 13 watchdog:
+  `http.client` detaches the socket from urllib3's connection when a body is delimited by
+  the connection closing, or has no length at all — measured `raw._connection.sock is
+  None` for both — and `peer_address()` read only that attribute, so `_check_peer`
+  refused every such page as *"could not be determined"*. Safe (it failed closed) but it
+  rejected legitimate servers. `peer_address()` now uses `_live_socket()`, the watchdog's
+  lookup: the connection's socket, else the one the response's file object still holds,
+  on which `getpeername()` returns the real peer (measured on both shapes). **Still fails
+  closed** when neither is found — the existing no-socket test is unchanged and passes.
+  Tested against real local servers for both shapes: the peer is read, **and layer 3
+  still refuses loopback on that path with its address reason, not the "could not be
+  determined" one** — so the check genuinely runs rather than merely stopping refusing.
+  **Proven to bite**: restoring the connection-only lookup fails all 4 new tests. The
+  live fetch of a real public page still passes. *Not observed live against a public
+  close-delimited server; the local servers reproduce the exact `http.client` shape.*
 - **What is deliberately not claimed:** this blocks address-based SSRF. It does
   not make fetched content trustworthy — the header frames it as content rather
   than instruction, which is a framing and not a defence — and it does not do

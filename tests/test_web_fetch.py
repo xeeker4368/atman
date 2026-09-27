@@ -659,3 +659,55 @@ def test_a_body_whose_socket_cannot_be_found_is_refused_not_read_unbounded():
     with pytest.raises(web_fetch.WebFetchError, match="time budget"):
         web_fetch._read_capped(response, 1_000_000, remaining=5.0)
     assert response.body_reads == 0
+
+
+# --- layer 3 on close-delimited responses (B13) ---------------------------------
+
+
+def _one_shot_server(header: bytes, body: bytes = b"hello"):
+    """A real local server answering once with `header`, then closing."""
+    import threading
+
+    listener = socket.socket()
+    listener.bind(("127.0.0.1", 0))
+    listener.listen(1)
+
+    def serve():
+        conn, _ = listener.accept()
+        conn.recv(4096)
+        conn.sendall(b"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n" + header
+                     + b"\r\n" + body)
+        conn.close()
+        listener.close()
+
+    threading.Thread(target=serve, daemon=True).start()
+    port = listener.getsockname()[1]
+    return requests.get(f"http://127.0.0.1:{port}/", stream=True, timeout=(2, 2))
+
+
+@pytest.mark.parametrize("header", [b"Connection: close\r\n", b""],
+                         ids=["connection-close", "no-length"])
+def test_the_peer_is_read_for_a_close_delimited_response(header):
+    """B13. `http.client` detaches the socket from urllib3's connection for these
+    bodies, so reading only `_connection.sock` returned None and layer 3 refused
+    every such page. The real peer is still reachable through the response."""
+    response = _one_shot_server(header)
+    assert response.raw._connection.sock is None, "precondition: the old path is empty"
+
+    assert web_fetch.peer_address(response) == "127.0.0.1"
+
+
+@pytest.mark.parametrize("header", [b"Connection: close\r\n", b""],
+                         ids=["connection-close", "no-length"])
+def test_layer_three_still_refuses_loopback_on_that_path(header):
+    """The check must actually run on the recovered address, not merely stop
+    refusing: a close-delimited response from loopback is refused as loopback, not
+    as 'could not be determined'."""
+    response = _one_shot_server(header)
+
+    with pytest.raises(web_fetch.UnsafeURLError) as refused:
+        web_fetch._check_peer(response, "http://example.test/")
+
+    message = str(refused.value)
+    assert "could not be determined" not in message
+    assert "landed on" in message

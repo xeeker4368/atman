@@ -281,13 +281,22 @@ def resolve_target(url: str) -> Target:
 def peer_address(response: requests.Response) -> str | None:
     """The address actually connected to, or ``None`` if it cannot be read.
 
-    Reaches through ``requests`` into urllib3's connection for the live socket.
-    That is private API and may move; :func:`_check_peer` treats *unavailable*
-    as a refusal rather than a pass, so a future break fails closed and loudly
-    instead of quietly removing layer 3.
+    Reaches through ``requests`` into urllib3 for the live socket, via
+    :func:`_live_socket` — the same lookup the body-read watchdog uses. That is
+    private API and may move; :func:`_check_peer` treats *unavailable* as a refusal
+    rather than a pass, so a future break fails closed and loudly instead of quietly
+    removing layer 3.
+
+    **It used to read only ``_connection.sock``** (B13, 2026-09-24). ``http.client``
+    detaches the socket from the connection when a body is delimited by the
+    connection closing, or has no length at all — measured: ``None`` for
+    ``Connection: close`` and for a bare response — so this returned ``None`` and
+    layer 3 refused every such page as *"could not be determined"*. Safe, since it
+    failed closed, but it rejected legitimate servers. The response's file object
+    still holds the socket that was connected, and ``getpeername()`` on it returns
+    the real peer (measured on both shapes).
     """
-    connection = getattr(response.raw, "_connection", None)
-    sock = getattr(connection, "sock", None)
+    sock = _live_socket(response)
     if sock is None:
         return None
     try:
