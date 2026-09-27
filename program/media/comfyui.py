@@ -379,7 +379,18 @@ def generate(
         )
 
     entry = _await_result(host, prompt_id, started, deadline_total)
-    image, content_type = _fetch_image(host, entry, deadline_total)
+    # The fetch gets what is LEFT of the deadline, not the whole of it. Passing the
+    # total let a generation finishing at 108 s be followed by a 60 s fetch — ~168 s
+    # against a client bound of 110, which breaks the derivation's point: an overrun
+    # must surface as ComfyUITimeout here, not as the tool dispatcher's opaque one.
+    remaining = deadline_total - (time.monotonic() - started)
+    if remaining <= 0:
+        raise ComfyUITimeout(
+            f"ComfyUI finished generating (prompt {prompt_id}) but no time was left "
+            f"within {deadline_total:g}s to fetch the image. It was produced and "
+            f"was not retrieved; nothing was stored."
+        )
+    image, content_type = _fetch_image(host, entry, remaining)
     elapsed = time.monotonic() - started
     logger.info(
         "generated a %dx%d image in %.1fs (%d steps, seed %d)",
@@ -435,14 +446,15 @@ def _image_reference(entry: dict[str, Any]) -> dict[str, Any]:
     return images[0]
 
 
-def _fetch_image(host: str, entry: dict[str, Any], deadline: float) -> tuple[bytes, str]:
+def _fetch_image(host: str, entry: dict[str, Any], remaining: float) -> tuple[bytes, str]:
+    """Fetch the finished image, within ``remaining`` seconds of the overall deadline."""
     reference = _image_reference(entry)
     query = urllib.parse.urlencode({
         "filename": reference.get("filename", ""),
         "subfolder": reference.get("subfolder", ""),
         "type": reference.get("type", "temp"),
     })
-    result = _request(f"{host}/view?{query}", timeout=min(60.0, deadline))
+    result = _request(f"{host}/view?{query}", timeout=min(60.0, remaining))
     if isinstance(result, tuple):
         data, content_type = result
     else:  # a JSON body here means /view returned an error document, not an image

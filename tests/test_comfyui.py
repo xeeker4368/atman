@@ -364,3 +364,48 @@ def test_a_real_generation_returns_a_real_png():
     assert image.image_bytes[:8] == bytes.fromhex("89504e470d0a1a0a"), "not a PNG"
     assert image.size_bytes > 100_000, "suspiciously small for a 1024x1024 PNG"
     assert image.duration_seconds < config.comfyui_timeout_seconds()
+
+
+# --- the fetch is bounded by what is left of the deadline (merged-queue item 18) --
+
+
+def _clocked_transport(monkeypatch, *, finish_at: float):
+    """The job finishes at `finish_at` seconds; records each request's timeout."""
+    clock = {"now": 0.0}
+    timeouts: dict[str, float] = {}
+
+    def fake(request, timeout=None):
+        url = request.full_url if hasattr(request, "full_url") else str(request)
+        if url.endswith("/prompt"):
+            return FakeResponse(json.dumps(SUBMITTED).encode(), "application/json")
+        if "/history/" in url:
+            clock["now"] = finish_at
+            return FakeResponse(json.dumps(FINISHED).encode(), "application/json")
+        if "/view?" in url:
+            timeouts["view"] = timeout
+            return FakeResponse(PNG, "image/png")
+        raise AssertionError(f"unexpected URL: {url}")
+
+    monkeypatch.setattr(comfyui.urllib.request, "urlopen", fake)
+    monkeypatch.setattr(comfyui.time, "sleep", lambda _s: None)
+    monkeypatch.setattr(comfyui.time, "monotonic", lambda: clock["now"])
+    return timeouts
+
+
+def test_the_image_fetch_gets_the_remaining_time_not_the_whole_deadline(monkeypatch):
+    """A generation finishing at 100 s of a 110 s deadline leaves 10 s for the
+    fetch. Passing the total gave it min(60, 110) = 60, so the call could run to
+    ~160 s — past the client bound the tool timeout is derived from."""
+    timeouts = _clocked_transport(monkeypatch, finish_at=100.0)
+
+    comfyui.generate("a kettle", timeout_seconds=110.0)
+
+    assert timeouts["view"] == pytest.approx(10.0)
+
+
+def test_no_time_left_to_fetch_is_a_timeout_that_says_the_image_exists(monkeypatch):
+    timeouts = _clocked_transport(monkeypatch, finish_at=110.0)
+
+    with pytest.raises(comfyui.ComfyUITimeout, match="was produced and was not retrieved"):
+        comfyui.generate("a kettle", timeout_seconds=110.0)
+    assert "view" not in timeouts
