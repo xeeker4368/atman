@@ -66,6 +66,9 @@ _FALLBACK: dict[str, Any] = {
         "idle_close_minutes": 15,
         "in_flight_grace_minutes": 41,
     },
+    "chat": {
+        "max_message_chars": 50_000,
+    },
     "agent": {
         "max_iterations": 5,
         "tool_budget_seconds": 120.0,
@@ -144,6 +147,7 @@ _ENV_MAP: dict[str, tuple[str, str, str]] = {
     "ANAM_INGESTION_MAX_EXTRACTED_CHARS": (
         "ingestion", "max_extracted_chars", "int",
     ),
+    "ANAM_CHAT_MAX_MESSAGE_CHARS": ("chat", "max_message_chars", "int"),
     "ANAM_API_HOST": ("api", "host", "str"),
     "ANAM_API_PORT": ("api", "port", "int"),
     "ANAM_COMFYUI_ENABLED": ("comfyui", "enabled", "bool"),
@@ -557,6 +561,21 @@ def agent_tool_budget_seconds() -> float:
             f"agent.tool_budget_seconds is {value}; it must be positive. Zero "
             f"would make every tool call fail as skipped, which is not the "
             f"same thing as disabling tools."
+        )
+    return value
+
+
+def chat_max_message_chars() -> int:
+    """Longest user message a chat turn accepts. Derived — see ``defaults.toml``.
+
+    Checked before the message is persisted, so an over-long message reaches neither
+    store. Bootstrap-only, like the other limits the in-flight-grace arithmetic and
+    the context budget depend on.
+    """
+    value = int(get("chat", "max_message_chars", 50_000))
+    if value < 1:
+        raise ConfigError(
+            f"chat.max_message_chars is {value}; it must be at least 1."
         )
     return value
 

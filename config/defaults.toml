@@ -127,6 +127,35 @@ idle_close_minutes = 15
 # JUDGMENT VALUE at that last step; the 39 underneath it is not.
 in_flight_grace_minutes = 41
 
+[chat]
+# Longest user message a chat turn accepts (merged-queue item 16, plan B6a).
+#
+# DERIVED, not guessed. History windowing always sends the newest message even when
+# it alone overflows the window (it must answer the turn), and an overflowing prompt
+# is truncated by the model server without an error. So the cap is the longest
+# message that still fits intact next to everything else a turn can carry, at the
+# budget's own 4.0 chars/token:
+#
+#   num_ctx                                        32,768 tokens
+#   - model_options output reserve                 -2,048
+#   - history.safety_margin_tokens                   -512
+#   - history.message_overhead_tokens                  -4
+#   - soul.md at its enforced ceiling (6,000 ch)   -1,500
+#   - situation block allowance (600 ch; 206 measured)   -150
+#   - retrieval: top_k 10 x embedding.max_input_chars 5,000 = 50,000 ch
+#       + correction annotations < 6,000 ch (asserted, test_supersession)
+#       + record headers ~1,000 ch  = 57,000 ch          -14,250
+#   = 14,304 tokens x 4.0 = 57,216 characters
+#
+# Rounded DOWN to 50,000, the one judgment in the chain, which also leaves ~1,800
+# tokens of earlier history beside a maximal message. tests/test_turn.py recomputes
+# the chain from live config and fails if this exceeds it.
+#
+# NOT covered: split-sibling attachment (up to max_siblings_per_hit per hit) can
+# grow the retrieved block past its ranked size, and nothing caps that block. A
+# turn can still overflow on retrieval alone; history reports it as `overflowed`.
+max_message_chars = 50000
+
 [agent]
 # The agent loop (task 2.2): call the model, dispatch any tool calls, feed the
 # results back, repeat. Everything here is BOOTSTRAP-ONLY and deliberately not

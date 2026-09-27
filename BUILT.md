@@ -1112,6 +1112,29 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   conversation reports `last_role = "user"` and therefore selects
   `in_flight_grace_minutes`. A failed turn leaving a user message with no reply
   is tested too — an accurate record, and what the grace window covers.
+- `[built]` **A chat message has a derived length cap** (2026-09-24, merged-queue item 16
+  chat half, plan B6a, Tier 2). The message was unbounded: persisted to the
+  **append-only** archive before generation, embedded in full at idle-close, and sent by
+  `history.select_history` even when it alone overflows the window — where the model
+  server truncates it without an error. `chat.max_message_chars = 50,000`, **derived**
+  in `config/defaults.toml` from the budget's own terms: 32,768 − output 2,048 − safety
+  512 − overhead 4 − `soul.md` at its 6,000-char ceiling − a 600-char situation allowance
+  − retrieval at 10 hits × 5,000 chars plus the <6,000-char annotation bound and headers
+  = 14,304 tokens = **57,216 characters**, rounded **down** to 50,000 (the one judgment).
+  `turn.MessageTooLongError` is raised **before the conversation or message exists
+  anywhere** and before the model is called; the route maps it to **413**. A test
+  recomputes the derivation from live config and fails if the cap exceeds it. **Proven
+  to bite**: removing the check fails the turn and route refusal tests; a 60,000 cap
+  fails the derivation test (*"exceeds the 57216 characters that fit"*).
+- `[unverified]` **The retrieved-records block has no cap — tracked as queue item B17**
+  (found while deriving B6a, 2026-09-24). Ranked hits are bounded (10 × at most 5,000
+  chars), but split-sibling attachment adds up to `max_siblings_per_hit` (3) more pieces
+  per hit, and nothing limits the rendered block: at the extreme 10 × 4 × 5,000 =
+  200,000 chars ≈ 50,000 tokens, past the whole window on retrieval alone. Reachable only
+  where many long messages have been split, which the 50,000-char cap makes rarer but not
+  impossible (a capped message can still split into ~10 pieces). History already reports
+  `overflowed` and logs a warning when this happens; nothing prevents it. B6a's cap is
+  derived against ranked hits only and says so.
 - `[built]` **Ownership is enforced; a capability is not registered.** A user may
   only speak into their own conversation, and an unknown conversation is refused
   **identically** to an unowned one so the difference cannot enumerate ids.

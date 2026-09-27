@@ -323,3 +323,17 @@ def test_a_failed_checkpoint_does_not_fail_the_turn(client, store, monkeypatch):
         "/api/chat", json={"message": "the tenth", "conversation_id": cid}, headers=headers
     )
     assert len(db.get_conversation_chunks(cid)) == 1
+
+
+def test_an_over_long_message_is_413_and_nothing_is_stored(client, store, monkeypatch):
+    monkeypatch.setenv("ANAM_CHAT_MAX_MESSAGE_CHARS", "50")
+    config.reload()
+    before = db.count_messages()
+
+    response = client.post(
+        "/api/chat", json={"message": "y" * 51}, headers=token_for(client, "Lyle")
+    )
+
+    assert response.status_code == 413
+    assert "limit is 50" in response.json()["detail"]
+    assert db.count_messages() == before

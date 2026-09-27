@@ -104,6 +104,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
+from program import config
 from program.attribution import AttributionContext
 from program.engine import loop
 from program.engine import situation as situation_block
@@ -127,6 +128,16 @@ class ConversationAccessError(PermissionError):
 
 class EmptyMessageError(ValueError):
     """An empty user message. Nothing to persist and nothing to answer."""
+
+
+class MessageTooLongError(ValueError):
+    """A user message over ``chat.max_message_chars``. Refused before persisting.
+
+    Merged-queue item 16 (plan B6a). The message was unbounded: it went into the
+    append-only archive before generation, every word was embedded at idle-close,
+    and ``history.select_history`` sends the newest message even when it alone
+    overflows the window — where the model server truncates it without an error.
+    """
 
 
 @dataclass(frozen=True)
@@ -330,12 +341,21 @@ def handle_user_message(
     statement without its pairing raises in ``prompt.build_system_prompt()``
     rather than reaching the model.
 
-    Raises ``ConversationAccessError``, ``EmptyMessageError``, and whatever
+    Raises ``ConversationAccessError``, ``EmptyMessageError``,
+    ``MessageTooLongError``, and whatever
     ``ollama`` raises when the model cannot be reached.
     """
     content = (text or "").strip()
     if not content:
         raise EmptyMessageError("an empty message has nothing to answer.")
+    limit = config.chat_max_message_chars()
+    if len(content) > limit:
+        # Before anything is written: the archive is append-only, so an over-long
+        # message stored first could never be taken back out.
+        raise MessageTooLongError(
+            f"the message is {len(content):,} characters; the limit is {limit:,}. "
+            f"Longer text can be uploaded as a file instead."
+        )
 
     conversation_id, is_new = _resolve_conversation(actor, conversation_id)
 

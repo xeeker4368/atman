@@ -409,3 +409,76 @@ def test_the_failure_is_logged_with_which_step_was_lost(store, model, monkeypatc
     messages = [r.getMessage() for r in caplog.records]
     assert any("the integrity verdict could not be recorded" in m for m in messages)
     assert any("database is locked" in m for m in messages)
+
+
+# --- Message length cap (merged-queue item 16, plan B6a) ----------------------
+
+
+def test_an_over_long_message_is_refused_before_anything_is_written(
+    store, model, monkeypatch
+):
+    """The archive is append-only: an over-long message stored first could never
+    be taken back out. So the refusal comes before the conversation or the message
+    exists anywhere, and before the model is called."""
+    monkeypatch.setenv("ANAM_CHAT_MAX_MESSAGE_CHARS", "100")
+    config.reload()
+    calls = model(answer("should never be produced"))
+    before = db.count_messages()
+
+    with pytest.raises(turn.MessageTooLongError, match="limit is 100"):
+        turn.handle_user_message(store["lyle"], "x" * 101)
+
+    assert db.count_messages() == before
+    assert calls["calls"] == 0
+    with db.connection() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM conversations").fetchone()[0] == 0
+
+
+def test_a_message_exactly_at_the_limit_is_answered(store, model, monkeypatch):
+    monkeypatch.setenv("ANAM_CHAT_MAX_MESSAGE_CHARS", "100")
+    config.reload()
+    model(answer("Answered."))
+
+    outcome = turn.handle_user_message(store["lyle"], "x" * 100)
+
+    assert outcome.content == "Answered."
+
+
+def test_the_limit_is_measured_after_stripping_like_the_stored_message(
+    store, model, monkeypatch
+):
+    """What is stored is the stripped text, so that is what is measured."""
+    monkeypatch.setenv("ANAM_CHAT_MAX_MESSAGE_CHARS", "10")
+    config.reload()
+    model(answer("Answered."))
+
+    assert turn.handle_user_message(store["lyle"], "   " + "x" * 10 + "\n\n").content
+
+
+def test_the_configured_limit_fits_the_context_window_by_its_own_derivation():
+    """`defaults.toml` derives the cap; this recomputes that chain from LIVE config,
+    so a smaller num_ctx, a larger output reserve or a larger top_k fails here rather
+    than quietly letting a maximal message overflow the window."""
+    from program.engine import history, prompt
+
+    soul = history.estimate_tokens_from_chars(prompt.SOUL_MAX_CHARS)
+    situation = history.estimate_tokens_from_chars(600)  # judgment allowance; 206 measured
+    retrieved_chars = (
+        config.retrieval_top_k() * config.embedding_max_input_chars()
+        + 6000  # annotation bound asserted by test_the_worst_case_render_is_bounded
+        + 1000  # record headers
+    )
+    reserved = (
+        config.history_output_reserve_tokens()
+        + config.history_safety_margin_tokens()
+        + config.history_message_overhead_tokens()
+        + soul + situation
+        + history.estimate_tokens_from_chars(retrieved_chars)
+    )
+    context = int(config.model_options()["num_ctx"])
+    fits_chars = (context - reserved) * config.history_chars_per_token()
+
+    assert config.chat_max_message_chars() <= fits_chars, (
+        f"chat.max_message_chars {config.chat_max_message_chars()} exceeds the "
+        f"{fits_chars:.0f} characters that fit beside a maximal turn"
+    )
