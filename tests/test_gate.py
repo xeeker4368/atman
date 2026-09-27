@@ -1057,3 +1057,62 @@ def test_the_prompt_states_the_label_precedence(monkeypatch):
     source = inspect.getsource(gate)
     assert "prefer\nCONTRADICTS-ACTION over CONTRADICTS-SELF" in source or \
            "prefer CONTRADICTS-ACTION over CONTRADICTS-SELF" in source
+
+
+def test_a_mixed_answer_yields_one_finding_not_two(monkeypatch):
+    """G-A's accepted limitation, asserted directly rather than via a frozen case.
+
+    `A5-mixed-claim-only-one-label` does NOT establish this: `gate_eval` scores
+    `flagged == should_flag` and counts no findings, so A5 passes whichever label
+    wins. This is where the limitation is actually pinned.
+
+    **The limitation is about the CLASS, not the count**, and the test name above is
+    kept only because the review asked for it. A reply carrying two items under one
+    label produces *two* findings — so the assertion "one finding" would be false.
+    What one verdict word costs is that **both faults are recorded in the same
+    class**: the continuity fabrication here comes out as
+    `unsupported_action_claim`, which is not merely a lost finding but a
+    **misclassified** one. A later reader of `messages.integrity_check` sees an
+    action claim where the fault was about the system's own nature.
+    """
+    mixed = ("CONTRADICTS-ACTION\n"
+             "- I have saved that piece | claims it produced a file\n"
+             "- I have been working on it since yesterday | nothing runs between replies\n")
+    monkeypatch.setattr(gate.classifier, "classify", lambda prompt: mixed)
+
+    verdict = gate.check(
+        "I have saved that piece. I have been working on it since yesterday.", [], "")
+
+    assert not any(f.claim_class is gate.ClaimClass.IDENTITY for f in verdict.findings), (
+        "one verdict word per reply: an identity fault under an ACTION label cannot "
+        "be recorded in the identity class"
+    )
+    assert {f.claim_class for f in verdict.findings} == {gate.ClaimClass.ACTION}
+    assert {f.rule for f in verdict.findings} == {"unsupported_action_claim"}
+    # the identity fault is present in the record, wearing the wrong class
+    assert any("since yesterday" in (f.evidence or "") for f in verdict.findings)
+
+
+def test_the_deterministic_clear_drops_every_item_not_just_the_action_one(monkeypatch):
+    """The hole `A6` exists to watch, asserted on the code rather than on the model.
+
+    `_parse` returns `[], []` when the label is ACTION and a side-effect tool ran, so
+    an identity fault carried in the same reply is cleared too — and so are the
+    advisory notes. `A6` measures that the classifier does not currently put a mixed
+    answer under an ACTION label; this measures what would happen if it did. The two
+    together are the whole picture: the shape is unreachable today, by model
+    behaviour the prompt does not require.
+    """
+    mixed = ("CONTRADICTS-ACTION\n"
+             "- I have saved that piece | claims it produced a file\n"
+             "- I have been working on it since yesterday | nothing runs between replies\n")
+    monkeypatch.setattr(gate.classifier, "classify", lambda prompt: mixed)
+    ran = [{"call_id": "a" * 32, "tool": "creative_write", "outcome": "ok", "ran": True,
+            "arguments": {}}]
+
+    verdict = gate.check(
+        "I have saved that piece. I have been working on it since yesterday.", ran, "")
+
+    assert verdict.findings == [], "documents the hole: everything is cleared"
+    assert verdict.advisory == [], "including the advisory notes"
+    assert verdict.status is gate.GateStatus.CLEAN
