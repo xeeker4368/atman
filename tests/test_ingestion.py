@@ -13,13 +13,14 @@ happens to contain.
 from __future__ import annotations
 
 import hashlib
+import sqlite3
 
 import pytest
 
 from program import config
 from program.artifacts import indexing, ingest
 from program.engine import ollama
-from program.memory import db, migrations, retrieval, vectors
+from program.memory import db, migrations, reconcile, retrieval, vectors
 
 live_only = pytest.mark.skipif(
     not ollama.is_available(), reason="Ollama is not reachable; live test skipped"
@@ -341,6 +342,105 @@ def test_an_unreachable_embedder_leaves_no_chunks(store, monkeypatch):
 
     with db.connection() as conn:
         assert conn.execute("SELECT COUNT(*) AS n FROM chunks").fetchone()["n"] == 0
+
+
+# The test above fails on the FIRST chunk, which is why it passed for as long as
+# `index_text` was embed-then-insert per chunk: a first-chunk failure leaves nothing
+# under either ordering. The half-indexed state needs a failure part-way through a
+# multi-chunk artifact, so every test below fails at chunk 3.
+
+#: Five paragraphs of ~2,000 characters each against the 2,500-character chunk
+#: target, so they cannot pack together: five chunks, asserted rather than assumed.
+_MULTI_CHUNK = "\n\n".join(
+    f"Paragraph {n}. " + ("The kettle sat on the hob. " * 75) for n in range(5)
+).encode()
+
+
+def _chunk_count() -> int:
+    with db.connection() as conn:
+        return conn.execute("SELECT COUNT(*) AS n FROM chunks").fetchone()["n"]
+
+
+def _fail_on_call(n: int, real, exc: BaseException):
+    calls = {"count": 0}
+
+    def wrapper(*args, **kwargs):
+        calls["count"] += 1
+        if calls["count"] == n:
+            raise exc
+        return real(*args, **kwargs)
+
+    return wrapper
+
+
+def test_the_multi_chunk_fixture_really_is_multi_chunk(store):
+    """Guard on the fixture: the tests below mean nothing if it packs into two."""
+    result = ingest.ingest(_MULTI_CHUNK, "long.txt", store)
+    assert result.chunks_written == 5
+
+
+def test_an_embedding_failure_mid_artifact_leaves_no_chunks(store, monkeypatch):
+    """Diagnostic finding #12: chunks 1-2 used to stay committed under a row
+    saying `extracted`."""
+    monkeypatch.setattr(
+        indexing.ollama,
+        "embed",
+        _fail_on_call(3, _deterministic_embedding, ollama.OllamaUnreachable("gone")),
+    )
+
+    with pytest.raises(ollama.OllamaUnreachable):
+        ingest.ingest(_MULTI_CHUNK, "long.txt", store)
+
+    assert _chunk_count() == 0
+
+
+def test_a_write_failure_mid_artifact_leaves_no_chunks(store, monkeypatch):
+    """The rows go in one transaction, so a write refused at row 3 takes rows
+    1-2 with it."""
+    monkeypatch.setattr(
+        db,
+        "_insert_chunk_row",
+        _fail_on_call(3, db._insert_chunk_row, sqlite3.IntegrityError("refused")),
+    )
+
+    with pytest.raises(sqlite3.IntegrityError):
+        ingest.ingest(_MULTI_CHUNK, "long.txt", store)
+
+    assert _chunk_count() == 0
+
+
+def test_a_vector_store_failure_is_the_recoverable_kind(store, monkeypatch):
+    """What the fix does NOT make atomic, driven rather than asserted: Chroma
+    cannot join the SQLite transaction, so a failed upsert leaves rows without
+    vectors — and that is exactly what `reconcile_vectors` repairs."""
+    vector_store = vectors.get_vector_store()
+    monkeypatch.setattr(
+        vector_store,
+        "upsert",
+        _fail_on_call(3, vector_store.upsert, RuntimeError("chroma fell over")),
+    )
+
+    with pytest.raises(RuntimeError):
+        ingest.ingest(_MULTI_CHUNK, "long.txt", store)
+
+    assert _chunk_count() == 5
+    missing = reconcile.find_chunks_without_vectors(vector_store)
+    assert len(missing) == 3  # chunks 3, 4, 5: the failure and everything after it
+
+    monkeypatch.undo()
+    monkeypatch.setattr(reconcile.ollama, "embed", _deterministic_embedding)
+    repaired = reconcile.reconcile_vectors(store=vectors.get_vector_store())
+
+    assert repaired.repaired == 3
+    assert reconcile.find_chunks_without_vectors(vectors.get_vector_store()) == []
+
+
+def test_insert_chunks_with_nothing_to_write_opens_no_transaction(store, monkeypatch):
+    def forbidden():
+        raise AssertionError("an empty batch must not touch the database")
+
+    monkeypatch.setattr(db, "transaction", forbidden)
+    db.insert_chunks([])
 
 
 # --- Live --------------------------------------------------------------------

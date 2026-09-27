@@ -411,8 +411,12 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   Exactly two entry points, pinned by a test. Turn-preserving, size-decided
   boundaries (2500-char target, 8-turn cap). Sealed groups are embedded once and
   never rewritten; the open trailing group is deliberately not indexed. Embed
-  precedes any write, so a failure leaves the store untouched — verified for
-  dimension, unreachable and timeout errors.
+  precedes each chunk's write, so a failure leaves **that chunk** unwritten —
+  verified for dimension, unreachable and timeout errors. *Corrected 2026-09-24:
+  this said "leaves the store untouched", which holds per chunk only. Each chunk
+  commits in its own transaction, so chunks sealed earlier in the same run stand
+  — `chunking.py`'s own next paragraph says so. Unchanged in behaviour: batching
+  would move `insert_chunk`'s per-row concurrency arbiter and is its own review.*
 - `[built]` **Sub-chunk splitting** (`program/memory/splitting.py`). Prefers
   paragraph → line → sentence → whitespace boundaries, hard-cutting only as a
   last resort and always in `str` space, so multi-byte characters survive.
@@ -1444,9 +1448,11 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   the record and chunks are derived and rebuildable while chunks pointing at an
   artifact_id no row claims are not. Verified through real FTS5, real RRF and the real
   renderer: `search("copper kettle slate")` returns the image chunk with
-  `source_type == "generated_image"`. **Embedding still precedes every chunk write**, so
-  an unreachable model leaves the image stored and unindexed rather than half-indexed —
-  a test kills the embedder and asserts file and row survive with zero chunks.
+  `source_type == "generated_image"`. **Every chunk is embedded before any row is
+  written, and the rows go in one transaction** (since 2026-09-24 — see "A multi-chunk
+  artifact can no longer be half-indexed" under Artifacts), so an unreachable model
+  leaves the image stored and unindexed rather than half-indexed — a test kills the
+  embedder and asserts file and row survive with zero chunks.
 - `[built]` **A retrieved artifact announces its kind, at presentation.** An image
   chunk's text is the prompt, so rendered bare it read as *something someone said* —
   handing the model a description with no way to know it describes a picture nothing
@@ -2940,10 +2946,40 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   does boundaries, packing goes to `chunking.target_chars` (**not** the 5000
   embedding budget — document chunks twice the size of conversation chunks would
   compete for the same retrieval slots as a bigger lexical target and a more
-  diluted embedding), and **embed precedes every write** so an unreachable model
-  leaves nothing half-indexed. Retrieval needed no change: `_attach_siblings`
+  diluted embedding), and every chunk is embedded before any is written, in one
+  transaction, so an embedding failure leaves nothing half-indexed. *Until
+  2026-09-24 this was claimed and not true — see the next entry.* Retrieval needed no change: `_attach_siblings`
   already guards on the message-id columns, so file chunks are skipped rather
   than mishandled.
+- `[built]` **A multi-chunk artifact can no longer be half-indexed** (2026-09-24,
+  merged-queue item 2 / diagnostic finding #12). `indexing.index_text()` looped
+  embed → `insert_chunk` → upsert **per chunk, each insert its own transaction**, so a
+  failure at chunk N left 0…N-1 committed under an `artifacts` row already saying
+  `extracted` — while its docstring promised *"leaves nothing behind rather than a
+  half-indexed artifact"*. **Permanent**: a re-upload hits the sha256 duplicate check
+  and never re-indexes, and `reconcile_vectors.py` repairs missing vectors for rows
+  that exist, not rows never written. Reachable for all three writers — a 9,000-char
+  `creative_write` piece is four chunks.
+  Now every chunk is embedded first, then all rows are written by the new
+  `db.insert_chunks()` in **one transaction** (`@retry_on_locked`, covered by the
+  writer enumeration), then vectors are upserted. **Proven to bite**: restoring the
+  previous `index_text` fails all three new failure tests (embed, row write and vector
+  upsert, each failing at chunk 3 of 5). *The existing
+  `test_an_unreachable_embedder_leaves_no_chunks` could never have caught this: it fails
+  on the first chunk, where both orderings leave nothing.*
+- `[built]` **Batched for artifacts only, deliberately.** Artifact chunks carry
+  `conversation_id = NULL` and sit outside the partial unique index on
+  `(conversation_id, chunk_index)`, which `insert_chunk` documents as the per-row
+  arbiter between two concurrent conversation writers; batching them changes no
+  arbiter. Batching conversation chunks would, so that path is unchanged.
+- `[unverified]` **The vector store is still not atomic with the rows.** Chroma cannot
+  join a SQLite transaction, so upserts follow the commit; a failure there leaves rows
+  without vectors. That **is** recoverable — a test fails the upsert at chunk 3, then
+  runs `reconcile_vectors()` and asserts every chunk has a vector — so the fix turns the
+  unrecoverable failure into the recoverable one rather than removing failure. Nothing
+  runs the repair automatically. **No `extraction_status` value was added and no schema
+  changed**; an artifact whose indexing failed outright is still `extracted` with zero
+  chunks, and nothing re-indexes it.
 - `[built]` **`source_type="file"`, `source_trust="secondhand"`** (O1). An
   uploaded document is not the entity's own experience. Nothing assumes
   otherwise — every consumer was traced, there is no CHECK constraint, and

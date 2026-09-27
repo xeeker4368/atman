@@ -57,8 +57,23 @@ def index_text(
 ) -> tuple[int, list[str]]:
     """Chunk, embed and store. Returns ``(count, chunk_ids)``.
 
-    **Embedding precedes every write**, so an unreachable model leaves nothing behind
-    rather than a half-indexed artifact — ``chunking.py``'s rule, for its reason.
+    **Every chunk is embedded before any row is written, and the rows are written
+    in one transaction** — so an embedding failure on any chunk, or a failed
+    write, leaves no chunk rows at all rather than a half-indexed artifact.
+
+    This used to be embed-then-insert *per chunk*, with each insert its own
+    transaction, while this docstring claimed the whole-artifact property. A
+    failure at chunk N left 0…N-1 committed under an artifacts row saying
+    ``extracted`` — and permanently, since a re-upload hits the duplicate check
+    and never re-indexes. Holding the vectors costs little: the character ceiling
+    is ~400 chunks, ~2.4 MB of floats.
+
+    **What this does not make atomic: the vector store.** Upserts run after the
+    commit, because ChromaDB cannot join a SQLite transaction. A failure there
+    leaves rows without vectors — the one inconsistency
+    ``scripts/reconcile_vectors.py`` exists to repair, and a test drives that
+    repair. So the unrecoverable failure became the recoverable one; failure as
+    such was not eliminated.
 
     ``source_type`` and ``source_trust`` come from the kind registry rather than from
     a caller's argument, so an artifact cannot be indexed under provenance that
@@ -76,22 +91,28 @@ def index_text(
     if not chunks:
         return 0, []
 
+    # Embed all first: nothing is written until every chunk has a vector.
+    embedded = [(uuid.uuid4().hex, body, ollama.embed(body)) for body in chunks]
+
+    db.insert_chunks(
+        [
+            {
+                "chunk_id": chunk_id,
+                "conversation_id": None,
+                "user_id": user_id,
+                "text": body,
+                "source_type": kind.source_type,
+                "source_trust": kind.source_trust,
+                "text_sha256": hashlib.sha256(body.encode("utf-8")).hexdigest(),
+                "chunk_index": index,
+                "artifact_id": artifact_id,
+            }
+            for index, (chunk_id, body, _) in enumerate(embedded)
+        ]
+    )
+
     store = vectors.get_vector_store()
-    written: list[str] = []
-    for index, body in enumerate(chunks):
-        vector = ollama.embed(body)
-        chunk_id = uuid.uuid4().hex
-        db.insert_chunk(
-            chunk_id=chunk_id,
-            conversation_id=None,
-            user_id=user_id,
-            text=body,
-            source_type=kind.source_type,
-            source_trust=kind.source_trust,
-            text_sha256=hashlib.sha256(body.encode("utf-8")).hexdigest(),
-            chunk_index=index,
-            artifact_id=artifact_id,
-        )
+    for index, (chunk_id, _, vector) in enumerate(embedded):
         store.upsert(
             chunk_id,
             vector,
@@ -103,7 +124,7 @@ def index_text(
                 "source_trust": kind.source_trust,
             },
         )
-        written.append(chunk_id)
+    written = [chunk_id for chunk_id, _, _ in embedded]
     logger.info(
         "indexed %s as %d %s chunk(s)", artifact_id[:8], len(written), kind.source_type
     )

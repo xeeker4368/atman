@@ -42,8 +42,14 @@ idle-close exists as its own task rather than being assumed.
 Ordering and failure
 --------------------
 Per chunk: embed, then insert the row, then hand the vector to the store.
-Embedding first is what makes failure harmless — a raise leaves nothing written
-at all. Nothing is ever deleted, so a failure cannot remove content that was
+Embedding first means a raise leaves nothing written **for that chunk** — not for
+the run: chunks sealed earlier in the same run are already committed, each in its
+own transaction (see the next paragraph). *This sentence used to say "a raise
+leaves nothing written at all", which is true per chunk only; corrected
+2026-09-24 alongside the artifact path's identical overclaim, which was fixed in
+behaviour. The conversation path's behaviour is unchanged — batching it would
+alter ``db.insert_chunk``'s per-row concurrency arbiter and is its own review.*
+Nothing is ever deleted, so a failure cannot remove content that was
 retrievable a moment ago, which is how the reference build lost chunks to
 transient errors.
 

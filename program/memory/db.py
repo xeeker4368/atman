@@ -823,20 +823,77 @@ def insert_chunk(
     ``(conversation_id, chunk_index)`` — which is how two concurrent writers are
     resolved rather than by locking alone.
     """
+    with transaction() as conn:
+        _insert_chunk_row(
+            conn,
+            chunk_id=chunk_id,
+            conversation_id=conversation_id,
+            user_id=user_id,
+            text=text,
+            source_type=source_type,
+            source_trust=source_trust,
+            text_sha256=text_sha256,
+            chunk_index=chunk_index,
+            first_message_id=first_message_id,
+            last_message_id=last_message_id,
+            artifact_id=artifact_id,
+            now=now_iso(),
+        )
+
+
+@retry_on_locked
+def insert_chunks(rows: Sequence[dict[str, Any]]) -> None:
+    """Write several chunk rows in ONE transaction — all of them or none.
+
+    Each row takes :func:`insert_chunk`'s keyword arguments. Exists for the
+    artifact path (``indexing.index_text``), where a document is one unit: a
+    failure part-way through a per-row loop left chunks 0…N-1 committed under an
+    artifacts row claiming ``extracted``, and the duplicate-upload check then made
+    that permanent.
+
+    **Not used for conversation chunks, deliberately.** There the partial unique
+    index on ``(conversation_id, chunk_index)`` is the per-row concurrency arbiter
+    :func:`insert_chunk` documents; batching would move a collision from one row to
+    the whole batch, which is a change to that guarantee and needs its own review.
+    Artifact chunks carry ``conversation_id = NULL`` and are outside that index, so
+    batching them changes no arbiter.
+    """
+    if not rows:
+        return
     now = now_iso()
     with transaction() as conn:
-        conn.execute(
-            """INSERT INTO chunks
-                   (id, conversation_id, user_id, text, source_type, source_trust,
-                    chunk_index, first_message_id, last_message_id, text_sha256,
-                    artifact_id, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (
-                chunk_id, conversation_id, user_id, text, source_type, source_trust,
+        for row in rows:
+            _insert_chunk_row(conn, now=now, **row)
+
+
+def _insert_chunk_row(
+    conn: sqlite3.Connection,
+    *,
+    chunk_id: str,
+    conversation_id: str | None,
+    user_id: str | None,
+    text: str,
+    source_type: str,
+    source_trust: str,
+    text_sha256: str,
+    now: str,
+    chunk_index: int | None = None,
+    first_message_id: str | None = None,
+    last_message_id: str | None = None,
+    artifact_id: str | None = None,
+) -> None:
+    conn.execute(
+        """INSERT INTO chunks
+               (id, conversation_id, user_id, text, source_type, source_trust,
                 chunk_index, first_message_id, last_message_id, text_sha256,
-                artifact_id, now, now,
-            ),
-        )
+                artifact_id, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (
+            chunk_id, conversation_id, user_id, text, source_type, source_trust,
+            chunk_index, first_message_id, last_message_id, text_sha256,
+            artifact_id, now, now,
+        ),
+    )
 
 
 # ---------------------------------------------------------------------------
