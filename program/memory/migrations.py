@@ -16,7 +16,9 @@ two different schemas that both claim to be version N.
 
 Migrations run inside a transaction and record themselves in ``schema_version``
 as part of that same transaction, so a failure leaves neither the change nor the
-version row.
+version row. **A multi-statement migration must use ``_execute_script``, never
+``conn.executescript``**, which commits the open transaction first and so voids
+that guarantee — see ``_execute_script``.
 """
 
 from __future__ import annotations
@@ -40,6 +42,47 @@ class Migration:
     version: int
     name: str
     apply: Callable[[sqlite3.Connection], None]
+
+
+def _statements(script: str) -> list[str]:
+    """Split a multi-statement script into complete statements, in order.
+
+    Uses ``sqlite3.complete_statement`` rather than splitting on ``;``, because a
+    trigger body carries its own semicolons (``BEGIN … END;``) and a naive split
+    would cut it in half.
+    """
+    statements: list[str] = []
+    pending = ""
+    for line in script.splitlines(keepends=True):
+        pending += line
+        if sqlite3.complete_statement(pending):
+            if pending.strip():
+                statements.append(pending.strip())
+            pending = ""
+    if pending.strip():
+        raise ValueError(f"incomplete SQL statement at end of script: {pending.strip()[:80]!r}")
+    return statements
+
+
+def _execute_script(conn: sqlite3.Connection, script: str) -> None:
+    """Run a multi-statement script **inside** the caller's transaction.
+
+    Never ``conn.executescript()`` in a migration. ``executescript`` issues an
+    implicit ``COMMIT`` of any open transaction before it runs, so inside
+    ``run_working_migrations()``'s transaction it silently committed every earlier
+    migration *and* the destructive steps before it, then ran the rest outside any
+    transaction. A failure part-way left the database half-migrated with no
+    version recorded, and ``db.transaction()``'s ``ROLLBACK`` then raised
+    *"cannot rollback - no transaction is active"*, replacing the real error
+    (merged-queue item 8, plan B3). Measured before the fix: ``in_transaction``
+    True before ``executescript``, False after. Migration 6 drops and recreates
+    ``supersedes`` before creating its two cycle-guard triggers, so a failure in
+    between left the table with no cycle guards and nothing reporting it.
+    """
+    for statement in _statements(script):
+        conn.execute(statement)
+    if not conn.in_transaction:  # pragma: no cover - a guard, not a path
+        raise RuntimeError("a migration statement ended the transaction it ran in")
 
 
 # Version 1 is the initial schema in working.sql, recorded as applied when the
@@ -187,7 +230,7 @@ def _v5_supersedes_by_message(conn: sqlite3.Connection) -> None:
     conn.execute("DROP TRIGGER IF EXISTS supersedes_no_cycle_insert")
     conn.execute("DROP TRIGGER IF EXISTS supersedes_no_cycle_update")
     conn.execute("DROP TABLE IF EXISTS supersedes")
-    conn.executescript("""
+    _execute_script(conn, """
         CREATE TABLE supersedes (
             id                      TEXT PRIMARY KEY,
             superseding_message_id  TEXT NOT NULL,
@@ -284,7 +327,7 @@ def _v6_supersedes_replacement(conn: sqlite3.Connection) -> None:
     conn.execute("DROP TRIGGER IF EXISTS supersedes_no_cycle_insert")
     conn.execute("DROP TRIGGER IF EXISTS supersedes_no_cycle_update")
     conn.execute("DROP TABLE IF EXISTS supersedes")
-    conn.executescript("""
+    _execute_script(conn, """
         CREATE TABLE supersedes (
             id                      TEXT PRIMARY KEY,
             superseding_message_id  TEXT NOT NULL,

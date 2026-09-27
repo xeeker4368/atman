@@ -205,3 +205,142 @@ def test_the_replacement_column_is_not_in_working_sql():
         "version 1's chunk-level definition is the historical record; migrations 5 "
         "and 6 are what bring a fresh store up to message granularity"
     )
+
+
+# --- a multi-statement migration that fails part-way (merged-queue item 8, B3) ---
+#
+# The existing failure test above uses a migration built from `conn.execute`, which
+# was never the broken path. Migrations 5 and 6 used `executescript`, which COMMITs
+# the open transaction before running, so a failure part-way left the store
+# half-migrated and `db.transaction()`'s ROLLBACK raised "cannot rollback - no
+# transaction is active" in place of the real error. These tests drive the failure
+# through the real migrations, at the exact point the plan named: after the table
+# recreate, before the cycle-guard triggers.
+
+import sqlite3  # noqa: E402
+
+INJECTED = "INSERT INTO injected_mid_migration_failure VALUES (1)"
+
+
+def _store_at(version, monkeypatch):
+    """A fresh store with migrations applied up to and including `version`."""
+    full = list(migrations.MIGRATIONS)
+    monkeypatch.setattr(
+        migrations, "MIGRATIONS", [m for m in full if m.version <= version])
+    db.init_databases()
+    monkeypatch.setattr(migrations, "MIGRATIONS", full)
+    assert migrations.current_version() == version
+
+
+def _inject_before_triggers(monkeypatch):
+    """Returns the real splitter so the caller can put it back.
+
+    Restored by hand, never with `monkeypatch.undo()`: `isolated_data_dir` shares
+    the same monkeypatch, so undoing it re-points the data directory at the REAL
+    store. The first draft of the recovery check below did exactly that and passed
+    against the real (already version 6) store without testing anything."""
+    real = migrations._statements
+
+    def with_failure(script):
+        out = []
+        for statement in real(script):
+            if statement.startswith("CREATE TRIGGER supersedes_no_cycle_insert"):
+                out.append(INJECTED)
+            out.append(statement)
+        return out
+
+    monkeypatch.setattr(migrations, "_statements", with_failure)
+    return real
+
+
+def _supersedes_shape():
+    with db.connection() as conn:
+        columns = {r["name"] for r in conn.execute("PRAGMA table_info(supersedes)")}
+        triggers = {r["name"] for r in conn.execute(
+            "SELECT name FROM sqlite_schema WHERE type = 'trigger' "
+            "AND tbl_name = 'supersedes'")}
+        rows = conn.execute("SELECT COUNT(*) FROM supersedes").fetchone()[0]
+    return columns, triggers, rows
+
+
+GUARDS = {"supersedes_no_cycle_insert", "supersedes_no_cycle_update"}
+
+
+def test_migration_six_failing_before_its_triggers_rolls_back_completely(
+    isolated_data_dir, monkeypatch
+):
+    _store_at(5, monkeypatch)
+    uid = db.create_user("Lyle", role="admin")
+    cid = db.start_conversation(uid)
+    old = db.save_message(cid, uid, "user", "It was Tuesday.")
+    new = db.save_message(cid, uid, "user", "Actually Wednesday.")
+    with db.transaction() as conn:  # a version-5 link, written in version 5's shape
+        conn.execute(
+            "INSERT INTO supersedes (id, superseding_message_id, superseded_message_id, "
+            "created_at) VALUES ('l1', ?, ?, ?)", (new, old, db.now_iso()))
+    before = _supersedes_shape()
+    assert "replacement" not in before[0] and before[1] == GUARDS and before[2] == 1
+
+    real = _inject_before_triggers(monkeypatch)
+    with pytest.raises(sqlite3.OperationalError, match="injected_mid_migration_failure"):
+        migrations.run_working_migrations()
+
+    assert migrations.current_version() == 5, "a failed migration recorded a version"
+    assert _supersedes_shape() == before, (
+        "the table was left dropped, recreated, or without its cycle guards")
+
+    # and the failure is recoverable: the same migration applies cleanly next time
+    monkeypatch.setattr(migrations, "_statements", real)
+    assert str(db.working_path()).startswith(str(isolated_data_dir)), "left the temp store"
+    migrations.run_working_migrations()
+    assert migrations.current_version() == max(m.version for m in migrations.MIGRATIONS)
+    columns, triggers, _ = _supersedes_shape()
+    assert "replacement" in columns and triggers == GUARDS
+
+
+def test_migration_five_failing_before_its_triggers_rolls_back_completely(
+    isolated_data_dir, monkeypatch
+):
+    _store_at(4, monkeypatch)
+    before = _supersedes_shape()
+    assert "superseding_chunk_id" in before[0], "precondition: version 4's chunk links"
+
+    _inject_before_triggers(monkeypatch)
+    with pytest.raises(sqlite3.OperationalError, match="injected_mid_migration_failure"):
+        migrations.run_working_migrations()
+
+    assert migrations.current_version() == 4
+    assert _supersedes_shape() == before
+
+
+def test_the_statement_splitter_keeps_trigger_bodies_whole():
+    """A naive split on ';' would cut `BEGIN … END;` in half."""
+    script = """
+        CREATE TABLE t (a INTEGER);
+        CREATE TRIGGER tr BEFORE INSERT ON t
+        BEGIN
+            SELECT RAISE(ABORT, 'no; really');
+        END;
+        CREATE INDEX i ON t(a);
+    """
+    statements = migrations._statements(script)
+
+    assert len(statements) == 3
+    assert statements[1].startswith("CREATE TRIGGER") and statements[1].endswith("END;")
+
+
+def test_no_migration_uses_executescript():
+    """The structural half: `executescript` commits the open transaction, so it can
+    never appear in a migration. Checked on the code, not on a comment — the
+    docstrings name it, so this looks for the call."""
+    import ast
+    import inspect
+
+    tree = ast.parse(inspect.getsource(migrations))
+    calls = [
+        node for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "executescript"
+    ]
+    assert calls == []

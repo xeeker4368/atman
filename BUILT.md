@@ -551,6 +551,23 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   see `program/memory/supersession.py`.*
 - `[built]` **Versioned migration runner** (`program/memory/migrations.py`).
   Forward-only, transactional, records versions as part of the same transaction.
+  **Transactional in fact since B3 (2026-09-24); before that, not for migrations 5
+  and 6.** Both used `conn.executescript()`, which **COMMITs any open transaction
+  before running** — so inside `run_working_migrations()`'s transaction it committed
+  every earlier migration and the destructive `DROP TABLE supersedes`, then ran the
+  rest outside any transaction. Injected failure between the table recreate and the
+  cycle-guard triggers, measured against the old code: `ROLLBACK` raised *"cannot
+  rollback - no transaction is active"* **in place of the real error**, with the
+  version unrecorded. Migration 6 failing there would have left `supersedes` with **no
+  cycle guards** and nothing reporting it. Now `_execute_script()` runs each statement
+  (split with `sqlite3.complete_statement`, so trigger bodies stay whole) through
+  `conn.execute` inside the caller's transaction. **Forced-failure tests for both
+  migrations** assert the original error surfaces, the version is unchanged, the
+  pre-migration table *and both triggers* are intact, a seeded link survives, and a
+  clean retry then applies; **restoring `executescript` fails both with the original
+  "cannot rollback" message**, and an AST check fails on any `executescript` call in the
+  module. *The earlier `test_failed_migration_records_no_version` passed throughout — its
+  migration used `conn.execute`, never the broken path.*
   `MIGRATIONS` is empty; version 1 is the initial schema. The archive has no
   migration path by design.
 - `[built]` **Tables asserted absent**: no review queue, no self-modification
