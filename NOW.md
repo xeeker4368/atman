@@ -237,25 +237,14 @@ extracted text is reproducible from it — but "provenance is sacred" holds more
 weakly here than elsewhere. Revisit if ingested documents turn out to carry the
 kind of history the archive exists to protect.
 
-**The entity's `users` row can be turned into an account** (Phase 4 P0,
-2026-09-21). `db.entity_user_id()` creates a real row in `users` so that a write
-with no person present has something to attribute to (artifacts.user_id is NOT
-NULL). It is kept inert by `password_hash` being NULL — *a NULL hash never
-authenticates* — and **not** by its role, which is `user` because
-`CHECK (role IN ('admin', 'user'))` allows nothing else without recreating the
-table.
-
-**The gap:** `scripts/set_password.py` takes any user by name and sets a hash. Run
-against `__entity__` it would produce a working login for a row that is not a
-person, and every route behind `require_actor` would then accept it. Nothing
-currently prevents that, and nothing detects it afterwards.
-
-**Closing it means an auth-side guard** — refusing credential operations and token
-issue for the reserved id — which falls under `AGENTS.md`'s authentication
-checkpoint ("credential verification, session-token issue and expiry, and anything
-that decides which `Actor` a request produces"), so it is its own Tier 3 change
-rather than a patch alongside Phase 4. Tracked here so it is not left sitting in a
-changelog.
+**~~The entity's `users` row can be turned into an account~~ — CLOSED 2026-09-24
+(plan B6b, Tier 3).** The row stays inert through a NULL `password_hash`, and every
+route to changing that is now refused: `db.set_password_hash` refuses the reserved
+row, `scripts/set_password.py` refuses it by name before prompting, `auth.login`
+refuses the name (through the same dummy verification as an unknown name, so timing
+does not single it out), and `auth.actor_for_header` refuses a token for its id, so
+no route behind `require_actor` can run as the entity. Each guard is proven by a
+break test. See `changelog/2026-09-24-b6b-login-bounds-and-entity-row.md`.
 
 **How the entity should describe supersession** (raised 2026-09-22, CO10.3). Not
 urgent, and not a defect in any mechanism — recorded so it has somewhere to land.

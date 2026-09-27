@@ -40,6 +40,13 @@ def main(argv: list[str]) -> int:
     name = argv[1]
     operator = Actor.operator()
 
+    if name == db.ENTITY_USER_NAME:
+        # Named plainly, for an operator: this row is how unattended writes are
+        # attributed, and a NULL password is what keeps it from being an account.
+        print(f"{name!r} is the entity's reserved row, not a person; it cannot have "
+              f"a password.")
+        return 1
+
     user = db.get_user_by_name(name)
     if user is None:
         # Named plainly: this is an operator at a shell, not a login attempt.
@@ -51,6 +58,10 @@ def main(argv: list[str]) -> int:
     password = getpass.getpass(f"New password for {user['name']} ({user['role']}): ")
     if not password:
         print("empty password; nothing changed")
+        return 1
+    if len(password) > auth.MAX_PASSWORD_CHARS:
+        print(f"password is over {auth.MAX_PASSWORD_CHARS} characters, which login "
+              f"refuses; nothing changed")
         return 1
     if password != getpass.getpass("Confirm: "):
         print("passwords did not match; nothing changed")

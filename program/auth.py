@@ -241,6 +241,25 @@ def verify_token(token: str | None, *, now: float | None = None) -> str | None:
 
 
 # ---------------------------------------------------------------------------
+# Input bounds (merged-queue item 16, login half; plan B6b)
+# ---------------------------------------------------------------------------
+
+#: Longest name and password a login will consider. **Judgment values**, sized far
+#: above any real household name or password so that no real credential is refused.
+#: They exist because both were unbounded and pre-auth: a name went into the
+#: throttle's dict as a key and into the log line on every throttled attempt, and
+#: a password went into the KDF, all before anyone had authenticated.
+#: ``scripts/set_password.py`` refuses a password over the cap, so one that could
+#: never be used to log in cannot be set.
+MAX_NAME_CHARS = 128
+MAX_PASSWORD_CHARS = 1024
+
+
+def within_bounds(name: str, password: str) -> bool:
+    return len(name) <= MAX_NAME_CHARS and len(password) <= MAX_PASSWORD_CHARS
+
+
+# ---------------------------------------------------------------------------
 # Login throttling (A8)
 # ---------------------------------------------------------------------------
 
@@ -277,8 +296,22 @@ class LoginThrottle:
     def record_failure(self, name: str, *, now: float | None = None) -> None:
         moment = time.monotonic() if now is None else now
         with self._lock:
+            self._sweep(moment)
             recent = self._prune(name, moment)
             self._failures[name] = [*recent, moment]
+
+    def _sweep(self, now: float) -> None:
+        """Drop every name whose failures have all left the window.
+
+        ``_prune`` only ever tidied the name being asked about, so a name that
+        failed once and was never tried again stayed in the dict for the life of
+        the process — every distinct submitted name accumulated, pre-auth (plan
+        B6b). Sweeping on each recorded failure bounds the dict to the names that
+        failed within the last minute.
+        """
+        for stale in [n for n, times in self._failures.items()
+                      if not any(now - t < 60.0 for t in times)]:
+            del self._failures[stale]
 
     def clear(self, name: str) -> None:
         """Forget a name's failures. Called on a successful login."""
@@ -307,7 +340,25 @@ def login(name: str, password: str) -> str | None:
     Every failure returns ``None``: unknown name, wrong password, a user with no
     password set, and a throttled caller alike. The caller turns that into one
     uninformative 401 (A8).
+
+    **Two refusals come before the throttle.** Over-long input is refused without
+    touching the throttle's dict or logging the name (only its length), since both
+    were unbounded pre-auth paths. And the entity's reserved row, ``__entity__``,
+    is refused however it is asked for — it is not an account (plan B6b) — through
+    the same dummy verification as an unknown name, so timing cannot single it out.
     """
+    if not within_bounds(name, password):
+        logger.warning(
+            "login refused: input over length (name %d chars, password %d chars)",
+            len(name), len(password),
+        )
+        return None
+
+    if name == db.ENTITY_USER_NAME:
+        verify_password(password, _dummy_hash())
+        logger.warning("login refused for the entity's reserved row")
+        return None
+
     if not throttle.allows(name):
         # Deliberately not a distinct return value. A caller that could tell
         # "throttled" from "wrong password" would hand an attacker a probe, and
@@ -372,4 +423,11 @@ def actor_for_header(authorization: str | None) -> Actor | None:
 
     # get_actor returns None for an unknown id rather than inventing an actor,
     # which is what makes a token for a deleted user fail rather than crash.
-    return db.get_actor(user_id)
+    actor = db.get_actor(user_id)
+    if actor is not None and actor.name == db.ENTITY_USER_NAME:
+        # A signed token for the entity's row can only exist if something issued
+        # one around `login()`. Refused here too, so no route behind
+        # `require_actor` ever runs as the entity (plan B6b).
+        logger.warning("refused a token for the entity's reserved row")
+        return None
+    return actor

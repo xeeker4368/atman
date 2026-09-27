@@ -386,6 +386,12 @@ def set_password_hash(user_id: str, password_hash: str) -> None:
         raise ValueError("refusing to store an empty password hash")
 
     with transaction() as conn:
+        row = conn.execute("SELECT name FROM users WHERE id = ?", (user_id,)).fetchone()
+        if row is not None and row["name"] == ENTITY_USER_NAME:
+            # A NULL hash is what keeps the entity's row from being an account:
+            # "a NULL hash never authenticates". Setting one would create a working
+            # login for a row that is not a person (NOW.md backlog, plan B6b).
+            raise ValueError("refusing to set a password on the entity's reserved row")
         cursor = conn.execute(
             "UPDATE users SET password_hash = ? WHERE id = ?",
             (password_hash, user_id),

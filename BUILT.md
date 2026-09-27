@@ -1248,11 +1248,10 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   but an entity-owned conversation is one ordinary Phase 5 task away and the
   chunk-text path cannot be un-taken. Three tests pin the *finding*, not just the
   conclusion, so if either path closes the reasoning fails loudly.
-- `[unverified]` **Residual: an operator could set a password on the entity row**
-  with `scripts/set_password.py`, after which it could authenticate and every route
-  behind `require_actor` would accept it. Closing it needs an auth-side guard, which
-  falls under `AGENTS.md`'s authentication checkpoint — its own Tier 3 change.
-  **Tracked as a named item in `NOW.md`'s backlog**, not left in a changelog.
+- `[built]` **The entity row cannot become an account** (closed 2026-09-24, plan B6b —
+  see Authentication). It had been an open residual: `scripts/set_password.py` would set
+  a hash on `__entity__`, after which every route behind `require_actor` would have
+  accepted it.
 - `[unverified]` **Nothing uses any of it yet.** Attribution is exercised by a
   TEST-ONLY tool and by the loop/turn tests; `AttributionContext.for_entity()` is
   reachable and tested but has no caller. `workspace/` is still **not gitignored, not
@@ -3394,6 +3393,30 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   needs a restart, since it is bootstrap-only. The upgrade is a sessions table.
   The throttle is likewise in-process only — it resets on restart and is keyed
   by submitted name.
+- `[built]` **Login input is bounded, the throttle forgets, and the entity row is not an
+  account** (2026-09-24, merged-queue items 16 login half and 24, plan B6b, Tier 3).
+  **Bounds**: `name` and `password` were unbounded **pre-auth** — the name became a key
+  in the throttle's dict and went into the throttled-login log line, and the password
+  into scrypt. `auth.MAX_NAME_CHARS = 128` and `MAX_PASSWORD_CHARS = 1024` (judgment
+  values, far above any real credential) are checked first; an over-long attempt gets
+  **the same 401 bytes** as any failure (A8), never touches the throttle, never reaches
+  the KDF, and is logged by **length only**. `set_password.py` refuses a password over
+  the cap, so one login would refuse cannot be set. **Throttle memory**: `_prune` only
+  tidied the name being asked about, so every distinct name that failed once stayed in
+  memory for the life of the process; each recorded failure now sweeps every name whose
+  failures have left the window. **The entity row** (`__entity__`) is refused at four
+  points — `db.set_password_hash`, `set_password.py` (by name, before prompting),
+  `auth.login` (via the dummy verification an unknown name gets, so timing does not
+  single it out) and `auth.actor_for_header` (a token for its id) — so no route behind
+  `require_actor` can run as the entity. **Six guards, six break tests**: removing each
+  fails its own test.
+- `[unverified]` **Still in-process and still name-keyed.** The throttle resets on restart
+  and cannot slow guessing spread across names (A8's stated scope, unchanged); the sweep
+  bounds its memory to names that failed in the last minute, not to a fixed size. A user
+  created with a name over 128 characters could not log in — `create_user` does not
+  enforce the bound, and every real name is far shorter. **Tracked as queue item B18** (low priority, raised
+  at review 2026-09-24): enforce the same bound where users are created, so the two cannot
+  disagree.
 - `[built]` **`require_actor` has a production consumer as of 2026-09-08**:
   `POST /api/chat` (task 2.2) is the first authenticated route in the
   application, and the `Actor` it produces is the one attributed on every

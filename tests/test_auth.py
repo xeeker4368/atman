@@ -439,3 +439,128 @@ def test_the_password_is_never_stored_in_the_clear(client, store):
 def test_the_health_endpoint_stays_public(client):
     """start.sh polls it for readiness; authentication must not break that."""
     assert client.get("/api/health").status_code == 200
+
+
+# --- B6b: input bounds, the throttle's memory, and the entity's row ----------
+
+
+def test_an_over_long_name_is_the_same_401_and_never_enters_the_throttle(
+    client, caplog
+):
+    """Both were unbounded pre-auth paths: the name became a key in the throttle's
+    dict and went into the log line. Refused before either, with only its length
+    logged."""
+    long_name = "n" * (auth.MAX_NAME_CHARS + 1)
+    ordinary = _login(client, password="not the password")
+
+    with caplog.at_level("WARNING"):
+        refused = _login(client, name=long_name)
+
+    assert refused.status_code == 401
+    assert refused.content == ordinary.content, "same bytes as any other failure (A8)"
+    assert long_name not in auth.throttle._failures
+    assert long_name not in caplog.text
+    assert "over length" in caplog.text
+
+
+def test_an_over_long_password_is_refused_before_the_kdf(client, monkeypatch):
+    def forbidden(*args, **kwargs):
+        raise AssertionError("an over-long password must not reach scrypt")
+
+    monkeypatch.setattr(auth, "verify_password", forbidden)
+    refused = _login(client, password="p" * (auth.MAX_PASSWORD_CHARS + 1))
+
+    assert refused.status_code == 401
+
+
+def test_inputs_exactly_at_the_bounds_go_through_the_normal_path(client):
+    name = "n" * auth.MAX_NAME_CHARS
+
+    assert _login(client, name=name, password="p" * auth.MAX_PASSWORD_CHARS).status_code == 401
+    assert name in auth.throttle._failures, "it was a real attempt, so it was counted"
+
+
+def test_the_throttle_forgets_names_whose_failures_have_expired(store):
+    """`_prune` only ever tidied the name being asked about, so every distinct name
+    that failed once stayed in memory for the life of the process."""
+    throttle = auth.LoginThrottle()
+    for n in range(100):
+        throttle.record_failure(f"probe-{n}", now=0.0)
+    assert len(throttle._failures) == 100
+
+    throttle.record_failure("later", now=61.0)
+
+    assert list(throttle._failures) == ["later"]
+
+
+def test_the_throttle_still_counts_recent_failures_after_a_sweep(store):
+    throttle = auth.LoginThrottle()
+    throttle.record_failure("old", now=0.0)
+    throttle.record_failure("recent", now=30.0)
+    throttle.record_failure("trigger", now=61.0)
+
+    assert "old" not in throttle._failures
+    assert throttle._failures["recent"] == [30.0]
+
+
+def test_a_password_cannot_be_set_on_the_entity_row(store):
+    """NOW.md backlog: a NULL hash is what keeps `__entity__` from being an
+    account, and `set_password.py` would have set one for any name."""
+    entity = db.entity_user_id()
+
+    with pytest.raises(ValueError, match="entity"):
+        db.set_password_hash(entity, auth.hash_password(PASSWORD))
+
+    assert db.get_user(entity)["password_hash"] is None
+
+
+def test_the_entity_row_cannot_log_in_even_if_it_somehow_had_a_password(client):
+    """Defence in depth: a hash written around `set_password_hash` still does not
+    produce a login."""
+    entity = db.entity_user_id()
+    with db.transaction() as conn:  # bypassing the guard on purpose
+        conn.execute("UPDATE users SET password_hash = ? WHERE id = ?",
+                     (auth.hash_password(PASSWORD), entity))
+
+    refused = _login(client, name=db.ENTITY_USER_NAME)
+
+    assert refused.status_code == 401
+
+
+def test_a_token_for_the_entity_row_is_refused(client):
+    """A signed token for the entity's id could only exist if something issued one
+    around `login()`. No route behind `require_actor` may run as the entity."""
+    token = auth.issue_token(db.entity_user_id())
+
+    assert auth.actor_for_header(f"Bearer {token}") is None
+    response = client.get("/api/test-only-whoami",
+                          headers={"Authorization": f"Bearer {token}"})
+    assert response.status_code == 401
+
+
+def test_the_set_password_script_refuses_the_entity_row_before_prompting(
+    store, monkeypatch, capsys
+):
+    from scripts import set_password
+
+    def no_prompt(*args, **kwargs):
+        raise AssertionError("must refuse before asking for a password")
+
+    monkeypatch.setattr(set_password.getpass, "getpass", no_prompt)
+    db.entity_user_id()
+
+    assert set_password.main(["set_password.py", db.ENTITY_USER_NAME]) == 1
+    assert "not a person" in capsys.readouterr().out
+
+
+def test_the_set_password_script_refuses_a_password_login_would_refuse(
+    store, monkeypatch, capsys
+):
+    from scripts import set_password
+
+    monkeypatch.setattr(set_password.getpass, "getpass",
+                        lambda *a, **k: "p" * (auth.MAX_PASSWORD_CHARS + 1))
+
+    assert set_password.main(["set_password.py", "Jodie"]) == 1
+    assert "nothing changed" in capsys.readouterr().out
+    assert db.get_user(store["jodie"])["password_hash"] is None
