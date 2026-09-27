@@ -155,6 +155,23 @@ and a re-read of the code over what its docstring claims. When a number matters,
 say which source it came from — and if it came from a derived one, check it
 against the primary before it is reported as a finding.
 
+**A status label is a derived artifact too.** "Fixed", "closed", "queued" and a
+finding's own number live in a report, a changelog line or a queue — none of which
+is the code. Spot-check a status against the code before trusting it, and
+especially before *extending* it: a queue inherited without checking carries its
+errors forward silently, because a closed item is simply absent and absence looks
+like nothing.
+
+- **Occurrence (2026-09-23).** Triaging the diagnostic pass's queue found two errors
+  in its own "closed" list. `unrun_tool` fires on ordinary English was carried as
+  closed; re-running its exact repro flagged **4 of 4** strings, control clean — it
+  had never been fixed. And the multi-chunk half-indexed-artifact finding was
+  dropped from the queue because `changelog/2026-09-22-ambiguous-phrase-attribution.md`
+  numbered the attribution fix **#12** when the published report numbers it **#14** —
+  so a live confirmed bug was marked closed and a genuinely closed one was still
+  queued under the wrong identity. The changelog was mine, and the mis-numbering
+  propagated into a later brief before anyone read the code.
+
 ## Adding a runtime directory
 
 **Any new directory resolved from its own config key gets `backup.py` coverage and
