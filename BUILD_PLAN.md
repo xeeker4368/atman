@@ -333,9 +333,44 @@ meaningful until the full system, UI included, is actually usable.)*
 | Full database wipe execution (decision #16 — no partial-preservation exception) | **3** | Sonnet |
 | Final launch config/profile | 1 | Sonnet |
 | Run all eval/probe harnesses against the final pre-wipe build | 0 | Sonnet |
+| **Pre-go-live soak test** (see below) | 1 | Sonnet |
+
+**Required: a soak test immediately before go-live**, run once the bug-fix queue
+from the 2026-09-22 diagnostic pass has closed out, against a configuration as
+close to the real go-live one as possible.
+
+**What it is for, stated so it is not confused with the verification that closed
+those bugs.** This is a **validation pass on the fixes**, not a re-verification of
+the bugs themselves. Each bug was confirmed and each fix was proven to bite by
+targeted testing — minimal pairs, decorrelated runs, breaking the fix and
+re-running — which is *stronger* evidence about those specific defects than
+incidental soak data could be. The soak's job is the one the first soak actually
+did: **surface what the targeted tests did not anticipate**, under realistic usage,
+in something close to the shipping configuration. A fix that is individually
+correct and collectively wrong is what this is looking for, not a second opinion
+on any single finding.
+
+*Precedent for why it earns a slot: the first soak (2026-09-22, 3 hours) produced
+findings no unit test had — 11 uncaught fabrications on the real store, two false
+`supersedes` links on real traffic, the 300-second model stall, and the
+mid-conversation chunking gap. None of those came from a targeted test, because
+nobody knew to write one.*
+
+**Constraint, stated plainly rather than discovered later: any pre-go-live soak is
+necessarily synthetic.** Until the UI exists, Lyle has no way to converse with the
+entity directly, so this is a scripted driver — as the first one was — and not a
+human using the system. Scripted traffic is written by whoever expects a
+particular shape of problem, which is the same blind spot the soak exists to cover,
+so this does not fully retire the risk.
+
+**Revisit once the UI ships** (Phase 9). At that point a **human-driven soak/usage
+pass** should be added as its own separate checklist line — not a substitute for the
+scripted one and not a merge with it. Real use is the only thing that exercises
+what a script's author did not think to send.
 
 **Checkpoint:** this is the point of no return for this build's test data.
-Confirm explicitly with Lyle before executing the wipe.
+Confirm explicitly with Lyle before executing the wipe. The soak runs **before**
+the wipe, on the pre-wipe build, alongside the eval/probe harnesses.
 
 ---
 
