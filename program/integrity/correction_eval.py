@@ -48,7 +48,6 @@ from pathlib import Path
 from typing import Any
 
 from program import config
-from program.engine import ollama
 from program.integrity import corrections
 
 CASES_PATH = config.PROJECT_ROOT / "eval" / "corrections" / "cases.toml"
@@ -269,10 +268,17 @@ class CaseResult:
 def sample_once(case: Case) -> RunOutcome:
     """One `corrections.classify` call, scored into one of the four outcomes.
 
-    **An unusable reply is scored, not excluded.** Only a classifier that could
-    not be reached at all becomes ``unavailable``. If the model answers and the
-    answer cannot be used — no verdict, several candidates, or (since RO1) a
-    candidate named with no ``REPLACED``/``CONTRADICTED`` label — production writes
+    **An unusable reply is scored, not excluded.** Only a classifier that did not
+    judge at all becomes ``unavailable`` — unreachable, timed out, an HTTP error
+    status, or a body that is not JSON. The line is drawn by type:
+    ``corrections.UnusableReplyError`` means the model answered and the answer could
+    not be used; anything else means no judgment happened. Until plan B7 both
+    arrived as ``ollama.OllamaResponseError`` and were scored as unusable, so a
+    server returning 500s produced a report of clean rates with nothing classified.
+
+    If the model answers and the answer cannot be used — no verdict, several
+    candidates, or (since RO1) a candidate named with no
+    ``REPLACED``/``CONTRADICTED`` label — production writes
     no link, so that is exactly how it is scored here. Folding it into
     ``unavailable`` would drop those runs from the denominator and let a model that
     systematically omits the label report a clean 0% while linking nothing.
@@ -282,9 +288,9 @@ def sample_once(case: Case) -> RunOutcome:
             case.new_message, "harness-new", case.pool(), case.speaker_role,
             case.speaker if case.speaker_role == "user" else "the system",
         )
-    except ollama.OllamaResponseError:
+    except corrections.UnusableReplyError:
         return RunOutcome(OK if not case.should_link else MISSED, unusable=True)
-    except Exception:  # noqa: BLE001 — the classifier was unreachable, not wrong
+    except Exception:  # noqa: BLE001 — no judgment was made: unreachable, not wrong
         return RunOutcome(UNAVAILABLE)
 
     if result is None:

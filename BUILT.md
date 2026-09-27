@@ -2871,6 +2871,23 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   state 0/140 = 0%. 15 PASS, 1 FAIL, 0 UNSTABLE**, every case unanimous. The four
   outcomes partition the 140 expected-link runs: 120 ok, 20 missed, 0 + 0.
   *This is the measurement of record.*
+- `[built]` **A server error is no longer scored as a judgment** (2026-09-24, merged-queue
+  item 20 / finding #16, plan B7, Tier 2). `corrections._parse` raised
+  `ollama.OllamaResponseError` for an unusable reply, and `ollama.py` raises the same
+  class for an HTTP error status and a non-JSON body — where nothing was judged. The
+  harness told them apart only by type, so a model server returning 500s would have
+  printed **clean rates with nothing classified**. `_parse` now raises its own
+  `corrections.UnusableReplyError` — deliberately **not** a subclass, since sharing a type
+  was the defect — and `correction_eval.sample_once` scores only that as an unusable
+  reply; anything else is `unavailable`. **`classifier.py` is untouched** (the gate's
+  shared framework, O18); production behaviour is unchanged, since `turn.py` treats both
+  as "no link". Restoring the old scoring fails the new HTTP-error test. **End-to-end
+  harness check, not a new measurement of record**: 5 decorrelated passes over the
+  frozen 17 (`39ce8e41…`) against `gemma4:26b` — false links 0/50, missed 5/35 (all `C7`,
+  as recorded), wrong target 0/35, wrong state 0/35, **0 unavailable, 0 unusable**, every
+  case unanimous. *The recorded 340-call run's one unusable reply cannot be re-attributed
+  — no raw report was kept — but it landed on a no-link case, so at most it would move
+  that run's false-link denominator from 200 to 199; no rate changes.*
 - `[built]` **The extended grammar cost nothing measurable.** Every case passing
   before the label still passes, and `wrong_state` is **0 across all 120 runs that
   produced a link** (100 expecting `replaced`, 20 expecting `contradicted`). No
@@ -3473,14 +3490,14 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   no state and asserts about state — has ~20 `db.init_databases()` call sites in
   `tests/` worth a deliberate pass. Not done.*
 
-- `[built]` **Test suite** — 1,140 tests passing plus 2 skipped (`pytest`), `ruff check` clean
-  (2026-09-18). *Two standing failures, both known and neither from this work:
+- `[built]` **Test suite** — 1,234 tests passing plus 2 skipped (`pytest`), `ruff check`
+  clean (2026-09-24; was 1,140 on 2026-09-18). The backup race test is no longer
+  flaky (B14). *Two standing failures, both known and neither from this work:
   `test_a_missing_session_secret_stops_the_server_from_starting`, caused by an
   uncommitted `session_secret` in `config/defaults.toml` (confirmed local-only,
   not a concern); and `test_a_live_search_against_the_real_instance`, which is
-  intermittent because the SearXNG engines rate-limit and CAPTCHA. Separately, the
-  backup race test remains intermittently flaky from the recorded `db.py`
-  write-contention issue above.*
+  intermittent because the SearXNG engines rate-limit and CAPTCHA. *(The backup race
+  test's flakiness, previously listed here, was B14 and is fixed — see Backup.)*
   Verified order-independent across repeated full runs.
 - `[built]` **Store-isolation guard** (`tests/conftest.py`). Captures real paths at
   import before any test can patch them; `StoreIsolationViolation` derives from

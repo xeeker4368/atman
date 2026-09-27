@@ -50,7 +50,6 @@ import sqlite3
 from dataclasses import dataclass
 
 from program import config
-from program.engine import ollama
 from program.integrity import classifier
 from program.memory import chunking, db
 
@@ -132,6 +131,19 @@ _NUMBER = re.compile(r"\d+")
 #: The two states migration 6's CHECK accepts, as the classifier spells them.
 _STATES = {"replaced": "replaced", "contradicted": "contradicted"}
 _NONE = re.compile(r"^\s*NONE\b", re.IGNORECASE)
+
+
+class UnusableReplyError(ValueError):
+    """The classifier answered, and the answer could not be used.
+
+    Its own type, deliberately **not** a subclass of ``ollama.OllamaResponseError``
+    (plan B7). ``_parse`` used to raise that class for an unusable reply, and
+    ``ollama.py`` raises the same class for an HTTP error status or a body that is
+    not JSON — cases where nothing was judged at all. The eval harness could only
+    tell them apart by type, so it scored a server returning 500s as a model that
+    answered unusably: a run against a broken server printed clean rates with
+    nothing classified. Production treats both as "no link", which is still right.
+    """
 
 
 @dataclass(frozen=True)
@@ -262,14 +274,14 @@ def _parse(reply: str) -> tuple[int | None, str, str]:
     """
     text = (reply or "").strip()
     if not text:
-        raise ollama.OllamaResponseError("the correction classifier returned nothing")
+        raise UnusableReplyError("the correction classifier returned nothing")
     if _NONE.match(text):
         return None, "", ""
 
     matches = _CORRECTS.findall(text)
     numbers = [n for group, _label in matches for n in _NUMBER.findall(group)]
     if not numbers:
-        raise ollama.OllamaResponseError(
+        raise UnusableReplyError(
             f"the correction classifier gave no usable verdict: {text[:120]!r}"
         )
     if len(numbers) != 1:
@@ -282,7 +294,7 @@ def _parse(reply: str) -> tuple[int | None, str, str]:
 
     state = _STATES.get(matches[0][1].strip().lower())
     if state is None:
-        raise ollama.OllamaResponseError(
+        raise UnusableReplyError(
             "the correction classifier named a candidate without saying whether the "
             f"value was replaced or only contradicted: {text[:120]!r}"
         )

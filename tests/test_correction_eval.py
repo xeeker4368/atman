@@ -652,3 +652,34 @@ def test_the_script_refuses_a_malformed_case_file(monkeypatch, tmp_path, capsys)
     monkeypatch.setattr(correction_eval, "CASES_PATH", write(tmp_path, "[[case]\n"))
     assert correction_eval_cli.main([]) == 2
     assert "case file error" in capsys.readouterr().err
+
+
+# --- a server error is not a judgment (merged-queue item 20 / finding #16, B7) ---
+
+
+def test_an_http_error_from_the_model_server_is_unavailable_not_a_scored_miss(
+    monkeypatch,
+):
+    """`ollama.py` raises OllamaResponseError for an HTTP error status and for a body
+    that is not JSON. Nothing was judged in either case. Before B7 the harness scored
+    it as an unusable reply, so a run against a server returning 500s printed clean
+    rates with nothing classified."""
+    script_classifier(monkeypatch, ollama.OllamaResponseError("HTTP 500 from /api/chat"))
+
+    result = correction_eval.run([make_case()], runs=3).results[0]
+
+    assert [r.outcome for r in result.runs] == [correction_eval.UNAVAILABLE] * 3
+    t = correction_eval.tally([result])["overall"]
+    assert (t.unavailable, t.unusable_replies, t.link_expected) == (3, 0, 0)
+
+
+def test_an_unusable_reply_is_still_scored_as_production_behaves(monkeypatch):
+    """The other side of the same line: the model answered, and the answer had no
+    verdict. Production writes no link, so it is scored — as a miss here."""
+    script_classifier(monkeypatch, "I am not sure what you mean.")
+
+    result = correction_eval.run([make_case()], runs=2).results[0]
+
+    assert [r.outcome for r in result.runs] == [correction_eval.MISSED] * 2
+    t = correction_eval.tally([result])["overall"]
+    assert (t.unavailable, t.unusable_replies, t.link_expected) == (0, 2, 2)

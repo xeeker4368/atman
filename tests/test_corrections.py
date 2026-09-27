@@ -83,7 +83,7 @@ def test_a_candidate_without_a_state_is_unusable_not_defaulted(reply):
     did identify becomes a miss. That is the safe direction (no wrong link, no
     wrong annotation) and it is a deliberate trade, not an oversight.
     """
-    with pytest.raises(ollama.OllamaResponseError, match="replaced or only contradicted"):
+    with pytest.raises(corrections.UnusableReplyError, match="replaced or only contradicted"):
         corrections._parse(reply)
 
 
@@ -99,7 +99,7 @@ def test_the_state_reaches_the_correction_and_the_row(monkeypatch):
 def test_an_unusable_reply_raises(reply):
     """The shared framework's principle, pointed the other way: a model that
     answered neither form has not said "no correction"."""
-    with pytest.raises(ollama.OllamaResponseError):
+    with pytest.raises(corrections.UnusableReplyError):
         corrections._parse(reply)
 
 
@@ -598,3 +598,20 @@ def test_retrieved_chunks_resolve_in_one_read_not_one_per_chunk(store, monkeypat
 
     assert calls["per_chunk"] == 0
     assert calls["connections"] == 2  # the chunks, and the conversation
+
+
+def test_a_transport_error_is_not_reported_as_an_unusable_reply(monkeypatch):
+    """B7: the two failures are different types, so a caller can tell "the model
+    answered badly" from "nothing was judged". A server error passes through as
+    itself rather than being dressed up as a verdict problem."""
+    def server_error(prompt):
+        raise ollama.OllamaResponseError("HTTP 500")
+
+    monkeypatch.setattr(corrections.classifier, "classify", server_error)
+    pool = [candidate()]
+
+    with pytest.raises(ollama.OllamaResponseError) as raised:
+        corrections.classify("It was Wednesday.", "m2", pool, "user")
+
+    assert not isinstance(raised.value, corrections.UnusableReplyError)
+    assert not issubclass(corrections.UnusableReplyError, ollama.OllamaResponseError)
