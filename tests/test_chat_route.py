@@ -240,3 +240,86 @@ def test_a_lost_correction_link_is_not_a_500_on_a_turn_that_succeeded(
     # and the answer the person was shown is the one on record
     rows = db.get_conversation_messages(body["conversation_id"])
     assert rows[-1]["content"] == "Answered."
+
+
+# --- The post-turn checkpoint (merged-queue item 5, plan B1) -----------------
+
+
+def _deterministic_embedding(text, **kwargs):
+    import hashlib
+
+    digest = hashlib.sha256(text.encode()).digest()
+    return [(digest[i % len(digest)] / 255.0) for i in range(768)]
+
+
+def _turns(client, headers, n, conversation_id=None):
+    for i in range(n):
+        body = client.post(
+            "/api/chat",
+            json={"message": f"turn {i} about the kettle", "conversation_id": conversation_id},
+            headers=headers,
+        ).json()
+        conversation_id = body["conversation_id"]
+    return conversation_id
+
+
+def test_a_sealed_group_is_chunked_after_the_turn_while_the_conversation_is_open(
+    client, store, monkeypatch
+):
+    """`checkpoint_conversation` said it was "called after a completed assistant
+    turn" and nothing called it, so an open conversation had zero chunks until
+    idle-close. With the 8-turn cap, the ninth completed turn seals the first
+    group, and it must be written then — not at close."""
+    from program.memory import chunking
+
+    monkeypatch.setattr(chunking.ollama, "embed", _deterministic_embedding)
+    headers = token_for(client, "Lyle")
+
+    cid = _turns(client, headers, 9)
+
+    assert db.get_conversation(cid)["ended_at"] is None, "still open"
+    chunks = db.get_conversation_chunks(cid)
+    assert len(chunks) == 1, "the first eight turns are one sealed group"
+    assert "turn 0 about the kettle" in chunks[0]["text"]
+    assert "turn 8" not in chunks[0]["text"], "the open group is never indexed"
+
+
+def test_nothing_is_chunked_while_only_the_open_group_exists(client, store, monkeypatch):
+    from program.memory import chunking
+
+    def forbidden(text, **kwargs):
+        raise AssertionError("nothing has sealed, so nothing should be embedded")
+
+    monkeypatch.setattr(chunking.ollama, "embed", forbidden)
+
+    cid = _turns(client, token_for(client, "Lyle"), 3)
+
+    assert db.get_conversation_chunks(cid) == []
+
+
+def test_a_failed_checkpoint_does_not_fail_the_turn(client, store, monkeypatch):
+    """Background, logged not raised: the answer already went out, and the unsealed
+    groups are written by the next checkpoint or by idle-close."""
+    from program.engine.ollama import OllamaUnreachable
+    from program.memory import chunking
+
+    def unreachable(text, **kwargs):
+        raise OllamaUnreachable("nothing is listening")
+
+    monkeypatch.setattr(chunking.ollama, "embed", unreachable)
+    headers = token_for(client, "Lyle")
+
+    cid = _turns(client, headers, 8)
+    response = client.post(
+        "/api/chat", json={"message": "the ninth", "conversation_id": cid}, headers=headers
+    )
+
+    assert response.status_code == 200
+    assert db.get_conversation_chunks(cid) == []
+
+    # and it recovers: the next checkpoint, with the model back, writes the group
+    monkeypatch.setattr(chunking.ollama, "embed", _deterministic_embedding)
+    client.post(
+        "/api/chat", json={"message": "the tenth", "conversation_id": cid}, headers=headers
+    )
+    assert len(db.get_conversation_chunks(cid)) == 1

@@ -417,6 +417,26 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   commits in its own transaction, so chunks sealed earlier in the same run stand
   — `chunking.py`'s own next paragraph says so. Unchanged in behaviour: batching
   would move `insert_chunk`'s per-row concurrency arbiter and is its own review.*
+- `[built]` **Mid-conversation chunking now runs** (2026-09-24, merged-queue item 5,
+  plan B1, Tier 3). `checkpoint_conversation()`'s docstring said *"called after a
+  completed assistant turn"* and **nothing called it** — the only production chunking
+  was `finalise_conversation()` at idle-close. Measured mid-soak: 0 chunks belonged to
+  any open conversation, and at one sample 76 of 227 messages sat in no chunk at all.
+  Combined with the token-budgeted history window, a long session's early turns were in
+  neither the resent window nor retrieval until the conversation closed. `POST
+  /api/chat` now schedules it as a **background task after the response**, beside the
+  idle sweep, so a sealed group's embedding call never enters the user's wait or the
+  in-flight-grace floor (**unchanged at 35**). Failures are logged, never raised
+  (`ChunkIntegrityError` at ERROR); unsealed groups are written by the next checkpoint
+  or at close, and a test proves that recovery. Overlap with a sweep or close of the
+  same conversation is the case the per-conversation lock and the
+  `(conversation_id, chunk_index)` index already arbitrate between the two entry
+  points. **Proven to bite**: removing the scheduling line fails 2 of the 3 new tests;
+  the third is the no-seal control.
+- `[unverified]` **Consequence not yet exercised: correction candidates.** Sealed chunks
+  of the *current* conversation now exist and are retrievable, so they can reach
+  `corrections.candidates()`'s retrieval source. That is intended and is what B2 builds
+  on, but no test yet covers the interaction.
 - `[built]` **Sub-chunk splitting** (`program/memory/splitting.py`). Prefers
   paragraph → line → sentence → whitespace boundaries, hard-cutting only as a
   last resort and always in `str` space, so multi-byte characters survive.

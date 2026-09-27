@@ -22,6 +22,20 @@ own limits.
 
 The cost is that a sweep can now overlap the next turn's writes. That is the
 write contention ``db.py``'s retry already handles and measures.
+
+Mid-conversation chunking runs there too
+----------------------------------------
+``chunking.checkpoint_conversation()`` is scheduled the same way, for the active
+conversation (merged-queue item 5, plan B1). Its docstring always said it was
+*"called after a completed assistant turn"*, but nothing called it, so every turn
+of an open conversation sat in no chunk until idle-close. With the token-budgeted
+history window that meant a long session's early turns were in neither the
+resent window nor retrieval. It runs after the response for the same reason the
+sweep does: a sealed group costs an embedding call, and inside the turn it would
+enter the in-flight-grace floor's arithmetic. A checkpoint racing a sweep or a
+close of the same conversation is resolved by ``chunking``'s per-conversation
+lock and the ``(conversation_id, chunk_index)`` unique index, as it already was
+between the two existing entry points.
 """
 
 from __future__ import annotations
@@ -33,7 +47,7 @@ from pydantic import BaseModel, Field
 
 from program.api.routes.auth import CurrentActor
 from program.engine import ollama, turn
-from program.memory import idle
+from program.memory import chunking, idle
 from program.settings.permissions import Actor
 
 logger = logging.getLogger(__name__)
@@ -82,6 +96,29 @@ def _sweep(conversation_id: str) -> None:
         logger.warning("post-turn idle sweep failed: %s", exc)
 
 
+def _checkpoint(conversation_id: str) -> None:
+    """Chunk whatever sealed during this turn, after the response has gone out.
+
+    Logged, never raised, as ``_sweep`` is. A failure leaves nothing lost: the
+    groups stay unsealed-in-the-store and the next checkpoint or the final chunking
+    at idle-close writes them. ``ChunkIntegrityError`` is logged at ERROR rather
+    than WARNING because it means the boundary rule disagrees with the store, which
+    is a defect to investigate, not a transient.
+    """
+    try:
+        result = chunking.checkpoint_conversation(conversation_id)
+        if result.chunks_written:
+            logger.info(
+                "post-turn checkpoint wrote %d chunk(s) for %s",
+                result.chunks_written,
+                conversation_id[:8],
+            )
+    except chunking.ChunkIntegrityError as exc:
+        logger.error("post-turn checkpoint found a chunk integrity error: %s", exc)
+    except Exception as exc:  # noqa: BLE001 - background, logged not raised
+        logger.warning("post-turn checkpoint failed: %s", exc)
+
+
 @router.post("/api/chat", response_model=ChatResponse)
 def chat(
     payload: ChatRequest,
@@ -111,6 +148,7 @@ def chat(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
         ) from None
 
+    background.add_task(_checkpoint, outcome.conversation_id)
     background.add_task(_sweep, outcome.conversation_id)
 
     return ChatResponse(
