@@ -154,6 +154,7 @@ def resolve_for_chunks(
     superseded_text: dict[str, str] = {}
     chunks_for_origin: dict[str, list[str]] = {}
     branches: list[_Branch] = []
+    seen_links: set[tuple[str, str]] = set()
 
     for row in first_hop:
         origin = row["superseded_id"]
@@ -161,6 +162,16 @@ def resolve_for_chunks(
         chunks = chunks_for_origin.setdefault(origin, [])
         if row["chunk_id"] not in chunks:
             chunks.append(row["chunk_id"])
+        # `get_supersedes_for_chunks` returns one row per (chunk, link), so a link
+        # whose corrected message was split across N sibling chunks arrives N times.
+        # One branch per LINK, not per row: a branch per row gave N tips, each then
+        # attached to all N chunks — N² annotations for one correction, spending the
+        # global cap on repetition (merged-queue item 9 / finding #13, plan B5).
+        # The chunk is still recorded above, so every sibling is annotated once.
+        key = (origin, row["superseding_id"])
+        if key in seen_links:
+            continue
+        seen_links.add(key)
         report.links_followed += 1
         branches.append(_Branch(
             origin_id=origin,

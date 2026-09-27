@@ -298,8 +298,37 @@ def test_siblings_are_annotated_too(store):
     _, correction = write(store, ("user", "Actually 1.2 bar."))
     link(correction[0], ids[0])
 
-    by_chunk, _ = supersession.resolve_for_chunks([c["id"] for c in chunks])
+    by_chunk, report = supersession.resolve_for_chunks([c["id"] for c in chunks])
     assert len(by_chunk) == len(chunks), "every piece of the corrected message"
+    # ...and each piece carries that ONE correction exactly once. This test used to
+    # assert only the chunk count, while the state it built held N copies per piece
+    # — N² annotations for one correction (merged-queue item 9 / finding #13, B5).
+    for chunk_id, items in by_chunk.items():
+        assert [i.superseding_message_id for i in items] == [correction[0]], chunk_id
+    assert report.links_followed == 1
+    assert report.annotations == len(chunks)
+
+
+def test_two_corrections_of_one_split_message_each_appear_once_per_piece(store):
+    """Dedupe is per link, not per corrected message: two genuine corrections of the
+    same split message are both kept (R3's branch rule), each once per piece."""
+    long_text = "The boiler pressure should sit around 1.4 bar. " * 200
+    conversation, ids = write(store, ("user", long_text))
+    chunks = db.get_conversation_chunks(conversation)
+    assert len(chunks) > 1
+
+    _, first = write(store, ("user", "Actually 1.2 bar."))
+    _, second = write(store, ("user", "No, 1.3 bar."))
+    link(first[0], ids[0])
+    link(second[0], ids[0])
+
+    by_chunk, report = supersession.resolve_for_chunks([c["id"] for c in chunks])
+
+    for items in by_chunk.values():
+        assert sorted(i.superseding_message_id for i in items) == sorted(
+            [first[0], second[0]])
+    assert report.links_followed == 2
+    assert report.annotations == 2 * len(chunks)
 
 
 # --- rendering (R5) and the budget (RO4) -------------------------------------

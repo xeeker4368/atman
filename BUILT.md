@@ -2674,6 +2674,22 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   Both are *recorded*, not merely obeyed — a cycle reaching retrieval means the
   schema's guard was bypassed. **Proven independent by deleting the visited set:** the
   depth bound caught the loop instead, and only the cycle *count* assertion failed.
+- `[built]` **One correction of a split message is one annotation per piece, not N²**
+  (2026-09-24, merged-queue item 9 / finding #13, plan B5, Tier 3).
+  `db.get_supersedes_for_chunks()` returns a row per (chunk, link), so a correction of a
+  message split across N sibling chunks arrived N times; `resolve_for_chunks()` built a
+  branch per **row**, got N identical tips, and attached every tip to every chunk —
+  measured at 3 siblings: 9 annotations and `links_followed = 3` for one correction,
+  with `MAX_PER_CHUNK = 3` rendering three identical lines per piece and 9 of the 12
+  global slots spent on one correction while genuine corrections on lower-ranked records
+  were withheld into the closing count. Branches are now built per **link**
+  `(corrected, correcting)`, while every chunk the corrected message appears in is still
+  recorded, so each sibling carries the correction once. Two genuine corrections of the
+  same message are still both kept (R3). `test_siblings_are_annotated_too` had built this
+  exact state and asserted only the chunk count; it now asserts one annotation per piece,
+  `links_followed == 1` and `annotations == N`. **Proven to bite**: the previous
+  `supersession.py` fails it and the new two-corrections test. Ranking is untouched —
+  resolution still runs after fusion.
 - `[built]` **The chain's state comes from the last link.** For
   `A <-(replaced) B <-(contradicted) C` there is no current value — B supplied one and
   C withdrew it — which is the reader's actual question. The first link's state would
