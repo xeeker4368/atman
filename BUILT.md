@@ -1397,7 +1397,8 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   tool (A2) and stores nothing (A3). `ollama.py`'s shape: explicit timeout on every
   request, nothing that can hang, and **six named exceptions**, each a state a caller
   acts on differently — unreachable, timeout, workflow rejected, **model missing**,
-  generation failed, not-loopback. 24 tests.
+  generation failed, not-loopback. 24 tests. *A seventh, `ComfyUIResponseError`, since
+  B10 (2026-09-27) — see below.*
 - `[built]` **A missing model is detected structurally, not by string matching.**
   `ComfyUIModelMissing` fires on a 400 whose `node_errors[*].errors[*].type` is
   `value_not_in_list`, and **subclasses** `ComfyUIWorkflowRejected` so catching the
@@ -1452,6 +1453,38 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   **was produced and not retrieved**. *urllib's timeout is per socket operation, so a
   loopback ComfyUI dripping bytes could still stretch the fetch — the class of problem
   item 13 fixed for `web_fetch`, accepted here because the peer is local.*
+- `[built]` **An HTTP error says what actually failed** (B10 C1, 2026-09-27). Every
+  HTTP error used to read *"ComfyUI rejected the workflow"* — including a `/view` 404
+  after the job had run, which told the entity something false about what happened.
+  Only a **400 from `POST /prompt`** is a rejection now; any other status is
+  `ComfyUIResponseError` naming the endpoint and status and quoting ≤200 characters of
+  the body, and a `/view` failure is `ComfyUIGenerationFailed` saying the prompt
+  finished, its image could not be fetched, and nothing was stored. **Proven to bite**:
+  reverting fails 4 tests.
+- `[built]` **Proxy environment variables cannot redirect the client** (B10 C4). With
+  `http_proxy` set, `urlopen` sent requests for 127.0.0.1:8188 to the proxy and accepted
+  its reply as ComfyUI's — measured, and it made the loopback check a check on an
+  address never connected to. Requests now go through one opener built with
+  `ProxyHandler({})`. The proof runs **in a fresh subprocess**, because `urlopen` caches
+  its opener from the environment on first use: a fake proxy answers as ComfyUI, a
+  control in the same process shows the default opener really reaches it, and the client
+  must report `ComfyUIUnreachable`. Reverting to `urlopen` fails it with the original
+  bug's shape (`client: 'PROXY!!'`).
+- `[built]` **`comfyui.host` must be an IP literal** (B10 C4, review addition).
+  `config.comfyui_host()` raises `ConfigError` for a name such as `localhost`, closing
+  the gap where a hostname is resolved once for the check and again for the connection.
+  Checked when read, not at startup. **This is a shape check that runs first, not the
+  security boundary** — `_check_loopback` still is, and still refuses a well-formed LAN
+  literal such as `192.168.0.82`; a test pins the pair.
+- `[built]` **Only a PNG is stored as an image** (B10 C5). `/view`'s bytes were taken on
+  trust, typed by the response header; a text or HTML body served as `image/png` would
+  have been written as a `.png` artifact (measured). Two independent layers now require
+  the PNG signature: `_fetch_image` (quoting the claimed header and the first bytes, and
+  typing the result by what the bytes are) and `generated.store()` before any file or
+  row. One constant, `comfyui.PNG_SIGNATURE`, and a test pinning it together with the
+  `PreviewImage` output node and the `.png` filename, so a format change fails until all
+  three move. Verified live: a real generation passes. *The check proves the bytes start
+  like a PNG, not that the image is well-formed — nothing here decodes it.*
 - `[unverified]` **Four limits of the client**, recorded not fixed: the 90 s deadline
   covers **queue time as well as generation**, so a busy instance eats it; there is
   **no progress reporting** (ComfyUI has a websocket, the client polls, because
@@ -3537,8 +3570,8 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   no state and asserts about state — has ~20 `db.init_databases()` call sites in
   `tests/` worth a deliberate pass. Not done.*
 
-- `[built]` **Test suite** — 1,234 tests passing plus 2 skipped (`pytest`), `ruff check`
-  clean (2026-09-24; was 1,140 on 2026-09-18). The backup race test is no longer
+- `[built]` **Test suite** — 1,264 tests passing plus 2 skipped (`pytest`), `ruff check`
+  clean (2026-09-27, after B10; 1,234 on 2026-09-24, 1,140 on 2026-09-18). The backup race test is no longer
   flaky (B14). *Two standing failures, both known and neither from this work:
   `test_a_missing_session_secret_stops_the_server_from_starting`, caused by an
   uncommitted `session_secret` in `config/defaults.toml` (confirmed local-only,

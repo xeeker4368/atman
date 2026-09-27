@@ -33,7 +33,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from program.artifacts import indexing, kinds
-from program.media.comfyui import GeneratedImage
+from program.media.comfyui import PNG_SIGNATURE, GeneratedImage
 from program.memory import db
 
 logger = logging.getLogger(__name__)
@@ -99,6 +99,14 @@ def store(image: GeneratedImage, user_id: str) -> StoredImage:
     """
     if not image.image_bytes:
         raise ValueError("refusing to store an empty image")
+    # The storage boundary's own check, independent of the one `comfyui._fetch_image`
+    # makes: this module names the file `.png` and records `image/png`, so bytes that
+    # are not a PNG must not reach disk as one, whoever built the GeneratedImage.
+    if not image.image_bytes.startswith(PNG_SIGNATURE):
+        raise ValueError(
+            f"refusing to store an image that is not a PNG: it starts "
+            f"{image.image_bytes[:16]!r}"
+        )
 
     artifact_id = uuid.uuid4().hex
     filename = _filename_for(image.prompt, artifact_id)

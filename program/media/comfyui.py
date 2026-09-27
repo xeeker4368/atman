@@ -52,7 +52,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Callable
 
 from program import config
 
@@ -62,6 +62,33 @@ logger = logging.getLogger(__name__)
 #: to by name rather than by guessing at "the last node", because `outputs` is keyed
 #: by node id and a rename would otherwise fail silently.
 _OUTPUT_NODE = "save"
+
+#: What every image from this client is, because the graph's output node is
+#: ``PreviewImage`` and that node only writes PNG. ``_fetch_image`` refuses bytes
+#: that do not start with the signature, and ``generated.store()`` refuses them again
+#: at the storage boundary. **If the output node or its format ever changes, both
+#: checks and ``generated``'s ``.png`` filename move together** — a test pins the three.
+PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+IMAGE_CONTENT_TYPE = "image/png"
+
+#: Characters of an HTTP error body quoted in an exception. Enough to show what the
+#: server said; bounded so a large error page cannot flood a log line or a tool result.
+_ERROR_BODY_CHARS = 200
+
+#: An opener with **no proxies**, whatever the environment says. ``urlopen`` builds
+#: its default opener from ``http_proxy``/``HTTP_PROXY``, so with one set a request
+#: meant for 127.0.0.1:8188 went to the proxy instead and its reply was accepted as
+#: ComfyUI's own (B10 C4, measured). The loopback check means nothing if the
+#: connection goes somewhere else, so proxies are refused here rather than trusted
+#: to be unset. ``ProxyHandler({})`` replaces the default handler, which is the one
+#: that reads the environment.
+_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
+
+def _open(request: urllib.request.Request, timeout: float) -> Any:
+    """The one place a request leaves this module. A seam for tests, and the only
+    route to the network: nothing here calls ``urllib.request.urlopen``."""
+    return _OPENER.open(request, timeout=timeout)
 
 
 class ComfyUIError(RuntimeError):
@@ -81,8 +108,23 @@ class ComfyUITimeout(ComfyUIError):
     """
 
 
+class ComfyUIResponseError(ComfyUIError):
+    """ComfyUI answered an HTTP error status that is not a workflow rejection.
+
+    Every HTTP error used to read *"ComfyUI rejected the workflow"*, including a 404
+    from ``/view`` after the job had run — which tells the entity something false
+    about what happened (B10 C1). Only a 400 from ``POST /prompt`` is a rejection;
+    anything else is this, naming the endpoint and the status.
+    """
+
+    def __init__(self, message: str, *, endpoint: str, status: int) -> None:
+        super().__init__(message)
+        self.endpoint = endpoint
+        self.status = status
+
+
 class ComfyUIWorkflowRejected(ComfyUIError):
-    """ComfyUI refused the graph before running it (HTTP 400)."""
+    """ComfyUI refused the graph before running it (HTTP 400 from ``POST /prompt``)."""
 
 
 class ComfyUIModelMissing(ComfyUIWorkflowRejected):
@@ -194,20 +236,31 @@ def _check_loopback(host: str) -> None:
             )
 
 
-def _request(url: str, *, payload: dict[str, Any] | None = None, timeout: float) -> Any:
-    """One HTTP call. Returns parsed JSON, or raw bytes for a non-JSON response."""
+def _request(
+    url: str,
+    *,
+    payload: dict[str, Any] | None = None,
+    timeout: float,
+    on_http_error: Callable[[str, urllib.error.HTTPError], ComfyUIError] | None = None,
+) -> Any:
+    """One HTTP call. Returns parsed JSON, or raw bytes for a non-JSON response.
+
+    An HTTP error status becomes :class:`ComfyUIResponseError` unless the call site
+    says what that status means there — only ``POST /prompt`` does, through
+    :func:`_rejection`.
+    """
     data = None if payload is None else json.dumps(payload).encode("utf-8")
     headers = {"Content-Type": "application/json"} if data else {}
     request = urllib.request.Request(url, data=data, headers=headers)
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        with _open(request, timeout) as response:
             body = response.read()
             content_type = response.headers.get("Content-Type", "")
             if "application/json" in content_type:
                 return json.loads(body.decode("utf-8"))
             return body, content_type
     except urllib.error.HTTPError as exc:
-        raise _rejection(exc) from exc
+        raise (on_http_error or _response_error)(url, exc) from exc
     except urllib.error.URLError as exc:
         raise ComfyUIUnreachable(
             f"could not reach ComfyUI at {config.comfyui_host()}: {exc.reason}. "
@@ -220,8 +273,34 @@ def _request(url: str, *, payload: dict[str, Any] | None = None, timeout: float)
         ) from exc
 
 
-def _rejection(exc: urllib.error.HTTPError) -> ComfyUIError:
-    """Turn a 400 into the most specific exception the body supports."""
+def _error_body(exc: urllib.error.HTTPError) -> str:
+    try:
+        return exc.read().decode("utf-8", errors="replace")
+    except Exception:  # noqa: BLE001 — an unreadable body is reported as such
+        return ""
+
+
+def _response_error(url: str, exc: urllib.error.HTTPError) -> ComfyUIResponseError:
+    """An HTTP error status that means nothing more specific at this endpoint."""
+    endpoint = urllib.parse.urlparse(url).path or "/"
+    body = _error_body(exc)[:_ERROR_BODY_CHARS]
+    said = f": {body!r}" if body else " with no body"
+    return ComfyUIResponseError(
+        f"ComfyUI answered HTTP {exc.code} from {endpoint}{said}",
+        endpoint=endpoint,
+        status=exc.code,
+    )
+
+
+def _rejection(url: str, exc: urllib.error.HTTPError) -> ComfyUIError:
+    """``POST /prompt``'s errors: a 400 is a rejection, anything else is not.
+
+    A 400 becomes the most specific exception its body supports. Any other status —
+    a 500 while ComfyUI is starting up, say — did not judge the workflow at all, so it
+    takes the generic :func:`_response_error` rather than claiming a rejection.
+    """
+    if exc.code != 400:
+        return _response_error(url, exc)
     try:
         body = json.loads(exc.read().decode("utf-8"))
     except Exception:  # noqa: BLE001 — a non-JSON error body is still a rejection
@@ -370,6 +449,7 @@ def generate(
         f"{host}/prompt",
         payload={"prompt": _graph(prompt.strip(), seed, settings)},
         timeout=min(30.0, deadline_total),
+        on_http_error=_rejection,
     )
     prompt_id = submitted.get("prompt_id")
     if not prompt_id:
@@ -390,7 +470,7 @@ def generate(
             f"within {deadline_total:g}s to fetch the image. It was produced and "
             f"was not retrieved; nothing was stored."
         )
-    image, content_type = _fetch_image(host, entry, remaining)
+    image, content_type = _fetch_image(host, prompt_id, entry, remaining)
     elapsed = time.monotonic() - started
     logger.info(
         "generated a %dx%d image in %.1fs (%d steps, seed %d)",
@@ -446,21 +526,43 @@ def _image_reference(entry: dict[str, Any]) -> dict[str, Any]:
     return images[0]
 
 
-def _fetch_image(host: str, entry: dict[str, Any], remaining: float) -> tuple[bytes, str]:
-    """Fetch the finished image, within ``remaining`` seconds of the overall deadline."""
+def _fetch_image(
+    host: str, prompt_id: str, entry: dict[str, Any], remaining: float
+) -> tuple[bytes, str]:
+    """Fetch the finished image, within ``remaining`` seconds of the overall deadline.
+
+    Returns the bytes and :data:`IMAGE_CONTENT_TYPE`. The type is what the bytes
+    **are**, checked against :data:`PNG_SIGNATURE`, never what the ``Content-Type``
+    header claims: a text or HTML body served as ``image/png`` was accepted before
+    and would have been written to disk as a ``.png`` artifact (B10 C5, measured).
+    """
     reference = _image_reference(entry)
     query = urllib.parse.urlencode({
         "filename": reference.get("filename", ""),
         "subfolder": reference.get("subfolder", ""),
         "type": reference.get("type", "temp"),
     })
-    result = _request(f"{host}/view?{query}", timeout=min(60.0, remaining))
+    try:
+        result = _request(f"{host}/view?{query}", timeout=min(60.0, remaining))
+    except ComfyUIResponseError as exc:
+        # The job ran; fetching its output failed. Not a rejection, and not "nothing
+        # was produced" — the same honest shape as the out-of-time error above.
+        raise ComfyUIGenerationFailed(
+            f"ComfyUI finished prompt {prompt_id} but its image could not be "
+            f"fetched (HTTP {exc.status} from {exc.endpoint}); nothing was stored."
+        ) from exc
     if isinstance(result, tuple):
-        data, content_type = result
+        data, claimed = result
     else:  # a JSON body here means /view returned an error document, not an image
         raise ComfyUIGenerationFailed(
             f"expected image bytes from /view, got JSON: {json.dumps(result)[:200]}"
         )
     if not data:
         raise ComfyUIGenerationFailed("ComfyUI returned an empty image body")
-    return data, content_type or "image/png"
+    if not data.startswith(PNG_SIGNATURE):
+        raise ComfyUIGenerationFailed(
+            f"ComfyUI finished prompt {prompt_id} but /view returned something that "
+            f"is not a PNG: the header said {claimed or '(none)'!r}, the body starts "
+            f"{data[:16]!r}. Nothing was stored."
+        )
+    return data, IMAGE_CONTENT_TYPE

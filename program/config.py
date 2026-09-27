@@ -27,8 +27,10 @@ both this module and the settings store at request time.
 
 from __future__ import annotations
 
+import ipaddress
 import os
 import tomllib
+import urllib.parse
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
@@ -632,12 +634,30 @@ def image_generation_enabled() -> bool:
 def comfyui_host() -> str:
     """Base URL of the local ComfyUI instance. Bootstrap-only.
 
-    Not validated for loopback here — `config` reads values, it does not enforce
-    policy. `program/media/comfyui.py` refuses a non-loopback host at the point of
-    use, which is where the reason lives: ComfyUI has no authentication, so a
+    **The host must be an IP literal** (``http://127.0.0.1:8188``,
+    ``http://[::1]:8188``), and a name such as ``localhost`` raises
+    :class:`ConfigError`. This is a **shape precondition, not the security check.**
+    It exists so the address ``comfyui.py`` checks is the address it connects to: a
+    hostname is resolved once for the check and again by urllib for the connection,
+    and could answer differently the second time (B10 C4).
+
+    **The security boundary is ``comfyui._check_loopback``**, at the point of use,
+    and it is still what refuses a routable literal such as ``192.168.0.82`` — this
+    check accepts that value, because it is well-formed. `config` checks shape;
+    `comfyui.py` holds the policy and its reason: ComfyUI has no authentication, so a
     LAN-reachable one is an unauthenticated execution endpoint.
     """
-    return str(get("comfyui", "host", "http://127.0.0.1:8188")).rstrip("/")
+    host = str(get("comfyui", "host", "http://127.0.0.1:8188")).rstrip("/")
+    hostname = urllib.parse.urlparse(host).hostname
+    try:
+        ipaddress.ip_address(hostname or "")
+    except ValueError:
+        raise ConfigError(
+            f"comfyui.host is {host!r}; its host must be an IP literal such as "
+            f"http://127.0.0.1:8188, not a name. A name is resolved once for the "
+            f"loopback check and again for the connection, and the two can differ."
+        ) from None
+    return host
 
 
 def comfyui_timeout_seconds() -> float:

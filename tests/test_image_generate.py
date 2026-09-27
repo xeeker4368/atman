@@ -305,6 +305,51 @@ def test_it_is_attributed_to_the_supplied_user(store):
     assert db.list_artifacts(store) == []
 
 
+def _artifact_rows() -> int:
+    import sqlite3
+
+    conn = sqlite3.connect(db.working_path())
+    try:
+        return conn.execute("SELECT COUNT(*) FROM artifacts").fetchone()[0]
+    finally:
+        conn.close()
+
+
+def _stored_files() -> set:
+    root = kinds.root_for("generated_image")
+    return {p for p in root.rglob("*") if p.is_file()} if root.exists() else set()
+
+
+@pytest.mark.parametrize("body", [
+    b"just some text, not an image\n",
+    b"<!DOCTYPE html><html><body>not an image</body></html>",
+])
+def test_non_png_bytes_are_refused_at_the_storage_boundary(store, body):
+    """B10 C5's second layer: independent of the client's fetch-time check, so bytes
+    that reach `store()` some other way still cannot land on disk as a `.png`."""
+    rows, files = _artifact_rows(), _stored_files()
+
+    with pytest.raises(ValueError, match="not a PNG"):
+        generated.store(fake_image(image_bytes=body), store)
+
+    assert _artifact_rows() == rows, "no row written"
+    assert _stored_files() == files, "no file written"
+
+
+def test_the_png_assumption_is_one_decision_in_three_places():
+    """The graph ends in PreviewImage, which writes PNG; the client checks the PNG
+    signature and reports image/png; storage checks the same signature and names the
+    file .png. If the output format ever changes, all of these move together."""
+    from program.media import comfyui
+
+    graph = comfyui._graph("x", 1, config.comfyui_generation())
+    assert graph[comfyui._OUTPUT_NODE]["class_type"] == "PreviewImage"
+    assert comfyui.PNG_SIGNATURE == b"\x89PNG\r\n\x1a\n"
+    assert comfyui.IMAGE_CONTENT_TYPE == "image/png"
+    assert generated.PNG_SIGNATURE is comfyui.PNG_SIGNATURE
+    assert generated._filename_for("x", "abcdef1234").endswith(".png")
+
+
 def test_an_empty_image_is_refused(store):
     with pytest.raises(ValueError, match="empty image"):
         generated.store(fake_image(image_bytes=b""), store)

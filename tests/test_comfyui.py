@@ -78,7 +78,8 @@ class FakeResponse:
 
 
 def transport(monkeypatch, *, history=FINISHED, submit=SUBMITTED, image=PNG, reject=None):
-    """Replace urlopen. Records every URL so call order is assertable."""
+    """Replace the transport (`comfyui._open`). Records every URL so call order is
+    assertable."""
     calls: list[str] = []
 
     def fake(request, timeout=None):
@@ -101,7 +102,7 @@ def transport(monkeypatch, *, history=FINISHED, submit=SUBMITTED, image=PNG, rej
             ).encode(), "application/json")
         raise AssertionError(f"unexpected URL: {url}")
 
-    monkeypatch.setattr(comfyui.urllib.request, "urlopen", fake)
+    monkeypatch.setattr(comfyui, "_open", fake)
     monkeypatch.setattr(comfyui.time, "sleep", lambda _s: None)
     return calls
 
@@ -214,7 +215,7 @@ def test_a_queued_job_is_polled_until_it_appears(monkeypatch):
                                            else states[0]).encode(), "application/json")
         return FakeResponse(PNG, "image/png")
 
-    monkeypatch.setattr(comfyui.urllib.request, "urlopen", fake)
+    monkeypatch.setattr(comfyui, "_open", fake)
     monkeypatch.setattr(comfyui.time, "sleep", lambda _s: None)
 
     assert comfyui.generate("a kettle", seed=1).image_bytes == PNG
@@ -227,7 +228,7 @@ def test_an_unreachable_instance_says_how_to_start_it(monkeypatch):
     def fake(request, timeout=None):
         raise urllib.error.URLError("Connection refused")
 
-    monkeypatch.setattr(comfyui.urllib.request, "urlopen", fake)
+    monkeypatch.setattr(comfyui, "_open", fake)
 
     with pytest.raises(comfyui.ComfyUIUnreachable, match="main.py"):
         comfyui.generate("a kettle")
@@ -362,6 +363,10 @@ def test_a_real_generation_returns_a_real_png():
     image = comfyui.generate("a single copper kettle on a plain background")
 
     assert image.image_bytes[:8] == bytes.fromhex("89504e470d0a1a0a"), "not a PNG"
+    # B10 C5: the type is what the bytes are, and the real instance's bytes pass the
+    # same signature check a spoofed body fails.
+    assert image.image_bytes.startswith(comfyui.PNG_SIGNATURE)
+    assert image.content_type == comfyui.IMAGE_CONTENT_TYPE
     assert image.size_bytes > 100_000, "suspiciously small for a 1024x1024 PNG"
     assert image.duration_seconds < config.comfyui_timeout_seconds()
 
@@ -386,7 +391,7 @@ def _clocked_transport(monkeypatch, *, finish_at: float):
             return FakeResponse(PNG, "image/png")
         raise AssertionError(f"unexpected URL: {url}")
 
-    monkeypatch.setattr(comfyui.urllib.request, "urlopen", fake)
+    monkeypatch.setattr(comfyui, "_open", fake)
     monkeypatch.setattr(comfyui.time, "sleep", lambda _s: None)
     monkeypatch.setattr(comfyui.time, "monotonic", lambda: clock["now"])
     return timeouts
@@ -409,3 +414,247 @@ def test_no_time_left_to_fetch_is_a_timeout_that_says_the_image_exists(monkeypat
     with pytest.raises(comfyui.ComfyUITimeout, match="was produced and was not retrieved"):
         comfyui.generate("a kettle", timeout_seconds=110.0)
     assert "view" not in timeouts
+
+
+# --- B10: honest error classes, no proxies, only PNGs ------------------------------
+
+
+def _http_error(url, code, body=b""):
+    import io
+
+    return urllib.error.HTTPError(url, code, "error", {}, io.BytesIO(body))
+
+
+def _routes(monkeypatch, *, prompt=None, history=None, view=None):
+    """Like `transport()`, but any route can be an exception or a (body, type) pair."""
+    def fake(request, timeout=None):
+        url = request.full_url
+        for marker, override, default in (
+            ("/prompt", prompt, (json.dumps(SUBMITTED).encode(), "application/json")),
+            ("/history/", history, (json.dumps(FINISHED).encode(), "application/json")),
+            ("/view?", view, (PNG, "image/png")),
+        ):
+            if marker in url:
+                chosen = default if override is None else override
+                if isinstance(chosen, Exception):
+                    raise chosen
+                return FakeResponse(*chosen)
+        raise AssertionError(f"unexpected URL: {url}")
+
+    monkeypatch.setattr(comfyui, "_open", fake)
+    monkeypatch.setattr(comfyui.time, "sleep", lambda _s: None)
+
+
+# C1
+
+
+def test_a_view_404_is_a_fetch_failure_not_a_rejection(monkeypatch):
+    """The job ran and its image could not be fetched. Reporting that as "ComfyUI
+    rejected the workflow" told the entity something false about what happened."""
+    _routes(monkeypatch, view=_http_error("http://x/view", 404, b"Not Found"))
+
+    with pytest.raises(comfyui.ComfyUIGenerationFailed) as caught:
+        comfyui.generate("a kettle")
+
+    message = str(caught.value)
+    assert not isinstance(caught.value, comfyui.ComfyUIWorkflowRejected)
+    assert "reject" not in message.lower()
+    assert "HTTP 404 from /view" in message
+    assert SUBMITTED["prompt_id"] in message
+    assert "nothing was stored" in message
+
+
+def test_a_400_from_prompt_is_still_a_rejection(monkeypatch):
+    _routes(monkeypatch, prompt=_http_error(
+        "http://x/prompt", 400, json.dumps(NO_OUTPUTS).encode()))
+
+    with pytest.raises(comfyui.ComfyUIWorkflowRejected, match="prompt_no_outputs"):
+        comfyui.generate("a kettle")
+
+
+def test_a_non_400_from_prompt_is_not_a_rejection(monkeypatch):
+    """A 500 did not judge the workflow at all."""
+    _routes(monkeypatch, prompt=_http_error("http://x/prompt", 500, b"Internal Error"))
+
+    with pytest.raises(comfyui.ComfyUIResponseError) as caught:
+        comfyui.generate("a kettle")
+
+    assert not isinstance(caught.value, comfyui.ComfyUIWorkflowRejected)
+    assert caught.value.status == 500
+    assert caught.value.endpoint == "/prompt"
+    assert "reject" not in str(caught.value).lower()
+
+
+def test_a_history_error_names_its_endpoint_and_status(monkeypatch):
+    _routes(monkeypatch, history=_http_error(
+        f"http://x/history/{SUBMITTED['prompt_id']}", 503, b"busy"))
+
+    with pytest.raises(comfyui.ComfyUIResponseError, match="HTTP 503 from /history/"):
+        comfyui.generate("a kettle")
+
+
+def test_the_quoted_error_body_is_bounded(monkeypatch):
+    _routes(monkeypatch, prompt=_http_error("http://x/prompt", 502, b"x" * 5000))
+
+    with pytest.raises(comfyui.ComfyUIResponseError) as caught:
+        comfyui.generate("a kettle")
+
+    assert "x" * comfyui._ERROR_BODY_CHARS in str(caught.value)
+    assert "x" * (comfyui._ERROR_BODY_CHARS + 1) not in str(caught.value)
+
+
+# C4 — the host is an IP literal; the loopback check is still the boundary
+
+
+@pytest.fixture
+def host(monkeypatch):
+    def set_host(value):
+        monkeypatch.setenv("ANAM_COMFYUI_HOST", value)
+        config.reload()
+    yield set_host
+    monkeypatch.delenv("ANAM_COMFYUI_HOST", raising=False)
+    config.reload()
+
+
+@pytest.mark.parametrize("value", [
+    "http://localhost:8188",
+    "http://comfyui.local:8188",
+    "http://127.0.0.1.nip.io:8188",
+    "not a url",
+])
+def test_a_host_that_is_not_an_ip_literal_is_a_config_error(host, value):
+    host(value)
+    with pytest.raises(config.ConfigError, match="IP literal"):
+        config.comfyui_host()
+
+
+@pytest.mark.parametrize("value", ["http://127.0.0.1:8188", "http://[::1]:8188"])
+def test_an_ip_literal_host_is_accepted(host, value):
+    host(value)
+    assert config.comfyui_host() == value
+
+
+def test_the_shape_check_is_not_the_security_check(host, monkeypatch):
+    """A LAN literal is well-formed, so config accepts it — and `_check_loopback`,
+    the actual boundary, still refuses it before anything reaches the wire."""
+    host("http://192.168.0.82:8188")
+    assert config.comfyui_host() == "http://192.168.0.82:8188"
+
+    def must_not_run(*_a, **_k):
+        raise AssertionError("a request was made to a non-loopback host")
+
+    monkeypatch.setattr(comfyui, "_open", must_not_run)
+    with pytest.raises(comfyui.ComfyUINotLoopback):
+        comfyui.generate("a kettle")
+
+
+def test_nothing_in_the_client_calls_urlopen():
+    """`urlopen` builds its opener from the proxy environment. The behavioural proof
+    is the subprocess test below; this catches a reintroduction by name."""
+    import inspect
+
+    assert "urlopen(" not in inspect.getsource(comfyui)
+
+
+_PROXY_CHILD = """
+import json, sys, urllib.request
+from program.media import comfyui
+
+closed_port = int(sys.argv[1])
+out = {}
+# Control: in this environment the DEFAULT opener really does go to the proxy, so the
+# client's result below is evidence rather than a proxy that was never in play.
+try:
+    reply = urllib.request.urlopen(
+        f"http://127.0.0.1:{closed_port}/system_stats", timeout=5).read()
+    out["control"] = json.loads(reply)["system"]["comfyui_version"]
+except Exception as exc:
+    out["control"] = "error: " + type(exc).__name__
+try:
+    out["client"] = comfyui.available()["system"]["comfyui_version"]
+except comfyui.ComfyUIError as exc:
+    out["client"] = type(exc).__name__
+print(json.dumps(out))
+"""
+
+
+def test_a_proxy_in_the_environment_is_not_used():
+    """In a FRESH PROCESS, deliberately: `urlopen` caches its global opener from the
+    environment on first use, so an in-process test that sets a proxy after anything
+    has called it measures nothing — the pitfall found while probing C4.
+
+    A fake proxy answers every request as though it were ComfyUI. The client is
+    pointed at a closed loopback port: with the proxy honoured it would report the
+    proxy's version; ignoring it, the connection is refused."""
+    import http.server
+    import os
+    import socket
+    import subprocess
+    import sys
+    import threading
+    from pathlib import Path
+
+    class Proxy(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):  # noqa: N802 — the stdlib's name
+            body = json.dumps({"system": {"comfyui_version": "PROXY!!"},
+                               "devices": []}).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *_a):
+            pass
+
+    proxy = http.server.HTTPServer(("127.0.0.1", 0), Proxy)
+    threading.Thread(target=proxy.serve_forever, daemon=True).start()
+    probe = socket.socket()
+    probe.bind(("127.0.0.1", 0))
+    closed_port = probe.getsockname()[1]
+    probe.close()
+
+    env = {k: v for k, v in os.environ.items()
+           if k.lower() not in ("no_proxy", "http_proxy", "https_proxy", "all_proxy")}
+    proxy_url = f"http://127.0.0.1:{proxy.server_address[1]}"
+    env.update(http_proxy=proxy_url, HTTP_PROXY=proxy_url,
+               ANAM_COMFYUI_HOST=f"http://127.0.0.1:{closed_port}")
+    try:
+        result = subprocess.run(
+            [sys.executable, "-c", _PROXY_CHILD, str(closed_port)],
+            cwd=Path(__file__).resolve().parent.parent, env=env,
+            capture_output=True, text=True, timeout=60,
+        )
+    finally:
+        proxy.shutdown()
+
+    assert result.returncode == 0, result.stderr
+    out = json.loads(result.stdout.strip().splitlines()[-1])
+    assert out["control"] == "PROXY!!", f"the proxy was never in play: {out}"
+    assert out["client"] == "ComfyUIUnreachable", out
+
+
+# C5 — only a PNG is an image here
+
+
+@pytest.mark.parametrize("body", [
+    b"just some text, not an image\n",
+    b"<!DOCTYPE html><html><body>not an image</body></html>",
+])
+def test_a_non_png_body_under_an_image_header_is_refused(monkeypatch, body):
+    _routes(monkeypatch, view=(body, "image/png"))
+
+    with pytest.raises(comfyui.ComfyUIGenerationFailed, match="not a PNG") as caught:
+        comfyui.generate("a kettle")
+
+    message = str(caught.value)
+    assert "'image/png'" in message, "the claimed header is quoted"
+    assert repr(body[:16]) in message, "the actual first bytes are quoted"
+
+
+def test_the_content_type_is_what_the_bytes_are_not_what_the_header_says(monkeypatch):
+    _routes(monkeypatch, view=(PNG, "application/octet-stream"))
+
+    image = comfyui.generate("a kettle")
+
+    assert image.content_type == comfyui.IMAGE_CONTENT_TYPE == "image/png"
