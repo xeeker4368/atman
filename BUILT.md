@@ -2592,6 +2592,27 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   referential contradiction writes no link — see above) and CO8's ordering finding is
   held for deliberate re-authoring.
 
+- `[built]` **The candidate pool no longer loses corrections** (2026-09-24, plan B2,
+  merged-queue items 6, 22b and C3, Tier 3). Three defects in `corrections.candidates()`:
+  **(6)** the turn's own messages are saved first and excluded, so on a turn opening a new
+  group (the ninth, seventeenth… or any size seal) the open group held nothing else and a
+  correction of anything earlier in the conversation was silently lost — the open group is
+  now taken **as it stood before this turn**, which (packing being prefix-stable) is the
+  open group minus this turn ordinarily and the group that just sealed at a boundary, with
+  no special case; **(22b)** `MAX_CANDIDATES = 12` applied across both roles before each
+  call filtered to its own, so a full open group crowded out every retrieval-derived
+  candidate — it is now **per role**, and each prompt still shows at most twelve;
+  **(C3)** one connection per retrieved chunk became one batched read,
+  `db.get_messages_in_chunks()`, so the function opens **2** connections instead of up to
+  11. **Proven to bite**: the previous `corrections.py` fails 3 of the 4 new tests; the
+  fourth is the ordinary-turn control. **The frozen correction eval is unaffected by
+  construction** — it builds its own pools and calls `classify()` directly — so its
+  measurement of record stands, and nothing about the prompt changed.
+- `[unverified]` **Live behaviour of the widened pool is unmeasured.** More candidates reach
+  the classifier on boundary turns and on turns with retrieval hits, and CO10.2's false
+  link needed a six-candidate pool to reproduce; whether the wider pool raises false links
+  in production is what B11 should look at.
+
 ### Retrieval resolves the link (task 3.5, 2026-09-19)
 
 - `[built]` **Retrieval annotates superseded records rather than suppressing them**

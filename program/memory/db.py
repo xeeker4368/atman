@@ -567,6 +567,36 @@ def get_messages_in_chunk(chunk_id: str) -> list[sqlite3.Row]:
         ).fetchall()
 
 
+def get_messages_in_chunks(chunk_ids: Sequence[str]) -> list[sqlite3.Row]:
+    """The messages several chunks were built from, in one query on one connection.
+
+    :func:`get_messages_in_chunk`'s join, batched. ``corrections.candidates()``
+    called that once per retrieved chunk — up to ``top_k`` (10) fresh connections
+    per turn, each paying ``_configure()``'s ``PRAGMA journal_mode`` on a path with
+    no retry, the shape :func:`get_supersedes_for_chunks` was written to avoid.
+    A message in two chunks (split siblings) is returned once. No ``chunk_id``
+    column is returned, because no caller needs to know which chunk it came from.
+    """
+    ids = list(dict.fromkeys(chunk_ids))
+    if not ids:
+        return []
+    placeholders = ",".join("?" for _ in ids)
+    with connection() as conn:
+        return conn.execute(
+            f"""
+            SELECT DISTINCT m.* FROM messages m
+              JOIN chunks c ON c.id IN ({placeholders})
+              JOIN messages f ON f.id = c.first_message_id
+              JOIN messages l ON l.id = c.last_message_id
+             WHERE m.conversation_id = c.conversation_id
+               AND m.timestamp >= f.timestamp
+               AND m.timestamp <= l.timestamp
+             ORDER BY m.timestamp, m.id
+            """,
+            ids,
+        ).fetchall()
+
+
 #: What ``supersedes.replacement`` may hold, matching the column's CHECK. Here as
 #: well as in the schema so a caller can validate before the database refuses —
 #: but the CHECK is the guarantee, since this module is not the only possible

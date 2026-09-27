@@ -477,3 +477,124 @@ def test_integrity_error_is_caught_not_leaked(store, monkeypatch):
     monkeypatch.setattr(db, "create_supersedes_link", boom)
 
     assert corrections.record(corrections.Correction("a", "b", "x", "replaced")) is None
+
+
+# --- the candidate pool (merged-queue items 6, 22b, C3; plan B2) -------------
+
+
+def _embed(text, **kwargs):
+    import hashlib
+
+    digest = hashlib.sha256(text.encode()).digest()
+    return [(digest[i % len(digest)] / 255.0) for i in range(768)]
+
+
+def _turn(conversation, user_id, n):
+    u = db.save_message(conversation, user_id, "user", f"claim {n}: it was Tuesday {n}.")
+    a = db.save_message(conversation, user_id, "assistant", f"noted {n}.")
+    return u, a
+
+
+def test_the_turn_that_opens_a_new_group_still_has_the_conversation_as_candidates(store):
+    """Item 6. The turn's own messages are saved before candidates are gathered, so
+    on the ninth turn (the 8-turn cap) the open group holds only the excluded pair
+    and contributed nothing — with no retrieval either, a correction of anything
+    earlier in the conversation was silently lost. The pool is now the open group as
+    it stood before this turn."""
+    lyle = store["lyle"]
+    conversation = db.start_conversation(lyle.user_id)
+    earlier = [_turn(conversation, lyle.user_id, n) for n in range(8)]
+    ninth = _turn(conversation, lyle.user_id, 8)
+
+    assert [
+        m["id"] for m in chunking.open_group_messages(
+            db.get_conversation_messages(conversation), "Lyle")
+    ] == list(ninth), "precondition: the current open group is only the ninth turn"
+
+    pool = corrections.candidates(
+        lyle.user_id, conversation, [], exclude_message_ids=ninth, user_name="Lyle")
+
+    offered = {c.message_id for c in pool}
+    assert {u for u, _ in earlier} <= offered
+    assert not offered & set(ninth)
+
+
+def test_an_ordinary_turn_still_offers_the_open_group_minus_itself(store):
+    lyle = store["lyle"]
+    conversation = db.start_conversation(lyle.user_id)
+    earlier = [_turn(conversation, lyle.user_id, n) for n in range(3)]
+    current = _turn(conversation, lyle.user_id, 3)
+
+    pool = corrections.candidates(
+        lyle.user_id, conversation, [], exclude_message_ids=current, user_name="Lyle")
+
+    assert {c.message_id for c in pool} == {m for pair in earlier for m in pair}
+
+
+def test_retrieved_candidates_are_not_crowded_out_by_the_other_role(store, monkeypatch):
+    """Item 22b. One cap of twelve was applied across both roles before each call
+    filtered to its own, so a full open group (up to 16 messages, 8 per role) took
+    every slot and retrieval-derived candidates never reached the classifier."""
+    monkeypatch.setattr(chunking.ollama, "embed", _embed)
+    lyle = store["lyle"]
+
+    old = db.start_conversation(lyle.user_id)
+    old_claims = [_turn(old, lyle.user_id, n)[0] for n in range(4)]
+    db.end_conversation(old)
+    chunking.finalise_conversation(old)
+    old_chunks = [c["id"] for c in db.get_conversation_chunks(old)]
+
+    live = db.start_conversation(lyle.user_id)
+    for n in range(7):
+        _turn(live, lyle.user_id, 100 + n)
+    current = _turn(live, lyle.user_id, 107)
+
+    pool = corrections.candidates(
+        lyle.user_id, live, old_chunks, exclude_message_ids=current, user_name="Lyle")
+
+    users = [c for c in pool if c.role == "user"]
+    assert len(users) <= corrections.MAX_CANDIDATES
+    assert set(old_claims) & {c.message_id for c in users}, (
+        "retrieval-derived claims must survive the cap")
+    assert all(
+        sum(1 for c in pool if c.role == role) <= corrections.MAX_CANDIDATES
+        for role in ("user", "assistant")
+    )
+
+
+def test_retrieved_chunks_resolve_in_one_read_not_one_per_chunk(store, monkeypatch):
+    """C3. Up to ten connections per turn became one, and the batched reader returns
+    exactly what the per-chunk reader did."""
+    monkeypatch.setattr(chunking.ollama, "embed", _embed)
+    lyle = store["lyle"]
+    chunk_ids = []
+    for c in range(3):
+        conversation = db.start_conversation(lyle.user_id)
+        for n in range(2):
+            _turn(conversation, lyle.user_id, c * 10 + n)
+        db.end_conversation(conversation)
+        chunking.finalise_conversation(conversation)
+        chunk_ids += [row["id"] for row in db.get_conversation_chunks(conversation)]
+
+    per_chunk = {r["id"] for cid in chunk_ids for r in db.get_messages_in_chunk(cid)}
+    assert {r["id"] for r in db.get_messages_in_chunks(chunk_ids)} == per_chunk
+    assert db.get_messages_in_chunks([]) == []
+
+    live = db.start_conversation(lyle.user_id)
+    current = _turn(live, lyle.user_id, 99)
+    calls = {"per_chunk": 0, "connections": 0}
+    real_connection = db.connection
+
+    def counting_connection():
+        calls["connections"] += 1
+        return real_connection()
+
+    monkeypatch.setattr(db, "get_messages_in_chunk", lambda cid: calls.__setitem__(
+        "per_chunk", calls["per_chunk"] + 1) or [])
+    monkeypatch.setattr(db, "connection", counting_connection)
+
+    corrections.candidates(
+        lyle.user_id, live, chunk_ids, exclude_message_ids=current, user_name="Lyle")
+
+    assert calls["per_chunk"] == 0
+    assert calls["connections"] == 2  # the chunks, and the conversation

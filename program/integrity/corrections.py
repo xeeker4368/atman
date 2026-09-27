@@ -56,9 +56,16 @@ from program.memory import chunking, db
 
 logger = logging.getLogger(__name__)
 
-#: How many prior claims are offered at once. A bound rather than a threshold:
-#: the prompt has to fit, and a long list invites loose matching. Every claim
-#: beyond it is simply not a candidate this turn.
+#: How many prior claims are offered at once, **per speaker role**. A bound rather
+#: than a threshold: the prompt has to fit, and a long list invites loose matching.
+#: Every claim beyond it is simply not a candidate this turn.
+#:
+#: Per role because each classifier call only ever sees one role (role parity).
+#: A single cap applied before that filter let the newest messages of both roles
+#: share twelve slots, so on turns 7–8 of each packing cycle the open group filled
+#: all of them and every retrieval-derived candidate — the source that catches a
+#: correction of something said days ago — was discarded (merged-queue item 22b).
+#: Each prompt still shows at most twelve.
 MAX_CANDIDATES = 12
 
 #: Characters of a candidate shown to the classifier. Long enough to judge a
@@ -188,23 +195,44 @@ def candidates(
     Filtered to ``user_id``'s own record, which is where Q16 and CO4 are
     enforced: a message belonging to the other household member, or one whose
     role differs from the speaker who could correct it, is never offered.
+
+    **The open group is taken as it stood before this turn** — the conversation
+    minus ``exclude_message_ids`` — rather than as it stands now. The turn's own
+    messages are saved before this runs, so on a turn that opens a new group (the
+    ninth, seventeenth… by the turn cap, or any size-driven seal) the current open
+    group held *only* the excluded messages, and this source contributed nothing.
+    With no mid-conversation chunks either (finding #5, before B1) the whole
+    conversation was out of reach and a correction of anything said in it was
+    silently lost (merged-queue item 6). Packing is greedy and prefix-stable, so the
+    trailing group of the prefix is the open group minus this turn in the ordinary
+    case, and the group that just sealed at a boundary — which is exactly what the
+    fix needed, with no special case.
+
+    Two reads, not one per chunk: retrieved chunks resolve through
+    :func:`db.get_messages_in_chunks` in a single query.
     """
     seen: dict[str, Candidate] = {}
 
-    for chunk_id in retrieved_chunk_ids:
-        for row in db.get_messages_in_chunk(chunk_id):
-            if row["user_id"] == user_id and row["id"] not in exclude_message_ids:
-                seen[row["id"]] = _row_candidate(row)
-
-    open_group = chunking.open_group_messages(
-        db.get_conversation_messages(conversation_id), user_name
-    )
-    for row in open_group:
+    for row in db.get_messages_in_chunks(retrieved_chunk_ids):
         if row["user_id"] == user_id and row["id"] not in exclude_message_ids:
             seen[row["id"]] = _row_candidate(row)
 
+    before_this_turn = [
+        row for row in db.get_conversation_messages(conversation_id)
+        if row["id"] not in exclude_message_ids
+    ]
+    for row in chunking.open_group_messages(before_this_turn, user_name):
+        if row["user_id"] == user_id:
+            seen[row["id"]] = _row_candidate(row)
+
     ordered = sorted(seen.values(), key=lambda c: c.timestamp, reverse=True)
-    return ordered[:MAX_CANDIDATES]
+    kept: list[Candidate] = []
+    per_role: dict[str, int] = {}
+    for candidate in ordered:
+        if per_role.get(candidate.role, 0) < MAX_CANDIDATES:
+            kept.append(candidate)
+            per_role[candidate.role] = per_role.get(candidate.role, 0) + 1
+    return kept
 
 
 def _render(pool: list[Candidate], user_name: str) -> str:
