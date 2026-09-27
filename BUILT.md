@@ -2867,6 +2867,38 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   regression test asserts an empty data directory stays empty after reads. A
   corrupt row raises rather than silently serving the config seed, which would
   otherwise show a panel value the system is not using.
+- `[built]` **An unreadable settings table is no longer indistinguishable from "no row"**
+  (2026-09-23, merged-queue item 1). `_load_table()` caught **every**
+  `sqlite3.OperationalError` and returned `{}` while its comment named only the intended
+  *no settings table yet* case — but that class is also `database is locked`, `unable to open
+  database file` and `disk I/O error`. `_table()` then cached that `{}` **unconditionally**,
+  and only `set()`/`clear()` invalidate, so **one transient lock reverted every
+  settings-backed value to its config seed for the lifetime of the process**: an operator-set
+  chat model or temperature silently stopped being the one in use, with one DEBUG line as the
+  only trace. `describe()` compounded it by reporting `source="config"` — positively asserting
+  that no row existed, which the code had not established, from the very diagnostic built to
+  make *"is the read path really settings-first?"* answerable.
+  Now: `no such table` stays benign and cached (fresh-store behaviour preserved and pinned);
+  anything else raises `SettingsUnavailableError`; **only a successful load is cached**, so the
+  next call retries. `resolve()` degrades on `prompt.py`'s criterion — seed for that call only,
+  at **WARNING**, nothing cached — while `get()` **raises**, because the seed is a wrong answer
+  to the question a person actually asked. `describe()` gains a third `source`,
+  **`"unavailable"`**, carrying the seed as a fallback rather than as provenance.
+- `[built]` **The read path now retries like the writers do, and a test caught the retry being
+  dead code.** `set()`/`clear()` have always carried `@retry_on_locked`; the contended *read*
+  had nothing. The first version of this fix decorated `_load_table()` with the classification
+  **inside** it, so the `except` caught the lock error before the decorator could ever see
+  one — the retry could not fire. `_read_rows()` is now split out so the retry sits **under**
+  the classification. **Proven to bite four ways**, each by breaking the fix: flattening every
+  `OperationalError` fails 3 tests; swallow-and-cache fails 3; caching `{}` *and* re-raising —
+  the exact original shape — fails on `assert 'gemma4:26b' == 'operator-chosen-model'`, the
+  defect stated as an assertion; removing the decorator fails the retry test. Failures are
+  injected at `db.connection`, the real seam, rather than by patching the function under test.
+- `[unverified]` **The degradation is still a degradation.** `resolve()` can run a turn on seed
+  values when the table is unreadable — chosen deliberately over failing the turn, but it means
+  a turn may use a temperature the operator did not set, now for one call and at WARNING rather
+  than silently and permanently. **Nothing counts those warnings**, so sustained contention
+  would be visible only in the log — the same gap recorded against `turn._after_durable()`.
 - `[built]` **Registry boundary is enforced, not conventional.** Bootstrap keys
   (data paths, ports) are unregistered and unsettable; a hand-written `api.port`
   row is proven not to change `config.api_port()`. Chunking, history and

@@ -139,6 +139,17 @@ class SettingTypeError(ValueError):
     """Raised when a value cannot be stored or read as its declared type."""
 
 
+class SettingsUnavailableError(RuntimeError):
+    """The settings table could not be read, so which values are in force is unknown.
+
+    **Deliberately distinct from "there is no row".** A missing row means the
+    config seed genuinely applies and is the normal state of a fresh store; this
+    means the question was not answered. Collapsing the two is what let a single
+    transient ``database is locked`` present every seed as the operator's own
+    setting — see :func:`_load_table`.
+    """
+
+
 def spec_for(name: str) -> SettingSpec:
     try:
         return _BY_NAME[name]
@@ -257,23 +268,74 @@ def _store_exists() -> bool:
     return db.working_path().exists()
 
 
-def _load_table() -> dict[str, Any]:
-    """Read every settings row in one query. Missing DB or table -> empty."""
+#: ``OperationalError`` texts that mean *the schema is not there yet*, as opposed
+#: to *the read failed*. Matched on the message because SQLite offers no error
+#: code for it through :mod:`sqlite3`; the same approach ``db._is_lock_error``
+#: takes, for the same reason.
+_NO_TABLE = ("no such table",)
+
+
+@retry_on_locked
+def _read_rows() -> list[sqlite3.Row]:
+    """The raw read, retried on contention. Lock errors must escape to be retried.
+
+    Separate from :func:`_load_table` for a reason found by a test: with the
+    classification *inside* the retried function, the ``except`` caught the lock
+    error before ``@retry_on_locked`` could ever see one, so the decorator was
+    dead code. The retry has to sit **under** the classification, not around it.
+    """
     from program.memory import db
 
+    with db.connection() as conn:
+        return conn.execute("SELECT key, value FROM settings").fetchall()
+
+
+def _load_table() -> dict[str, Any]:
+    """Read every settings row in one query.
+
+    **Two outcomes, and keeping them apart is the whole point of this function.**
+    A missing database or a database with no ``settings`` table returns ``{}`` —
+    the config seed applies, which is the correct and normal state of a fresh
+    store. **Anything else raises** :class:`SettingsUnavailableError`.
+
+    It used to catch every ``sqlite3.OperationalError`` and return ``{}``, with a
+    comment naming only the no-table case. But that class is also what SQLite
+    raises for ``database is locked``, ``unable to open database file`` and
+    ``disk I/O error`` — and :func:`_table` cached the result, so **one transient
+    lock silently reverted every settings-backed value to its config seed for the
+    lifetime of the process**, at DEBUG level, with ``describe()`` then reporting
+    ``source="config"`` as though no row existed. An operator-set chat model or
+    temperature would quietly stop being the one in use.
+
+    :func:`_read_rows` carries ``@retry_on_locked`` because this is an ordinary
+    contended read and the two writers in this module already carry it. The retry
+    is what makes raising affordable: by the time an error reaches here, the lock
+    has been waited out and retried, so it is a real failure rather than a blip.
+    """
     if not _store_exists():
         return {}
     try:
-        with db.connection() as conn:
-            rows = conn.execute("SELECT key, value FROM settings").fetchall()
+        rows = _read_rows()
     except sqlite3.OperationalError as exc:
-        # Database present but no settings table yet. The config seed applies.
-        logger.debug("settings unavailable, using config seeds (%s)", exc)
-        return {}
+        if any(text in str(exc).lower() for text in _NO_TABLE):
+            # The schema is not there yet. The config seed genuinely applies.
+            logger.debug("no settings table yet, using config seeds (%s)", exc)
+            return {}
+        raise SettingsUnavailableError(
+            f"the settings table could not be read ({exc}); which values are in "
+            f"force is unknown, so the config seed is not being presented as one"
+        ) from exc
     return {row["key"]: row["value"] for row in rows}
 
 
 def _table() -> dict[str, Any]:
+    """The cached settings rows, loading them on first use.
+
+    **Only a successful load is cached.** A failed read leaves the cache empty so
+    the next call retries, because the alternative — caching the failure — is how
+    a momentary lock became permanent. ``invalidate()`` is called only by
+    ``set()``/``clear()``, so nothing else would ever have cleared it.
+    """
     key = _store_key()
     with _lock:
         cached = _cache.get(key)
@@ -308,7 +370,19 @@ def resolve(section: str, key: str, fallback: Any) -> Any:
     spec = _BY_CONFIG.get((section, key))
     if spec is None:
         return fallback
-    raw = _table().get(spec.name)
+    try:
+        raw = _table().get(spec.name)
+    except SettingsUnavailableError as exc:
+        # DEGRADE, on `prompt.py`'s recorded criterion: nothing here can be
+        # corrupted, a person is waiting on the turn this read sits inside, and
+        # retrying is free because the failure is not cached. WARNING rather than
+        # DEBUG — the value in use is not the one an operator may have set, and
+        # that is worth a line somebody will actually see.
+        logger.warning(
+            "settings unreadable; using the config seed for %s.%s on this call "
+            "only (%s)", section, key, exc,
+        )
+        return fallback
     if raw is None:
         return fallback
     return _decode(str(raw), spec)
@@ -321,6 +395,11 @@ def get(name: str, actor: Actor) -> Any:
     ``Actor.operator()`` would let a caller who never thought about
     authorization land silently on the always-allowed path, which is exactly
     what the explicit sentinel exists to prevent.
+
+    **Raises** :class:`SettingsUnavailableError` rather than degrading, unlike
+    :func:`resolve`. This is the person-facing read: answering "what is this set
+    to" with the seed, when the row could not be read, is a wrong answer to the
+    exact question asked, and nothing is waiting on it.
     """
     require(actor, "settings.read")
     spec = spec_for(name)
@@ -340,9 +419,15 @@ def has_row(name: str, actor: Actor) -> bool:
 class EffectiveSetting:
     """One setting's current value and where it came from.
 
-    ``source`` is ``"settings"`` or ``"config"``. Diagnostics, and the thing
-    that makes "is the read path really settings-first" answerable rather than
-    assumed.
+    ``source`` is ``"settings"``, ``"config"`` or ``"unavailable"``. Diagnostics,
+    and the thing that makes "is the read path really settings-first" answerable
+    rather than assumed.
+
+    ``"unavailable"`` means the settings table could not be read, so whether a row
+    exists is unknown and ``value`` is the config seed shown **as a fallback, not
+    as provenance**. It exists because this previously reported ``"config"`` in
+    that case — positively asserting that no row existed, which the code had not
+    established.
     """
 
     name: str
@@ -357,7 +442,19 @@ class EffectiveSetting:
 def describe(name: str, actor: Actor) -> EffectiveSetting:
     require(actor, "settings.read")
     spec = spec_for(name)
-    row = _row(spec.name)
+    try:
+        row = _row(spec.name)
+    except SettingsUnavailableError:
+        # Report the seed AND that provenance is unknown, rather than claiming
+        # "config". describe_all() then still lists every setting instead of
+        # failing whole because one read lost a race.
+        return EffectiveSetting(
+            name=spec.name,
+            value=config.get(spec.section, spec.key),
+            source="unavailable",
+            value_type=spec.value_type,
+            description=spec.description,
+        )
     if row is None:
         return EffectiveSetting(
             name=spec.name,
@@ -387,8 +484,12 @@ def _row(name: str) -> sqlite3.Row | None:
             return conn.execute(
                 "SELECT * FROM settings WHERE key = ?", (name,)
             ).fetchone()
-    except sqlite3.OperationalError:
-        return None
+    except sqlite3.OperationalError as exc:
+        if any(text in str(exc).lower() for text in _NO_TABLE):
+            return None
+        raise SettingsUnavailableError(
+            f"the settings table could not be read ({exc})"
+        ) from exc
 
 
 def describe_all(actor: Actor) -> list[EffectiveSetting]:

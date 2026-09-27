@@ -318,3 +318,114 @@ def test_a_read_never_creates_a_database_file(isolated_data_dir):
     assert not (isolated_data_dir / "working.db").exists()
     assert not (isolated_data_dir / "archive.db").exists()
     store.reset_cache()
+
+
+# --- An unreadable settings table is not "no row" ---------------------------
+#
+# The defect these cover: `_load_table` caught every `sqlite3.OperationalError`
+# and returned `{}`, and `_table` cached it. `database is locked` is the same
+# exception class as `no such table`, so one contended read silently reverted
+# every settings-backed value to its config seed for the rest of the process,
+# at DEBUG, while `describe()` reported `source="config"`.
+
+
+def _unreadable(monkeypatch):
+    """Make the settings read fail the way a dying disk does, not a busy one.
+
+    A non-lock `OperationalError`, so `@retry_on_locked` does not spend its
+    deadline retrying inside a unit test. The lock path has its own test below.
+    Patched at `db.connection`, the real seam — patching `_load_table` itself
+    would skip the classification that is the thing under test.
+    """
+    from program.memory import db
+
+    def boom(*_args, **_kwargs):
+        raise sqlite3.OperationalError("disk I/O error")
+
+    monkeypatch.setattr(db, "connection", boom)
+
+
+def test_an_unreadable_settings_table_does_not_poison_the_cache(
+    settings_store, monkeypatch
+):
+    """The one that matters: a transient failure must not become permanent."""
+    store.set("models.chat", "operator-chosen-model", OPERATOR)
+    store.reset_cache()
+
+    _unreadable(monkeypatch)
+    with pytest.raises(store.SettingsUnavailableError):
+        store.get("models.chat", OPERATOR)
+
+    # The lock clears. Nothing was cached, so the next read sees the real row
+    # rather than the seed it would have been stuck with.
+    monkeypatch.undo()
+    assert store.get("models.chat", OPERATOR) == "operator-chosen-model"
+    assert store.describe("models.chat", OPERATOR).source == "settings"
+
+
+def test_resolve_degrades_to_the_seed_and_says_so_out_loud(
+    settings_store, monkeypatch, caplog
+):
+    """`resolve()` is the hot path inside a turn, so it degrades — but at WARNING."""
+    _unreadable(monkeypatch)
+    with caplog.at_level("WARNING"):
+        value = store.resolve("models", "chat", "seed-value")
+
+    assert value == "seed-value"
+    assert any(
+        record.levelname == "WARNING" and "config seed" in record.message
+        for record in caplog.records
+    ), "a settings read that failed must not degrade silently"
+
+
+def test_get_raises_rather_than_answering_with_the_seed(settings_store, monkeypatch):
+    """Person-facing read: the seed is a wrong answer to the question asked."""
+    _unreadable(monkeypatch)
+    with pytest.raises(store.SettingsUnavailableError):
+        store.get("models.chat", OPERATOR)
+
+
+def test_describe_never_claims_config_when_the_read_failed(settings_store, monkeypatch):
+    """`source="config"` asserts that no row exists. An unread table proves nothing."""
+    store.set("models.chat", "operator-chosen-model", OPERATOR)
+    store.reset_cache()
+    _unreadable(monkeypatch)
+
+    described = store.describe("models.chat", OPERATOR)
+    assert described.source == "unavailable"
+    assert described.value == config.get("models", "chat")
+
+
+def test_a_missing_settings_table_is_still_the_benign_seed_case(isolated_data_dir):
+    """The behaviour the old code was aiming at, preserved rather than lost."""
+    store.reset_cache()
+    db.connection  # noqa: B018 - the store exists, the settings table does not
+    with db.connection() as conn:
+        conn.execute("DROP TABLE IF EXISTS settings")
+        conn.commit()
+
+    assert store.get("models.chat", OPERATOR) == config.get("models", "chat")
+    assert store.describe("models.chat", OPERATOR).source == "config"
+    store.reset_cache()
+
+
+def test_the_read_path_retries_a_locked_database(settings_store, monkeypatch):
+    """`@retry_on_locked`, the same treatment set()/clear() already carry."""
+    from program.memory import db
+
+    store.set("models.chat", "operator-chosen-model", OPERATOR)
+    store.reset_cache()
+
+    calls = {"n": 0}
+    real = db.connection
+
+    def flaky(*args, **kwargs):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise sqlite3.OperationalError("database is locked")
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(db, "connection", flaky)
+
+    assert store.get("models.chat", OPERATOR) == "operator-chosen-model"
+    assert calls["n"] >= 2, "the locked read was not retried"
