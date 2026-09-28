@@ -1479,6 +1479,13 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   to bite**: restoring the raw dump fails 4 tests, with the traceback visible in the
   output. *ComfyUI's own `exception_message` is still quoted, as approved, so an
   exception whose message names a file still carries that one path.*
+- `[unverified]` **Verified against the record's shape, not a real failure.** The tests
+  use a fixture following the fields ComfyUI 0.37.0's `execution.py`
+  (`handle_execution_error`) writes, read from its source. **No failure was forced on
+  the live instance**, so the summary has never been produced from a real
+  `execution_error`. If a later ComfyUI renames those fields, the summary degrades to
+  `?` placeholders (or, if the event itself is renamed, to a list of event names), and
+  nothing else notices.
 - `[built]` **`comfyui.host` must be an IP literal** (B10 C4, review addition).
   `config.comfyui_host()` raises `ConfigError` for a name such as `localhost`, closing
   the gap where a hostname is resolved once for the check and again for the connection.
