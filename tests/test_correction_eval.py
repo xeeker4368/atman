@@ -47,8 +47,15 @@ from scripts import correction_eval as correction_eval_cli
 #: could not see it: `self_correction` reported false links 0/20 with both its cases
 #: perfect, while BOTH false links written in production were self-corrections. Added
 #: in the same task as the `_PROMPT` clause that closes it, so the fix cannot regress
-#: unnoticed.)
-FROZEN_FINGERPRINT = "39ce8e41a10560f555d47f30d0fcab9f3fd43ec95fca778130e6933e3151f95b"
+#: unnoticed.) →
+#: a7e005cf… (2026-09-27, B11 stage 1, approved at review: the harness now shows
+#: candidates in production's newest-first order, through
+#: `corrections.production_order`. That moved `C3-position-third`'s target to
+#: position 1, so it is replaced by `C3b-position-third`, a new id rather than an
+#: edit. `N9-records-scope` pins CO10.2, a false link that depends on position and
+#: that the old order could not show. `C8-records-do-mention-it` is its control, so
+#: N9 cannot be fixed by refusing everything about records. 17 → 19 cases.)
+FROZEN_FINGERPRINT = "a7e005cf2a57c39a24e3b88db1437a7a6646463f415e074c00e8c7793f29e3ef"
 
 
 @pytest.fixture(scope="module")
@@ -85,6 +92,19 @@ def make_case(**overrides):
                     {"id": "p2", "role": "user", "content": "We need milk."}),
     )
     return correction_eval.Case(**{**base, **overrides})
+
+
+def shown(candidate_id, case=None):
+    """The number the classifier sees ``candidate_id`` under — production's order,
+    among the speaker's eligible candidates. A scripted reply must name a candidate
+    by what the prompt shows, not by where the case lists it."""
+    case = case or make_case()
+    eligible = [c.message_id for c in case.pool() if c.role == case.speaker_role]
+    return eligible.index(candidate_id) + 1
+
+
+#: make_case()'s target (p1) and its distractor (p2), as numbered in the prompt.
+T, D = shown("p1"), shown("p2")
 
 
 # --- the frozen set ----------------------------------------------------------
@@ -230,11 +250,14 @@ def test_the_mechanisms_own_guards_are_in_the_set(cases):
 
 def test_a_positive_case_does_not_always_name_the_first_candidate(cases):
     """Position bias is the failure a single-candidate set cannot see: a
-    classifier that always answers 1 would score perfectly on it."""
-    positions = {
-        [c["id"] for c in case.candidates].index(case.target)
-        for case in cases if case.should_link
-    }
+    classifier that always answers 1 would score perfectly on it. Positions are
+    counted as the classifier SEES them — production's order, among the candidates
+    its role makes eligible — not as the file lists them."""
+    positions = set()
+    for case in cases:
+        if case.should_link:
+            shown = [c.message_id for c in case.pool() if c.role == case.speaker_role]
+            positions.add(shown.index(case.target))
     assert positions >= {0, 1, 2}, "every expected target sits in the same position"
 
 
@@ -314,44 +337,38 @@ def test_a_malformed_case_raises_rather_than_being_skipped(tmp_path, text, messa
         correction_eval.load_cases(write(tmp_path, text))
 
 
-def test_candidate_timestamps_are_synthesised_in_order(cases):
+def test_candidate_timestamps_are_synthesised_in_file_order(cases):
     """Real timestamps would make the fingerprint depend on when the file was
-    written, and the harness measures judgment about content."""
-    pool = by_id(cases, "C3-position-third").pool()
-    assert [c.timestamp for c in pool] == sorted(c.timestamp for c in pool)
-    assert len({c.timestamp for c in pool}) == len(pool)
+    written, and the harness measures judgment about content. The file lists
+    candidates oldest first, so the first listed gets the earliest timestamp."""
+    case = by_id(cases, "C3b-position-third")
+    stamp = {c.message_id: c.timestamp for c in case.pool()}
+    listed = [c["id"] for c in case.candidates]
+    assert [stamp[i] for i in listed] == sorted(stamp.values())
+    assert len(set(stamp.values())) == len(listed)
 
 
 # --- running and scoring -----------------------------------------------------
 
 
-def test_the_harness_renders_candidates_oldest_first_and_production_does_not(cases):
-    """A KNOWN DIVERGENCE, pinned here so changing it is a decision rather than an
-    accident.
+def test_the_harness_shows_candidates_in_productions_order(cases, monkeypatch):
+    """The harness builds what production builds (`AGENTS.md`). It used to show
+    candidates in file order, oldest first, the reverse of production. CO10.2's
+    false link depends on exactly that: the same eleven candidates link 20/20 with
+    the claim first and 0/20 with it last.
 
-    `Case.pool()` synthesises timestamps in file order, so the harness renders
-    candidates **oldest first**. `corrections.candidates()` sorts `reverse=True`, so
-    production renders them **newest first**. The rendered timestamps are the same
-    either way and every frozen case's expectation is content-based, so no measured
-    result is known to depend on it — but it means the harness builds a candidate
-    *order* production never builds, which is the same class of gap as the gate's
-    `S6` "happens to pass".
+    Two assertions: the order is newest first, and it comes from
+    `corrections.production_order` itself, the function `candidates()` uses, not a
+    copy that could drift from it."""
+    pool = by_id(cases, "C3b-position-third").pool()
+    assert [c.timestamp for c in pool] == sorted((c.timestamp for c in pool), reverse=True)
 
-    **Not fixed here.** Reversing it would invert every case's numbering, and
-    `C3-position-third` — whose whole purpose is that the target is NOT first —
-    would have its target move to position 1, so the fix requires re-authoring a
-    frozen case and belongs to review, not to a measurement run.
-    """
-    import inspect
-
-    pool = by_id(cases, "C3-position-third").pool()
-    assert [c.timestamp for c in pool] == sorted(c.timestamp for c in pool), (
-        "the harness renders oldest first"
-    )
-    assert "reverse=True" in inspect.getsource(corrections.candidates), (
-        "production renders newest first — if this changed, the divergence may be "
-        "closed and this test's reasoning is stale"
-    )
+    calls = []
+    real = corrections.production_order
+    monkeypatch.setattr(corrections, "production_order",
+                        lambda items: calls.append(1) or real(items))
+    by_id(cases, "C3b-position-third").pool()
+    assert calls, "Case.pool() must order through corrections.production_order"
 
 
 def test_the_harness_goes_through_corrections_classify_only(monkeypatch, cases):
@@ -382,7 +399,7 @@ def test_the_speaker_name_reaches_the_prompt(monkeypatch, cases):
 
 
 def test_a_wrong_target_is_its_own_outcome_and_never_a_pass(monkeypatch):
-    script_classifier(monkeypatch, "CORRECTS 2 REPLACED\n- the list | replaced")
+    script_classifier(monkeypatch, f"CORRECTS {D} REPLACED\n- the list | replaced")
 
     result = correction_eval.run([make_case()], runs=2).results[0]
 
@@ -399,7 +416,7 @@ def test_the_right_link_with_the_wrong_label_is_wrong_state_not_a_pass(monkeypat
     """CO8's new failure mode. The link is correct and the annotation task 3.5
     renders is the wrong one — the content is right and the framing is not, which
     neither `ok` nor `wrong_target` can say."""
-    script_classifier(monkeypatch, "CORRECTS 1 CONTRADICTED\n- a | b")
+    script_classifier(monkeypatch, f"CORRECTS {T} CONTRADICTED\n- a | b")
 
     result = correction_eval.run([make_case()], runs=2).results[0]
 
@@ -416,7 +433,7 @@ def test_a_wrong_target_outranks_a_wrong_label(monkeypatch):
     """Both are wrong at once; the scoring must report the worse one. A link to a
     claim nobody corrected is a stronger failure than a mislabelled correct link,
     and reporting it as a labelling problem would understate it."""
-    script_classifier(monkeypatch, "CORRECTS 2 CONTRADICTED\n- a | b")
+    script_classifier(monkeypatch, f"CORRECTS {D} CONTRADICTED\n- a | b")
 
     result = correction_eval.run([make_case()], runs=1).results[0]
 
@@ -424,7 +441,7 @@ def test_a_wrong_target_outranks_a_wrong_label(monkeypatch):
 
 
 def test_a_contradicted_expectation_scores_ok_when_labelled_so(monkeypatch):
-    script_classifier(monkeypatch, "CORRECTS 1 CONTRADICTED\n- a | b")
+    script_classifier(monkeypatch, f"CORRECTS {T} CONTRADICTED\n- a | b")
 
     result = correction_eval.run(
         [make_case(replacement="contradicted")], runs=2).results[0]
@@ -440,7 +457,7 @@ def test_an_unlabelled_reply_is_a_scored_miss_not_an_excluded_run(monkeypatch):
     drop it from the denominator, and a model that systematically omitted the label
     would report a clean 0% while linking nothing at all.
     """
-    script_classifier(monkeypatch, "CORRECTS 1\n- a | b")
+    script_classifier(monkeypatch, f"CORRECTS {T}\n- a | b")
 
     result = correction_eval.run([make_case()], runs=2).results[0]
 
@@ -466,7 +483,7 @@ def test_only_an_unreachable_classifier_is_unavailable(monkeypatch):
 
 
 def test_a_false_link_and_a_miss_are_counted_separately(monkeypatch):
-    script_classifier(monkeypatch, "CORRECTS 1 REPLACED\n- x | y")
+    script_classifier(monkeypatch, f"CORRECTS {T} REPLACED\n- x | y")
     false_link = correction_eval.run(
         [make_case(id="neg", should_link=False, target=None)], runs=3).results[0]
     script_classifier(monkeypatch, "NONE")
@@ -481,7 +498,7 @@ def test_a_false_link_and_a_miss_are_counted_separately(monkeypatch):
 
 
 def test_the_expected_link_scores_as_ok(monkeypatch):
-    script_classifier(monkeypatch, "CORRECTS 1 REPLACED\n- the day | replaced Tuesday")
+    script_classifier(monkeypatch, f"CORRECTS {T} REPLACED\n- the day | replaced Tuesday")
 
     result = correction_eval.run([make_case()], runs=2).results[0]
 
@@ -491,7 +508,7 @@ def test_the_expected_link_scores_as_ok(monkeypatch):
 
 
 def test_disagreeing_runs_are_unstable_not_rounded(monkeypatch):
-    script_classifier(monkeypatch, "NONE", "CORRECTS 1 REPLACED\n- x | y", "NONE")
+    script_classifier(monkeypatch, "NONE", f"CORRECTS {T} REPLACED\n- x | y", "NONE")
 
     result = correction_eval.run([make_case()], runs=3).results[0]
 
@@ -501,12 +518,13 @@ def test_disagreeing_runs_are_unstable_not_rounded(monkeypatch):
 
 def test_unavailable_is_excluded_from_the_rates_not_scored_as_no_link(monkeypatch):
     script_classifier(
-        monkeypatch, ollama.OllamaUnreachable("down"), "CORRECTS 1 REPLACED\n- x | y")
+        monkeypatch, ollama.OllamaUnreachable("down"), f"CORRECTS {T} REPLACED\n- x | y")
 
     result = correction_eval.run([make_case()], runs=4).results[0]
 
     t = correction_eval.tally([result])["overall"]
     assert t.unavailable == 2
+    assert result.correct == 2, "the two answered runs are the correct link"
     assert t.link_expected == 2, (
         "an unavailable run must not read as a miss — the classifier never answered"
     )

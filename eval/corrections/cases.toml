@@ -23,7 +23,7 @@
 #   id             short, unique
 #   kind           correction | contradiction | elaboration | doubt | restatement
 #                  | topic_change | self_correction | role_guard | ambiguous
-#                  | position
+#                  | position | scope
 #   speaker_role   "user" | "assistant" — who wrote the new message
 #   speaker        (optional, default "Lyle") the household member's name, as the
 #                  classifier is told it. Both users appear in the set: the same
@@ -38,7 +38,12 @@
 #   new_message    the message being judged
 #   note           why (informational, not fingerprinted)
 #   documented     (optional) prior evidence (informational)
-#   [[case.candidate]]  the prior claims offered, in order: id, role, content
+#   [[case.candidate]]  the prior claims offered, OLDEST FIRST (the order they were
+#                  said in): id, role, content. The harness shows them to the
+#                  classifier in production's order, newest first, through
+#                  `corrections.production_order` — so the LAST candidate listed is
+#                  the FIRST one the classifier reads. Until 2026-09-27 the harness
+#                  showed file order, the reverse of production (B11, CO10.2).
 #
 # Q16 (one user never supersedes the other) has NO case here, and the reason is
 # sharper than "it is enforced elsewhere": **the prompt has no slot for a second
@@ -97,19 +102,19 @@ role = "user"
 content = "Jodie's train gets in at 18:40."
 
 [[case]]
-id = "C3-position-third"
+id = "C3b-position-third"
 kind = "position"
 speaker_role = "user"
 should_link = true
-target = "p3"
+target = "p1"
 replacement = "replaced"
 new_message = "The bike lock code is 4417, not 4471 — I transposed it."
-note = "Guards against position bias: the target is third of three, and two plausible-looking numeric claims sit above it."
+note = "Guards against position bias: the target is third of three as the classifier sees them, with two plausible-looking numeric claims shown above it. Replaces C3-position-third (2026-09-27, B11 stage 1): the harness now shows candidates in production's newest-first order, which moved C3's target to position 1 and destroyed its purpose. Same claims and the same message; the target is listed first (oldest) so that production's order shows it third. A new id rather than an edit, so no case id silently changes meaning."
 
 [[case.candidate]]
 id = "p1"
 role = "user"
-content = "The car needs its service at 40,000 miles."
+content = "The bike lock code is 4471."
 
 [[case.candidate]]
 id = "p2"
@@ -119,7 +124,7 @@ content = "The boiler pressure should sit around 1.4 bar."
 [[case.candidate]]
 id = "p3"
 role = "user"
-content = "The bike lock code is 4471."
+content = "The car needs its service at 40,000 miles."
 
 [[case]]
 id = "C4-self-correction"
@@ -353,3 +358,137 @@ content = "Nothing. I have not been running, so I have not been doing anything."
 id = "p2"
 role = "assistant"
 content = "Grinding finer will slow the shot down."
+
+# ===========================================================================
+# B11 stage 1 (2026-09-27): the records-scope shape, in production's order
+# ===========================================================================
+
+[[case]]
+id = "N9-records-scope"
+kind = "scope"
+speaker_role = "assistant"
+should_link = false
+new_message = "Since you don't want to buy anything special, the most effective method is to use **white vinegar** or **citric acid** (if you happen to have it in your pantry for baking or preserving). If you have neither, **lemon juice** can work, though it is slightly less potent.\n\nHere is how to do it:\n\n### 1. The Vinegar Method (Most Common)\nThis is the standard way to dissolve calcium carbonate (limescale).\n\n*   **The Ratio:** Mix equal parts water and white vinegar in the kettle. If the scale buildup is very heavy, you can use a higher ratio of vinegar, but 1:1 is usually sufficient.\n*   **The Process:**\n    1.  Pour the mixture into the kettle.\n    2.  Bring the solution to a boil.\n    3.  Once it boils, turn the kettle off and let it sit for at least 30 minutes. For very thick scale, you can leave it for an hour.\n    4.  Pour the mixture out.\n*   **The Rinse:** This is the most important step to avoid a vinegar taste. Rinse the kettle with cold water, then fill it with plain water, boil it, and discard that water. Repeat the boiling/discarding process once or twice until the smell of vinegar is completely gone.\n\n### 2. The Lemon Method (If you have no vinegar)\nIf you have lemons, you can use the citric acid naturally present in the juice.\n\n*   **The Process:**\n    1.  Squeeze the juice of one or two lemons into the kettle.\n    2.  Add enough water to cover the scale buildup.\n    3.  Bring to a boil and let it sit for about 30 minutes.\n    4.  Scrub any loosened bits with a soft cloth or sponge if necessary.\n    5.  Rinse thoroughly by boiling plain water and discarding it.\n\n### A Note on Maintenance\nTo prevent having to do this frequently, try to avoid letting water sit in the kettle for days at a time. If you live in a hard-water area, the scale will return quickly. Emptying the kettle after use and letting it air dry can help slow the process down."
+note = "CO10.2, from the 2026-09-22 soak: the entity said it found no mention of descaling in its records, then answered the next question from general knowledge. The first is about what the RECORDS contain; the second contradicts nothing in it. The pool is the entity-side pool production builds for that turn (after B2), eleven of the entity's own messages, the claim shown FIRST because candidates are newest first. Candidates are held at CANDIDATE_CHARS (400), all the classifier is ever shown. Candidate ids are 's' plus the soak message id prefix."
+documented = "MEASURED 2026-09-27 (B11), before this case existed: linked 20/20 in this configuration, and 0/20 with the same pool and the claim shown LAST. Position, not context size. The classifier drops the 'in my records' scope; an answer opening 'None of this comes from the records' still links 5/5. Expected to FAIL at B11 stage 1 and filed as a documented miss, S5/S6's pattern; stage 2 is where a fix is measured. scripts/correction_diagnosis_co10_2.py reproduces it."
+
+[[case.candidate]]
+id = "s67870b91"
+role = "assistant"
+content = "It matters, but less than grind consistency. Just off the boil is fine for most roasts. Pour-over has a much wider forgiving window than espresso does, so you can be approximate about temperature and still get something good."
+
+[[case.candidate]]
+id = "sd6ac6290"
+role = "assistant"
+content = "I have no calendar access, so I only know what has been said here. Nothing about Saturday has come up before this message."
+
+[[case.candidate]]
+id = "sbf104786"
+role = "assistant"
+content = "Noted. If you tell me what time, I will have it in the record for next time you ask."
+
+[[case.candidate]]
+id = "sdf235a9f"
+role = "assistant"
+content = "Nine, earlier if it rains. That is a strange rule and I assume there is a reason for it."
+
+[[case.candidate]]
+id = "s8bcf55cd"
+role = "assistant"
+content = "That explains it. Nine, or earlier if it rains, because the good stall leaves early in bad weather."
+
+[[case.candidate]]
+id = "s8f2022e7"
+role = "assistant"
+content = "Then that is what I have."
+
+[[case.candidate]]
+id = "s04534985"
+role = "assistant"
+content = "Understood. That is the fourth thing for Saturday."
+
+[[case.candidate]]
+id = "s1fcea464"
+role = "assistant"
+content = "You are right, it is the second. Market at nine, and coffee."
+
+[[case.candidate]]
+id = "sc57bd3a6"
+role = "assistant"
+content = "Right."
+
+[[case.candidate]]
+id = "s13f1fd3c"
+role = "assistant"
+content = "We have talked about two main things regarding coffee:\n\n*   **Making pour-over coffee:** You asked what equipment is needed to start making it in the mornings. I mentioned needing a cone, filters, a grinder, and a kettle that allows for a slow pour. We also discussed that while water temperature matters, grind consistency is more important, as uneven grounds can lead to a cup that is simultaneousl"
+
+[[case.candidate]]
+id = "s8d85df3c"
+role = "assistant"
+content = "I have searched my records, and I do not find any mention of descaling."
+
+[[case]]
+id = "C8-records-do-mention-it"
+kind = "self_correction"
+speaker_role = "assistant"
+should_link = true
+target = "s8d85df3c"
+replacement = "replaced"
+new_message = "I was wrong just now: the records do mention descaling. Jodie said on 14 September that the kettle needs descaling every month."
+note = "The control for N9, and the reason N9 cannot be fixed by refusing everything about records: the same eleven-candidate pool, and a new message that genuinely says the records DO mention descaling and gives what they say. A real self-correction of the claim shown first, with the correct value, so REPLACED."
+documented = "MEASURED 2026-09-27 (B11) before this case existed: linked to the target, replaced, 5/5 in this pool and 5/5 with the claim alone."
+
+[[case.candidate]]
+id = "s67870b91"
+role = "assistant"
+content = "It matters, but less than grind consistency. Just off the boil is fine for most roasts. Pour-over has a much wider forgiving window than espresso does, so you can be approximate about temperature and still get something good."
+
+[[case.candidate]]
+id = "sd6ac6290"
+role = "assistant"
+content = "I have no calendar access, so I only know what has been said here. Nothing about Saturday has come up before this message."
+
+[[case.candidate]]
+id = "sbf104786"
+role = "assistant"
+content = "Noted. If you tell me what time, I will have it in the record for next time you ask."
+
+[[case.candidate]]
+id = "sdf235a9f"
+role = "assistant"
+content = "Nine, earlier if it rains. That is a strange rule and I assume there is a reason for it."
+
+[[case.candidate]]
+id = "s8bcf55cd"
+role = "assistant"
+content = "That explains it. Nine, or earlier if it rains, because the good stall leaves early in bad weather."
+
+[[case.candidate]]
+id = "s8f2022e7"
+role = "assistant"
+content = "Then that is what I have."
+
+[[case.candidate]]
+id = "s04534985"
+role = "assistant"
+content = "Understood. That is the fourth thing for Saturday."
+
+[[case.candidate]]
+id = "s1fcea464"
+role = "assistant"
+content = "You are right, it is the second. Market at nine, and coffee."
+
+[[case.candidate]]
+id = "sc57bd3a6"
+role = "assistant"
+content = "Right."
+
+[[case.candidate]]
+id = "s13f1fd3c"
+role = "assistant"
+content = "We have talked about two main things regarding coffee:\n\n*   **Making pour-over coffee:** You asked what equipment is needed to start making it in the mornings. I mentioned needing a cone, filters, a grinder, and a kettle that allows for a slow pour. We also discussed that while water temperature matters, grind consistency is more important, as uneven grounds can lead to a cup that is simultaneousl"
+
+[[case.candidate]]
+id = "s8d85df3c"
+role = "assistant"
+content = "I have searched my records, and I do not find any mention of descaling."

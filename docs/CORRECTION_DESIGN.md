@@ -752,6 +752,26 @@ newest-first order, a frozen case for this shape is added, and the set is re-mea
 harness — not before, which would repeat CO12's risk of tuning a clause against a
 measurement that cannot see the defect.
 
+**Step (1) landed (2026-09-27, B11 stage 1).**
+- The harness orders candidates through `corrections.production_order`, the same
+  function `candidates()` uses.
+- `C3-position-third` is replaced by `C3b-position-third`.
+- `N9-records-scope` pins this shape (should not link), and `C8-records-do-mention-it`
+  is its control (should link).
+
+Measured at 20 decorrelated passes, fingerprint `a7e005cf…`, every case unanimous:
+
+| | false links | 95% interval |
+|---|---|---|
+| without N9 | 0/200 | [0–1.9%] |
+| with N9 | 20/220 | [6.0–13.6%] |
+
+- N9 fails 20/20, as expected. C8 passes 20/20.
+- Missed is 20/160, all of it C7. Wrong target is 0/160.
+- Stage 2 adds a second candidate fix alongside the clause, at review: measure
+  **production candidate order itself** as an alternative, in the same harness, checked
+  against C8 and every should-link case.
+
 Reproducible with `python -m scripts.correction_diagnosis_co10_2`, which embeds the pool,
 since the soak store is wiped before go-live.
 

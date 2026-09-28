@@ -222,6 +222,25 @@ def test_the_other_household_member_is_never_a_candidate(store):
     assert {c.content for c in pool} == {"Pour-over at 10."}
 
 
+def test_candidates_are_ordered_through_production_order(store, monkeypatch):
+    """`candidates()` orders through `corrections.production_order`, the same
+    function the eval harness uses (`correction_eval.Case.pool`), so the two cannot
+    drift. They did once: the harness showed candidates oldest first, and CO10.2's
+    false link depends on position (B11)."""
+    conversation = db.start_conversation(store["lyle"].user_id)
+    for text in ("The code is 4471.", "The boiler sits at 1.4 bar."):
+        db.save_message(conversation, store["lyle"].user_id, "user", text)
+
+    calls = []
+    real = corrections.production_order
+    monkeypatch.setattr(corrections, "production_order",
+                        lambda items: calls.append(1) or real(items))
+    pool = corrections.candidates(store["lyle"].user_id, conversation, [], user_name="Lyle")
+
+    assert calls, "corrections.candidates() must order through production_order"
+    assert [c.content for c in pool] == ["The boiler sits at 1.4 bar.", "The code is 4471."]
+
+
 # --- candidate assembly ------------------------------------------------------
 
 

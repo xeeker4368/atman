@@ -3023,6 +3023,25 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   0/140, wrong state 0/140; `self_correction` false links 0/40, missed 0/20 across 3 cases;
   16 PASS, 1 FAIL, 0 UNSTABLE.** `N8` is 20/20 correct and every case is unanimous. `C7`
   remains the single known failure at 0/20.
+- `[built]` **THE MEASUREMENT OF RECORD (2026-09-27, B11 stage 1): production order, 19
+  cases**, fingerprint `a7e005cf…`, `gemma4:26b` at 0.35, 20 decorrelated passes (5
+  first, identical) = 380 samples. **Every case is unanimous.** It supersedes `39ce8e41…`
+  above, which was measured in the order production never builds. The 20-pass figures:
+  - **Without N9**: false links **0/200 = 0% [0–1.9%]**, missed 20/160 = 12.5%, wrong
+    target 0/160, wrong state 0/160.
+  - **With N9**: false links **20/220 = 9.1% [6.0–13.6%]**. Both figures are reported
+    until stage 2 lands.
+  - **17 PASS, 2 FAIL**, both expected: `N9-records-scope` false-links 20/20 (CO10.2,
+    filed as a documented miss, S5/S6's pattern), and `C7` misses 20/20 as before.
+    `C8-records-do-mention-it`, N9's control, links correctly 20/20.
+  - **Reordering changed no other case's outcome.** Every multi-candidate case's target
+    moved (first ↔ second, and C3b is third), and all still pass.
+  - **C7's miss changed form, not substance.** It now answers `CORRECTS 1 or 2
+    CONTRADICTED`, still naming both candidates. "or" is not a separator the parser
+    knows, so the reply is counted **unusable** where `CORRECTS 1, 2` used to be dropped
+    as naming several candidates. That accounts for all 20 "unusable replies". No link is
+    written either way, which is still the safe direction. A reply the grammar did not
+    anticipate: the `CORRECTS 1, 2` finding again. Not changed here.
 - `[unverified]` **The wording names the shape it fixes**, so the `N7`-trap concern is bounded
   rather than eliminated: it closes both failing strings found, and only two were findable. A
   third phrasing would mean the boundary is still open. **One unusable classifier reply in
@@ -3053,22 +3072,22 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
 - `[unverified]` **`wrong_state` has never been observed non-zero.** 0/120 labelled
   runs is evidence the label is easy for this model on these shapes, not evidence
   the outcome category works; its scoring is proven by tests, not by a live failure.
-- `[unverified]` **The harness renders candidates in the reverse of production's
-  order.** `Case.pool()` synthesises timestamps in file order (oldest first);
-  `corrections.candidates()` sorts `reverse=True` (newest first). Rendered
-  timestamps are identical and every frozen expectation is content-based, so no
-  measured result is known to depend on it — but **the harness builds a candidate
-  order production never builds**, the same class of gap as the gate's `S6` and the
-  `CORRECTS 1, 2` parser bug. **Not fixed:** reversing it renumbers every case and
-  would move `C3-position-third`'s target to position 1, destroying that case's
-  purpose, so it needs a frozen-case re-authoring and belongs to review. Pinned by a
-  test asserting both orderings.
-  **It now demonstrably matters (2026-09-27, B11).** CO10.2's false link depends on
-  position: the same 11-candidate pool links **20/20** with the claim first
-  (production's order) and **0/20** with it last. So the frozen set cannot see that
-  defect as built. The fix is approved and sequenced: production order in the harness,
-  plus a frozen case for the shape, then re-measure. See `docs/CORRECTION_DESIGN.md`,
-  "CO10.2 corrected".
+- `[built]` **The harness shows candidates in production's order** (2026-09-27, B11
+  stage 1). It used to render file order, oldest first, while
+  `corrections.candidates()` shows newest first. That was recorded here as a known
+  difference that no measured result was known to depend on, until CO10.2's false link
+  turned out to depend on exactly that (the same 11-candidate pool links **20/20** with
+  the claim first and **0/20** with it last).
+  - Both now order through one function, `corrections.production_order`, so they
+    cannot drift. Tests assert each side calls it, and each is proven to bite:
+    reverting the harness fails 2 tests, reverting `candidates()` fails 1.
+  - **`C3-position-third` is replaced by `C3b-position-third`**, a new id rather than an
+    edit. The reorder moved C3's target to position 1, which destroyed its purpose.
+  - The case file still lists candidates oldest first; its header now says the
+    classifier reads the last one listed first.
+  - Scripted-reply tests now name candidates by the position the prompt shows. One of
+    them had been passing for the wrong reason under the new order (a wrong target where
+    it meant the correct link) and now asserts the correct link.
 - `[built]` **Three outcomes, not two.** `false_link`, `missed` and
   `wrong_target` are scored separately and **a wrong target is never a pass**: a
   miss leaves the record accurate and merely uncorrected, while a wrong link makes

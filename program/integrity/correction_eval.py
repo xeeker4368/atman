@@ -53,7 +53,8 @@ from program.integrity import corrections
 CASES_PATH = config.PROJECT_ROOT / "eval" / "corrections" / "cases.toml"
 
 _KINDS = {"correction", "contradiction", "elaboration", "doubt", "restatement",
-          "topic_change", "self_correction", "role_guard", "ambiguous", "position"}
+          "topic_change", "self_correction", "role_guard", "ambiguous", "position",
+          "scope"}
 _ROLES = {"user", "assistant"}
 _REPLACEMENTS = {"replaced", "contradicted"}
 
@@ -90,13 +91,17 @@ class Case:
     candidates: tuple[dict[str, str], ...] = ()
 
     def pool(self) -> list[corrections.Candidate]:
-        """The prior claims, as the classifier receives them.
+        """The prior claims, **in the order production shows them** (newest first).
 
-        Timestamps are synthesised in order: the harness measures judgment about
-        content, and a real `timestamp` would make the fingerprint depend on when
-        the file was written.
+        The case file lists candidates oldest first, the order they were said in.
+        Timestamps are synthesised in that order (the harness measures judgment about
+        content, and a real ``timestamp`` would make the fingerprint depend on when
+        the file was written), and the pool is then put in production's order by
+        ``corrections.production_order`` itself, not a copy of it. Until 2026-09-27
+        the harness rendered file order, the reverse of production, and CO10.2's
+        false link turned out to depend on exactly that.
         """
-        return [
+        return corrections.production_order(
             corrections.Candidate(
                 message_id=candidate["id"],
                 role=candidate["role"],
@@ -104,7 +109,7 @@ class Case:
                 timestamp=f"2026-09-18T10:{index:02d}:00",
             )
             for index, candidate in enumerate(self.candidates)
-        ]
+        )
 
 
 def _parse_case(raw: dict[str, Any], position: int) -> Case:

@@ -186,6 +186,12 @@ harness and treat it as unknown, not as harmless.
 The failure is quiet for the same reason as the rest of this section: the harness
 returns clean, stable numbers, just about a configuration that never occurs.
 
+**This rule rests on one recorded occurrence so far**, the one below. An earlier
+gate/registry instance of the same class was recalled at review, but no record of it
+has been found, so it is not counted. Treat the rule as a lesson from one case until a
+second is documented. That argues for applying it, not for applying it lightly: the one
+case sat in the measurement of record, unseen, until a production failure pointed at it.
+
 - **Occurrence (2026-09-27, B11).** The correction eval lists candidates oldest
   first; `corrections.candidates()` lists them newest first. This was recorded in
   `BUILT.md` as a known difference with *"no measured result … known to depend on

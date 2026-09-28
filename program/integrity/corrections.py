@@ -47,6 +47,7 @@ from __future__ import annotations
 import logging
 import re
 import sqlite3
+from collections.abc import Iterable
 from dataclasses import dataclass
 
 from program import config
@@ -237,7 +238,7 @@ def candidates(
         if row["user_id"] == user_id:
             seen[row["id"]] = _row_candidate(row)
 
-    ordered = sorted(seen.values(), key=lambda c: c.timestamp, reverse=True)
+    ordered = production_order(seen.values())
     kept: list[Candidate] = []
     per_role: dict[str, int] = {}
     for candidate in ordered:
@@ -245,6 +246,19 @@ def candidates(
             kept.append(candidate)
             per_role[candidate.role] = per_role.get(candidate.role, 0) + 1
     return kept
+
+
+def production_order(pool: Iterable[Candidate]) -> list[Candidate]:
+    """Newest first: the order the classifier is shown candidates in.
+
+    **One function, used by production and by the eval harness**
+    (``correction_eval.Case.pool``), so the two cannot drift. They used to: the harness
+    listed candidates oldest first, and CO10.2's false link depends on position — the
+    same eleven candidates link 20/20 with the claim first and 0/20 with it last
+    (``docs/CORRECTION_DESIGN.md``, "CO10.2 corrected"; ``AGENTS.md``, "A harness must
+    build what production builds").
+    """
+    return sorted(pool, key=lambda c: c.timestamp, reverse=True)
 
 
 def _render(pool: list[Candidate], user_name: str) -> str:
