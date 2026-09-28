@@ -3023,7 +3023,7 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   0/140, wrong state 0/140; `self_correction` false links 0/40, missed 0/20 across 3 cases;
   16 PASS, 1 FAIL, 0 UNSTABLE.** `N8` is 20/20 correct and every case is unanimous. `C7`
   remains the single known failure at 0/20.
-- `[built]` **THE MEASUREMENT OF RECORD (2026-09-27, B11 stage 1): production order, 19
+- `[built]` **SUPERSEDED BY `b27f3843…` ABOVE — the measurement of record (2026-09-27, B11 stage 1): production order, 19
   cases**, fingerprint `a7e005cf…`, `gemma4:26b` at 0.35, 20 decorrelated passes (5
   first, identical) = 380 samples. **Every case is unanimous.** It supersedes `39ce8e41…`
   above, which was measured in the order production never builds. The 20-pass figures:
@@ -3042,6 +3042,40 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
     as naming several candidates. That accounts for all 20 "unusable replies". No link is
     written either way, which is still the safe direction. A reply the grammar did not
     anticipate: the `CORRECTS 1, 2` finding again. Not changed here.
+- `[built]` **CO10.2 is a documented residual: neither stage 2 fix is taken** (2026-09-28,
+  B11 stage 2, diagnosis only; `docs/CORRECTION_DESIGN.md` CO15,
+  `scripts/correction_diagnosis_scope.py`). Nothing in `program/` or the frozen set changed.
+  - **Width:** six other ways of saying "nothing in my records/notes/memory about X",
+    each followed by general knowledge about X, link **0/20** each. The trigger is the
+    claim wording *"I have searched my records, and I do not find any mention of X"*.
+    With that wording, a short answer links 20/20 and a different topic links 19/20.
+  - **The scope clause** fixes the grinder probe and leaves N9 and the short-answer probe
+    at 20/20.
+  - **Oldest-first candidate order** passes the frozen set, but only moves the defect.
+    With the scope claim listed oldest, and so shown first, N9 and a variant that is
+    otherwise clean both link **20/20**, against 0/20 in production's order. The frozen
+    set cannot see this, because every frozen claim is the newest one.
+  - Accepted on N7's precedent, with the difference stated: the cost is a false
+    `replaced` link, not a false positive.
+  - **Resolved at review 2026-09-28:** P1 is filed as documented miss `N10`, V1–V8 are
+    added as `N11`–`N17` and `C9`, and the mirrors and P4 are not added.
+- `[built]` **THE MEASUREMENT OF RECORD (2026-09-28, B11 stage 2): 28 cases**, fingerprint
+  `b27f3843…`, `gemma4:26b` at 0.35, 20 decorrelated passes = 560 samples. **Every case is
+  unanimous: 25 PASS, 3 FAIL**, and each failure is a documented one:
+  - `C7` misses 20/20 (20 unusable "or" replies, as before);
+  - `N9` false-links 20/20;
+  - `N10` false-links 20/20.
+
+  It supersedes `a7e005cf…` below, and no case present there changed outcome.
+  - **False links, without N9/N10: 0/340 = 0% [0–1.1%].** With them: 40/380 = 10.5%
+    [7.8–14.0%]. Both figures are reported, because the residual is accepted rather than
+    fixed.
+  - Missed 20/180 = 11.1% [7.3–16.5%], all of it `C7`. Wrong target 0/180, wrong state
+    0/180.
+  - The scope kind: 7 clean wordings 0/140, 2 residual cases 40/40, and `C8` and `C9`
+    linked 40/40.
+  - **Carried forward:** a Notes feature's *"I have no note about X"* phrasing must be
+    tested against this pattern before Notes ships (`NOW.md` backlog).
 - `[unverified]` **The wording names the shape it fixes**, so the `N7`-trap concern is bounded
   rather than eliminated: it closes both failing strings found, and only two were findable. A
   third phrasing would mean the boundary is still open. **One unusable classifier reply in

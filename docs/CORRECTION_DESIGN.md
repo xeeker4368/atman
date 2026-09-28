@@ -775,6 +775,8 @@ Measured at 20 decorrelated passes, fingerprint `a7e005cf…`, every case unanim
 Reproducible with `python -m scripts.correction_diagnosis_co10_2`, which embeds the pool,
 since the soak store is wiped before go-live.
 
+**Step (2) measured (2026-09-28, B11 stage 2): neither fix is taken.** See CO15.
+
 ### CO10.3 — the gate flagging an accurate storage claim: I had this backwards
 
 I promoted *"Corrected. I have updated the record to reflect that the bike lock code is
@@ -922,3 +924,92 @@ locally safe by default.
    pinning this shape should land with the fix, so a regression is visible in the
    measurement rather than only in this document — the role `S5`/`S6` play for the gate.
    That changes the fingerprint and is a reviewed change to the measurement of record.
+
+### CO15 — B11 stage 2: how wide CO10.2 is, and why neither fix is taken (2026-09-28)
+
+**Diagnosis only.** `_PROMPT`, `production_order`, `corrections.py` and `cases.toml`
+are untouched. The fixes were applied in-process by
+`scripts/correction_diagnosis_scope.py`. Every cell is 20 decorrelated passes through
+the harness's own `Case.pool()` and `sample_once()`, and every variant sits on N9's
+own ten-message background pool with only the claim and the answer changed.
+
+**Width.** Six scope variants, each saying in a different way that the records, notes,
+memory or earlier conversations hold nothing about X and then answering X from
+general knowledge, all link **0/20** at base. Both controls behave: an answer that
+contradicts nothing gives no link, and a genuine correction links 20/20. So N9's
+defect is not "scope claim, then general knowledge" in general.
+
+**Boundary probes** (each moves N9 one step toward the variants):
+
+| probe | base |
+|---|---|
+| P1 N9's claim, a short vinegar answer | **20/20 linked** |
+| P2 *"There's nothing in my notes about descaling."*, N9's answer | 0/20 |
+| P3 N9's answer without its opening clause | 0/20 |
+| P4 N9's claim wording, grinder topic, grinder answer | **19/20 linked** [76–99%] |
+
+**So the trigger is the claim's wording, not the answer.** *"I have searched my
+records, and I do not find any mention of X"*, shown first, is superseded by almost
+any answer about X: short or long, descaling or grinders. Six other ways of saying
+the same thing are not. That makes it wider than one string (it survives changes of
+topic and answer) and narrower than the shape (other wordings are clean). P3 passing
+while N9 fails also shows N9 is brittle: removing *"Since you don't want to buy
+anything special,"* takes it from 20/20 to 0/20.
+
+**(a) The scope clause fails.** It was written to the general shape (a sixth
+NOT-corrections bullet: a statement about what has been recorded is not contradicted
+by general knowledge, and is corrected only if the records turn out to hold something).
+It fixes P4 (19/20 → 0/20) and leaves **N9 20/20 and P1 20/20**. Every other cell
+matches base.
+
+**(b) Oldest-first order meets the standard as written, and is still not a fix.** On
+the full frozen set plus the variants and probes it fixes N9, P1 and P4, with C8, V8
+and every should-link case at 20/20 and every other cell matching base. **But it
+moves the defect instead of removing it.** Oldest-first puts an *old* scope claim
+first (one that retrieval brings back when the topic comes up again, which is when a
+general answer about it follows). Mirror probes, with the claim listed oldest:
+
+| mirror | base (claim shown last) | oldest-first (claim shown first) |
+|---|---|---|
+| N9 | 0/20 | **20/20 linked** |
+| V1, sourdough | 0/20 | **20/20 linked** |
+| P1, P4, V2 | 0/20 | 0/20 |
+| C8, V8 genuine corrections | 20/20 | 20/20 |
+
+V1's wording never links under production's order and links 20/20 under the
+alternative, so the alternative is not just "N9's defect in a new place": it has a
+failure of its own that the frozen set cannot see, because every frozen claim is the
+newest one. Taking (b) on the frozen numbers would be the harness-configuration rule
+broken again (`AGENTS.md`).
+
+**Result: a documented residual, on N7's precedent.** Measured footprint: the claim
+wording *"I have searched my records, and I do not find any mention of X"*, as the
+newest entity message, followed by an answer about X. Its cost is a false `replaced`
+link on the entity's own scope claim, the wrong-link direction; task 3.5 would
+annotate *"nothing in my records"* as superseded by general knowledge. That is less
+damaging than CO10.1's case (it does not touch decision #5's sentence) but it is not
+N7's harmless false positive. It is accepted with that difference in view.
+
+**Two smaller observations.** The clause arm changed C7's reply form back from
+`CORRECTS 1 or 2` (unusable) to one the parser drops for naming two candidates: 0
+unusable replies against base's 20, same outcome. And the clause's fix of P4 without
+N9/P1 is the N7 pattern again: a wording change that moves one string rather than a
+boundary.
+
+**Proposed for the frozen set, pending Lyle's decision** (nothing added): P1 as a
+second documented miss beside N9, since it shows the wording rather than the answer is
+the trigger; the six variants and V7 as should-not-link cases and V8 as a should-link
+case, which would make the set able to see a clause or order change that breaks the
+clean wordings. The N9 and V1 mirrors are proposed as optional guards: they pass at
+base, and they are the only cases that would fail if candidate order were ever changed
+to oldest first. Without them the frozen set would report that change as a clean fix.
+
+**Resolved at review (2026-09-28).** The residual is accepted, and not taking (b) is
+confirmed. `N10-records-scope-short-answer` (P1) is filed as a documented miss beside N9.
+V1–V7 are added as `N11`–`N17` and V8 as `C9`. The mirrors and P4 are not added. Fingerprint
+`a7e005cf…` → `b27f3843…`, 19 → 28 cases.
+
+**Carried forward:** a Notes feature's *"I have no note about X"* phrasing must be tested
+against this pattern before Notes ships (`NOW.md` backlog). It would put a standard
+scope claim on every miss, so if its wording falls inside the trigger, the defect stops
+being rare.

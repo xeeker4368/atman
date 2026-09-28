@@ -492,3 +492,588 @@ content = "We have talked about two main things regarding coffee:\n\n*   **Makin
 id = "s8d85df3c"
 role = "assistant"
 content = "I have searched my records, and I do not find any mention of descaling."
+
+# ===========================================================================
+# B11 stage 2 (2026-09-28, approved at review). N10 is a second documented miss
+# beside N9; N11-N17 and C9 are the scope family that measured how wide CO10.2 is.
+# All on N9's background pool with only the claim (listed last, so shown first) and
+# the new message changed. docs/CORRECTION_DESIGN.md CO15.
+# ===========================================================================
+
+[[case]]
+id = "N10-records-scope-short-answer"
+kind = "scope"
+speaker_role = "assistant"
+should_link = false
+new_message = "Fill the kettle with equal parts water and white vinegar, bring it to the boil, leave it for thirty minutes, then rinse it and boil fresh water twice to get rid of the taste."
+note = "B11 stage 2 probe P1. N9's claim, verbatim, followed by a short general-knowledge answer about descaling. Shows the trigger is the CLAIM's wording ('I have searched my records, and I do not find any mention of X'), not N9's long answer. N9's background pool; the claim shown first."
+documented = "MEASURED 2026-09-28 (B11 stage 2), 20 decorrelated passes: false-links 20/20 at base. The scope clause (a) left it at 20/20; oldest-first order (b) cleared it but moved the defect onto old claims (mirror probes). Neither fix taken: filed as a DOCUMENTED MISS beside N9, S5/S6's and N7's pattern, so the residual sits in the measurement of record. See CORRECTION_DESIGN CO15; scripts/correction_diagnosis_scope.py reproduces it."
+
+[[case.candidate]]
+id = "s67870b91"
+role = "assistant"
+content = "It matters, but less than grind consistency. Just off the boil is fine for most roasts. Pour-over has a much wider forgiving window than espresso does, so you can be approximate about temperature and still get something good."
+
+[[case.candidate]]
+id = "sd6ac6290"
+role = "assistant"
+content = "I have no calendar access, so I only know what has been said here. Nothing about Saturday has come up before this message."
+
+[[case.candidate]]
+id = "sbf104786"
+role = "assistant"
+content = "Noted. If you tell me what time, I will have it in the record for next time you ask."
+
+[[case.candidate]]
+id = "sdf235a9f"
+role = "assistant"
+content = "Nine, earlier if it rains. That is a strange rule and I assume there is a reason for it."
+
+[[case.candidate]]
+id = "s8bcf55cd"
+role = "assistant"
+content = "That explains it. Nine, or earlier if it rains, because the good stall leaves early in bad weather."
+
+[[case.candidate]]
+id = "s8f2022e7"
+role = "assistant"
+content = "Then that is what I have."
+
+[[case.candidate]]
+id = "s04534985"
+role = "assistant"
+content = "Understood. That is the fourth thing for Saturday."
+
+[[case.candidate]]
+id = "s1fcea464"
+role = "assistant"
+content = "You are right, it is the second. Market at nine, and coffee."
+
+[[case.candidate]]
+id = "sc57bd3a6"
+role = "assistant"
+content = "Right."
+
+[[case.candidate]]
+id = "s13f1fd3c"
+role = "assistant"
+content = "We have talked about two main things regarding coffee:\n\n*   **Making pour-over coffee:** You asked what equipment is needed to start making it in the mornings. I mentioned needing a cone, filters, a grinder, and a kettle that allows for a slow pour. We also discussed that while water temperature matters, grind consistency is more important, as uneven grounds can lead to a cup that is simultaneousl"
+
+[[case.candidate]]
+id = "p1-claim"
+role = "assistant"
+content = "I have searched my records, and I do not find any mention of descaling."
+
+[[case]]
+id = "N11-records-sourdough"
+kind = "scope"
+speaker_role = "assistant"
+should_link = false
+new_message = "A starter is just flour and water that wild yeast and bacteria have colonised, so keeping one alive is mostly about feeding it on a rhythm.\n\n**Feeding.** Discard all but about 50 g, then add 50 g of flour and 50 g of water and stir well. At room temperature that means once a day; in the fridge, once a week is enough.\n\n**Signs it is healthy.** It should roughly double within four to eight hours of a feed, smell pleasantly sour, and be full of bubbles. A grey liquid on top (hooch) just means it is hungry; pour it off or stir it in and feed it.\n\n**Before baking.** Feed it the night before so it is at its peak, bubbly and domed, when you mix the dough. A spoonful dropped in water should float."
+note = "B11 stage 2 variant V1: another way of saying the records/notes/memory hold nothing about X, then answering X from general knowledge. Clean at base; in the set so a change that breaks the clean wordings (a clause, or a change of candidate order) is visible. N9's background pool; the claim shown first."
+documented = "MEASURED 2026-09-28 (B11 stage 2), 20 decorrelated passes: no link 20/20 at base, and in both fix arms."
+
+[[case.candidate]]
+id = "s67870b91"
+role = "assistant"
+content = "It matters, but less than grind consistency. Just off the boil is fine for most roasts. Pour-over has a much wider forgiving window than espresso does, so you can be approximate about temperature and still get something good."
+
+[[case.candidate]]
+id = "sd6ac6290"
+role = "assistant"
+content = "I have no calendar access, so I only know what has been said here. Nothing about Saturday has come up before this message."
+
+[[case.candidate]]
+id = "sbf104786"
+role = "assistant"
+content = "Noted. If you tell me what time, I will have it in the record for next time you ask."
+
+[[case.candidate]]
+id = "sdf235a9f"
+role = "assistant"
+content = "Nine, earlier if it rains. That is a strange rule and I assume there is a reason for it."
+
+[[case.candidate]]
+id = "s8bcf55cd"
+role = "assistant"
+content = "That explains it. Nine, or earlier if it rains, because the good stall leaves early in bad weather."
+
+[[case.candidate]]
+id = "s8f2022e7"
+role = "assistant"
+content = "Then that is what I have."
+
+[[case.candidate]]
+id = "s04534985"
+role = "assistant"
+content = "Understood. That is the fourth thing for Saturday."
+
+[[case.candidate]]
+id = "s1fcea464"
+role = "assistant"
+content = "You are right, it is the second. Market at nine, and coffee."
+
+[[case.candidate]]
+id = "sc57bd3a6"
+role = "assistant"
+content = "Right."
+
+[[case.candidate]]
+id = "s13f1fd3c"
+role = "assistant"
+content = "We have talked about two main things regarding coffee:\n\n*   **Making pour-over coffee:** You asked what equipment is needed to start making it in the mornings. I mentioned needing a cone, filters, a grinder, and a kettle that allows for a slow pour. We also discussed that while water temperature matters, grind consistency is more important, as uneven grounds can lead to a cup that is simultaneousl"
+
+[[case.candidate]]
+id = "v1-claim"
+role = "assistant"
+content = "I have looked through my records and there is nothing about sourdough starters."
+
+[[case]]
+id = "N12-notes-tyres"
+kind = "scope"
+speaker_role = "assistant"
+should_link = false
+new_message = "For a road bike, 80 to 100 psi is typical; a hybrid runs lower, around 50 to 70. The safe range for your tyres is printed on the sidewall."
+note = "B11 stage 2 variant V2: another way of saying the records/notes/memory hold nothing about X, then answering X from general knowledge. Clean at base; in the set so a change that breaks the clean wordings (a clause, or a change of candidate order) is visible. N9's background pool; the claim shown first."
+documented = "MEASURED 2026-09-28 (B11 stage 2), 20 decorrelated passes: no link 20/20 at base, and in both fix arms."
+
+[[case.candidate]]
+id = "s67870b91"
+role = "assistant"
+content = "It matters, but less than grind consistency. Just off the boil is fine for most roasts. Pour-over has a much wider forgiving window than espresso does, so you can be approximate about temperature and still get something good."
+
+[[case.candidate]]
+id = "sd6ac6290"
+role = "assistant"
+content = "I have no calendar access, so I only know what has been said here. Nothing about Saturday has come up before this message."
+
+[[case.candidate]]
+id = "sbf104786"
+role = "assistant"
+content = "Noted. If you tell me what time, I will have it in the record for next time you ask."
+
+[[case.candidate]]
+id = "sdf235a9f"
+role = "assistant"
+content = "Nine, earlier if it rains. That is a strange rule and I assume there is a reason for it."
+
+[[case.candidate]]
+id = "s8bcf55cd"
+role = "assistant"
+content = "That explains it. Nine, or earlier if it rains, because the good stall leaves early in bad weather."
+
+[[case.candidate]]
+id = "s8f2022e7"
+role = "assistant"
+content = "Then that is what I have."
+
+[[case.candidate]]
+id = "s04534985"
+role = "assistant"
+content = "Understood. That is the fourth thing for Saturday."
+
+[[case.candidate]]
+id = "s1fcea464"
+role = "assistant"
+content = "You are right, it is the second. Market at nine, and coffee."
+
+[[case.candidate]]
+id = "sc57bd3a6"
+role = "assistant"
+content = "Right."
+
+[[case.candidate]]
+id = "s13f1fd3c"
+role = "assistant"
+content = "We have talked about two main things regarding coffee:\n\n*   **Making pour-over coffee:** You asked what equipment is needed to start making it in the mornings. I mentioned needing a cone, filters, a grinder, and a kettle that allows for a slow pour. We also discussed that while water temperature matters, grind consistency is more important, as uneven grounds can lead to a cup that is simultaneousl"
+
+[[case.candidate]]
+id = "v2-claim"
+role = "assistant"
+content = "There's nothing in my notes about your bike's tyre pressure."
+
+[[case]]
+id = "N13-memory-wine"
+kind = "scope"
+speaker_role = "assistant"
+should_link = false
+new_message = "Blot it straight away with a clean cloth, and do not rub, which spreads it and pushes it into the fibres. Then pour a little cold water on and blot again. For what is left, a mix of washing-up liquid and hydrogen peroxide works on most light carpets, but test it on a hidden corner first, because peroxide can bleach."
+note = "B11 stage 2 variant V3: another way of saying the records/notes/memory hold nothing about X, then answering X from general knowledge. Clean at base; in the set so a change that breaks the clean wordings (a clause, or a change of candidate order) is visible. N9's background pool; the claim shown first."
+documented = "MEASURED 2026-09-28 (B11 stage 2), 20 decorrelated passes: no link 20/20 at base, and in both fix arms."
+
+[[case.candidate]]
+id = "s67870b91"
+role = "assistant"
+content = "It matters, but less than grind consistency. Just off the boil is fine for most roasts. Pour-over has a much wider forgiving window than espresso does, so you can be approximate about temperature and still get something good."
+
+[[case.candidate]]
+id = "sd6ac6290"
+role = "assistant"
+content = "I have no calendar access, so I only know what has been said here. Nothing about Saturday has come up before this message."
+
+[[case.candidate]]
+id = "sbf104786"
+role = "assistant"
+content = "Noted. If you tell me what time, I will have it in the record for next time you ask."
+
+[[case.candidate]]
+id = "sdf235a9f"
+role = "assistant"
+content = "Nine, earlier if it rains. That is a strange rule and I assume there is a reason for it."
+
+[[case.candidate]]
+id = "s8bcf55cd"
+role = "assistant"
+content = "That explains it. Nine, or earlier if it rains, because the good stall leaves early in bad weather."
+
+[[case.candidate]]
+id = "s8f2022e7"
+role = "assistant"
+content = "Then that is what I have."
+
+[[case.candidate]]
+id = "s04534985"
+role = "assistant"
+content = "Understood. That is the fourth thing for Saturday."
+
+[[case.candidate]]
+id = "s1fcea464"
+role = "assistant"
+content = "You are right, it is the second. Market at nine, and coffee."
+
+[[case.candidate]]
+id = "sc57bd3a6"
+role = "assistant"
+content = "Right."
+
+[[case.candidate]]
+id = "s13f1fd3c"
+role = "assistant"
+content = "We have talked about two main things regarding coffee:\n\n*   **Making pour-over coffee:** You asked what equipment is needed to start making it in the mornings. I mentioned needing a cone, filters, a grinder, and a kettle that allows for a slow pour. We also discussed that while water temperature matters, grind consistency is more important, as uneven grounds can lead to a cup that is simultaneousl"
+
+[[case.candidate]]
+id = "v3-claim"
+role = "assistant"
+content = "I don't have anything in my memory about getting red wine out of a rug."
+
+[[case]]
+id = "N14-conversations-repotting"
+kind = "scope"
+speaker_role = "assistant"
+should_link = false
+new_message = "Repot it in spring, when it is starting to grow, and only go up one pot size, about five centimetres wider. A much larger pot holds wet soil the roots cannot reach, which is how they rot. Use a free-draining mix, water it well afterwards, and expect it to sulk and drop a leaf or two for a couple of weeks."
+note = "B11 stage 2 variant V4: another way of saying the records/notes/memory hold nothing about X, then answering X from general knowledge. Clean at base; in the set so a change that breaks the clean wordings (a clause, or a change of candidate order) is visible. N9's background pool; the claim shown first."
+documented = "MEASURED 2026-09-28 (B11 stage 2), 20 decorrelated passes: no link 20/20 at base, and in both fix arms."
+
+[[case.candidate]]
+id = "s67870b91"
+role = "assistant"
+content = "It matters, but less than grind consistency. Just off the boil is fine for most roasts. Pour-over has a much wider forgiving window than espresso does, so you can be approximate about temperature and still get something good."
+
+[[case.candidate]]
+id = "sd6ac6290"
+role = "assistant"
+content = "I have no calendar access, so I only know what has been said here. Nothing about Saturday has come up before this message."
+
+[[case.candidate]]
+id = "sbf104786"
+role = "assistant"
+content = "Noted. If you tell me what time, I will have it in the record for next time you ask."
+
+[[case.candidate]]
+id = "sdf235a9f"
+role = "assistant"
+content = "Nine, earlier if it rains. That is a strange rule and I assume there is a reason for it."
+
+[[case.candidate]]
+id = "s8bcf55cd"
+role = "assistant"
+content = "That explains it. Nine, or earlier if it rains, because the good stall leaves early in bad weather."
+
+[[case.candidate]]
+id = "s8f2022e7"
+role = "assistant"
+content = "Then that is what I have."
+
+[[case.candidate]]
+id = "s04534985"
+role = "assistant"
+content = "Understood. That is the fourth thing for Saturday."
+
+[[case.candidate]]
+id = "s1fcea464"
+role = "assistant"
+content = "You are right, it is the second. Market at nine, and coffee."
+
+[[case.candidate]]
+id = "sc57bd3a6"
+role = "assistant"
+content = "Right."
+
+[[case.candidate]]
+id = "s13f1fd3c"
+role = "assistant"
+content = "We have talked about two main things regarding coffee:\n\n*   **Making pour-over coffee:** You asked what equipment is needed to start making it in the mornings. I mentioned needing a cone, filters, a grinder, and a kettle that allows for a slow pour. We also discussed that while water temperature matters, grind consistency is more important, as uneven grounds can lead to a cup that is simultaneousl"
+
+[[case.candidate]]
+id = "v4-claim"
+role = "assistant"
+content = "Nothing about repotting the fiddle-leaf fig has come up in our conversations."
+
+[[case]]
+id = "N15-search-boiler"
+kind = "scope"
+speaker_role = "assistant"
+should_link = false
+new_message = "Most combi boilers should sit between 1 and 1.5 bar when the heating is off and the system is cold. It rises a little when the heating runs, which is normal. If it drops below 1 bar you can top it up with the filling loop underneath."
+note = "B11 stage 2 variant V5: another way of saying the records/notes/memory hold nothing about X, then answering X from general knowledge. Clean at base; in the set so a change that breaks the clean wordings (a clause, or a change of candidate order) is visible. N9's background pool; the claim shown first."
+documented = "MEASURED 2026-09-28 (B11 stage 2), 20 decorrelated passes: no link 20/20 at base, and in both fix arms."
+
+[[case.candidate]]
+id = "s67870b91"
+role = "assistant"
+content = "It matters, but less than grind consistency. Just off the boil is fine for most roasts. Pour-over has a much wider forgiving window than espresso does, so you can be approximate about temperature and still get something good."
+
+[[case.candidate]]
+id = "sd6ac6290"
+role = "assistant"
+content = "I have no calendar access, so I only know what has been said here. Nothing about Saturday has come up before this message."
+
+[[case.candidate]]
+id = "sbf104786"
+role = "assistant"
+content = "Noted. If you tell me what time, I will have it in the record for next time you ask."
+
+[[case.candidate]]
+id = "sdf235a9f"
+role = "assistant"
+content = "Nine, earlier if it rains. That is a strange rule and I assume there is a reason for it."
+
+[[case.candidate]]
+id = "s8bcf55cd"
+role = "assistant"
+content = "That explains it. Nine, or earlier if it rains, because the good stall leaves early in bad weather."
+
+[[case.candidate]]
+id = "s8f2022e7"
+role = "assistant"
+content = "Then that is what I have."
+
+[[case.candidate]]
+id = "s04534985"
+role = "assistant"
+content = "Understood. That is the fourth thing for Saturday."
+
+[[case.candidate]]
+id = "s1fcea464"
+role = "assistant"
+content = "You are right, it is the second. Market at nine, and coffee."
+
+[[case.candidate]]
+id = "sc57bd3a6"
+role = "assistant"
+content = "Right."
+
+[[case.candidate]]
+id = "s13f1fd3c"
+role = "assistant"
+content = "We have talked about two main things regarding coffee:\n\n*   **Making pour-over coffee:** You asked what equipment is needed to start making it in the mornings. I mentioned needing a cone, filters, a grinder, and a kettle that allows for a slow pour. We also discussed that while water temperature matters, grind consistency is more important, as uneven grounds can lead to a cup that is simultaneousl"
+
+[[case.candidate]]
+id = "v5-claim"
+role = "assistant"
+content = "I searched for anything about the boiler pressure and came up empty."
+
+[[case]]
+id = "N16-records-grouphead-disclaimed"
+kind = "scope"
+speaker_role = "assistant"
+should_link = false
+new_message = "That isn't something I have from our conversations, so this is general practice rather than anything specific to your machine: backflush with plain water after each session, with a detergent like Cafiza about once a week, and take the shower screen off to scrub it once a month."
+note = "B11 stage 2 variant V6: another way of saying the records/notes/memory hold nothing about X, then answering X from general knowledge. Clean at base; in the set so a change that breaks the clean wordings (a clause, or a change of candidate order) is visible. N9's background pool; the claim shown first."
+documented = "MEASURED 2026-09-28 (B11 stage 2), 20 decorrelated passes: no link 20/20 at base, and in both fix arms."
+
+[[case.candidate]]
+id = "s67870b91"
+role = "assistant"
+content = "It matters, but less than grind consistency. Just off the boil is fine for most roasts. Pour-over has a much wider forgiving window than espresso does, so you can be approximate about temperature and still get something good."
+
+[[case.candidate]]
+id = "sd6ac6290"
+role = "assistant"
+content = "I have no calendar access, so I only know what has been said here. Nothing about Saturday has come up before this message."
+
+[[case.candidate]]
+id = "sbf104786"
+role = "assistant"
+content = "Noted. If you tell me what time, I will have it in the record for next time you ask."
+
+[[case.candidate]]
+id = "sdf235a9f"
+role = "assistant"
+content = "Nine, earlier if it rains. That is a strange rule and I assume there is a reason for it."
+
+[[case.candidate]]
+id = "s8bcf55cd"
+role = "assistant"
+content = "That explains it. Nine, or earlier if it rains, because the good stall leaves early in bad weather."
+
+[[case.candidate]]
+id = "s8f2022e7"
+role = "assistant"
+content = "Then that is what I have."
+
+[[case.candidate]]
+id = "s04534985"
+role = "assistant"
+content = "Understood. That is the fourth thing for Saturday."
+
+[[case.candidate]]
+id = "s1fcea464"
+role = "assistant"
+content = "You are right, it is the second. Market at nine, and coffee."
+
+[[case.candidate]]
+id = "sc57bd3a6"
+role = "assistant"
+content = "Right."
+
+[[case.candidate]]
+id = "s13f1fd3c"
+role = "assistant"
+content = "We have talked about two main things regarding coffee:\n\n*   **Making pour-over coffee:** You asked what equipment is needed to start making it in the mornings. I mentioned needing a cone, filters, a grinder, and a kettle that allows for a slow pour. We also discussed that while water temperature matters, grind consistency is more important, as uneven grounds can lead to a cup that is simultaneousl"
+
+[[case.candidate]]
+id = "v6-claim"
+role = "assistant"
+content = "My records don't say anything about how often to clean the espresso machine's group head."
+
+[[case]]
+id = "N17-contradicts-nothing"
+kind = "scope"
+speaker_role = "assistant"
+should_link = false
+new_message = "Do you know which model it is? Where the filter sits varies between makes, and if you tell me, I will have it in the record for next time."
+note = "B11 stage 2 variant V7, control: a scope claim, then an answer that asks a question and contradicts nothing. N9's background pool; the claim shown first."
+documented = "MEASURED 2026-09-28 (B11 stage 2), 20 decorrelated passes: no link 20/20 at base, and in both fix arms."
+
+[[case.candidate]]
+id = "s67870b91"
+role = "assistant"
+content = "It matters, but less than grind consistency. Just off the boil is fine for most roasts. Pour-over has a much wider forgiving window than espresso does, so you can be approximate about temperature and still get something good."
+
+[[case.candidate]]
+id = "sd6ac6290"
+role = "assistant"
+content = "I have no calendar access, so I only know what has been said here. Nothing about Saturday has come up before this message."
+
+[[case.candidate]]
+id = "sbf104786"
+role = "assistant"
+content = "Noted. If you tell me what time, I will have it in the record for next time you ask."
+
+[[case.candidate]]
+id = "sdf235a9f"
+role = "assistant"
+content = "Nine, earlier if it rains. That is a strange rule and I assume there is a reason for it."
+
+[[case.candidate]]
+id = "s8bcf55cd"
+role = "assistant"
+content = "That explains it. Nine, or earlier if it rains, because the good stall leaves early in bad weather."
+
+[[case.candidate]]
+id = "s8f2022e7"
+role = "assistant"
+content = "Then that is what I have."
+
+[[case.candidate]]
+id = "s04534985"
+role = "assistant"
+content = "Understood. That is the fourth thing for Saturday."
+
+[[case.candidate]]
+id = "s1fcea464"
+role = "assistant"
+content = "You are right, it is the second. Market at nine, and coffee."
+
+[[case.candidate]]
+id = "sc57bd3a6"
+role = "assistant"
+content = "Right."
+
+[[case.candidate]]
+id = "s13f1fd3c"
+role = "assistant"
+content = "We have talked about two main things regarding coffee:\n\n*   **Making pour-over coffee:** You asked what equipment is needed to start making it in the mornings. I mentioned needing a cone, filters, a grinder, and a kettle that allows for a slow pour. We also discussed that while water temperature matters, grind consistency is more important, as uneven grounds can lead to a cup that is simultaneousl"
+
+[[case.candidate]]
+id = "v7-claim"
+role = "assistant"
+content = "I found nothing in my records about the dishwasher filter."
+
+[[case]]
+id = "C9-notes-do-mention-it"
+kind = "self_correction"
+speaker_role = "assistant"
+should_link = true
+target = "v8-claim"
+replacement = "replaced"
+new_message = "I missed it a moment ago: it is in the record. You said on 3 September that the MOT is due on 19 October."
+note = "B11 stage 2 variant V8, control: a genuine self-correction of a scope claim, with the correct value, so REPLACED. The second case after C8 guaranteeing the scope shape cannot be fixed by refusing everything about records. N9's background pool; the claim shown first."
+documented = "MEASURED 2026-09-28 (B11 stage 2), 20 decorrelated passes: linked to the claim, replaced, 20/20 at base and in both fix arms."
+
+[[case.candidate]]
+id = "s67870b91"
+role = "assistant"
+content = "It matters, but less than grind consistency. Just off the boil is fine for most roasts. Pour-over has a much wider forgiving window than espresso does, so you can be approximate about temperature and still get something good."
+
+[[case.candidate]]
+id = "sd6ac6290"
+role = "assistant"
+content = "I have no calendar access, so I only know what has been said here. Nothing about Saturday has come up before this message."
+
+[[case.candidate]]
+id = "sbf104786"
+role = "assistant"
+content = "Noted. If you tell me what time, I will have it in the record for next time you ask."
+
+[[case.candidate]]
+id = "sdf235a9f"
+role = "assistant"
+content = "Nine, earlier if it rains. That is a strange rule and I assume there is a reason for it."
+
+[[case.candidate]]
+id = "s8bcf55cd"
+role = "assistant"
+content = "That explains it. Nine, or earlier if it rains, because the good stall leaves early in bad weather."
+
+[[case.candidate]]
+id = "s8f2022e7"
+role = "assistant"
+content = "Then that is what I have."
+
+[[case.candidate]]
+id = "s04534985"
+role = "assistant"
+content = "Understood. That is the fourth thing for Saturday."
+
+[[case.candidate]]
+id = "s1fcea464"
+role = "assistant"
+content = "You are right, it is the second. Market at nine, and coffee."
+
+[[case.candidate]]
+id = "sc57bd3a6"
+role = "assistant"
+content = "Right."
+
+[[case.candidate]]
+id = "s13f1fd3c"
+role = "assistant"
+content = "We have talked about two main things regarding coffee:\n\n*   **Making pour-over coffee:** You asked what equipment is needed to start making it in the mornings. I mentioned needing a cone, filters, a grinder, and a kettle that allows for a slow pour. We also discussed that while water temperature matters, grind consistency is more important, as uneven grounds can lead to a cup that is simultaneousl"
+
+[[case.candidate]]
+id = "v8-claim"
+role = "assistant"
+content = "There is nothing in my notes about when the car's MOT is due."

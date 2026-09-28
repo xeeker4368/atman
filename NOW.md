@@ -263,6 +263,19 @@ system working as intended and needs no change. Either answer is fine; it should
 decision rather than a drift. Touching `soul.md` is Tier 3, which is why this is a backlog
 item and not a fix.
 
+**Notes must be tested against CO10.2 before it ships** (raised at review 2026-09-28,
+B11 stage 2). CO10.2 is a documented residual: the correction classifier false-links the
+entity's claim *"I have searched my records, and I do not find any mention of X"* when an
+answer about X follows (`N9`, `N10`; `docs/CORRECTION_DESIGN.md` CO15). Six other wordings
+of the same idea are clean, so the trigger is the claim's wording. A Notes feature will
+give the entity a standard *"I have no note about X"* phrasing, which could fall inside
+the trigger or outside it. **Once that phrasing exists, and before Notes ships,**
+test it against the composition *"I have searched/looked through my
+[records/notes/memory] and [do not find/there is nothing] about X"*, followed by an
+answer about X. Use the frozen set's pool shape and production order, with 20
+decorrelated passes. If it links, it is this defect arriving through a feature, and it
+will then occur on every Notes miss rather than on one phrasing.
+
 **Retrieval floor calibration** — floors ship permissive/uncalibrated by
 design (see `BUILD_PLAN.md` Phase 1 notes). Once real conversation history
 exists in meaningful volume, calibrate actual threshold values and verify

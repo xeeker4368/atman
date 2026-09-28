@@ -54,8 +54,15 @@ from scripts import correction_eval as correction_eval_cli
 #: position 1, so it is replaced by `C3b-position-third`, a new id rather than an
 #: edit. `N9-records-scope` pins CO10.2, a false link that depends on position and
 #: that the old order could not show. `C8-records-do-mention-it` is its control, so
-#: N9 cannot be fixed by refusing everything about records. 17 → 19 cases.)
-FROZEN_FINGERPRINT = "a7e005cf2a57c39a24e3b88db1437a7a6646463f415e074c00e8c7793f29e3ef"
+#: N9 cannot be fixed by refusing everything about records. 17 → 19 cases.) →
+#: b27f3843… (2026-09-28, B11 stage 2, approved at review: neither the scope clause
+#: nor oldest-first order fixed CO10.2, so it stays a documented residual.
+#: `N10-records-scope-short-answer` is a second documented miss beside N9, showing
+#: the trigger is the claim's wording rather than the answer. `N11`–`N17` are other
+#: scope wordings and a contradicts-nothing control, all clean, so a change that
+#: breaks them is visible. `C9-notes-do-mention-it` is a second genuine-correction
+#: control. No existing case changed. 19 → 28 cases.)
+FROZEN_FINGERPRINT = "b27f3843b5df9e19709b3dc8f86c7fb80aadf9192c74a16009b7fa821397e881"
 
 
 @pytest.fixture(scope="module")
