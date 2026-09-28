@@ -710,6 +710,51 @@ truncates newest-first **before** role filtering, and `CANDIDATE_CHARS` truncate
 rendered candidate. Both change what the classifier sees as the pool grows, and the pool in
 production is mostly the entity's own recent answers.
 
+#### CO10.2 corrected (2026-09-27, B11): the trigger is POSITION, not context size
+
+**The context-size reading above is refuted.** Re-measured after B2, on the entity-side
+pool production's `candidates()` builds for this exact turn (11 of the entity's own
+messages, the descaling claim first because candidates are ordered newest first).
+Holding that pool fixed and changing only where the claim sits:
+
+| pool, message = the soak answer | linked |
+|---|---|
+| 11, target **first** (production order) | **20/20** |
+| 11, target **last** | **0/20** |
+| 6, target first | 20/20 |
+| 1 | 0/20 |
+| 2 or 3, target first | 0/5 each |
+
+Same pool, same message, same size: 20/20 against 0/20, non-overlapping intervals
+([84–100%] and [0–16%]). So what decides it is where the claim sits in the pool and
+what surrounds it, not how much text there is. The table above conflated size with
+position, because its larger pools also put the target first.
+
+**What the classifier is doing.** Its rationale drops the claim's scope every time:
+*"contradicts the earlier statement that no mention of descaling could be found in the
+records"* is read as "no information about descaling exists", which a general-knowledge
+answer then "replaces". It is not weighing the scope at all in the linking
+configuration: an answer that opens *"None of this comes from the records; it is general
+knowledge."* **still links 5/5** in the 11-candidate pool. Controls hold on both sides:
+a genuine correction (*"the records do mention descaling…"*) links in every pool, and an
+unrelated answer and a same-topic answer that corrects nothing never do.
+
+**Why production is exposed and the frozen set is not.** Production puts the claim just
+made first, which is the configuration that links, and *"nothing in my records"
+followed by answering from general knowledge* is an ordinary shape. The eval harness
+orders candidates **oldest first** — the reverse of production, recorded in `BUILT.md`
+as *"no measured result is known to depend on it"*. This is a measured result that
+depends on it, so the frozen set cannot see this defect as built.
+
+**Fix sequence, approved at review:** (1) the harness builds candidates in production's
+newest-first order, a frozen case for this shape is added, and the set is re-measured;
+**then** (2) a `_PROMPT` scope clause is considered, measured against the corrected
+harness — not before, which would repeat CO12's risk of tuning a clause against a
+measurement that cannot see the defect.
+
+Reproducible with `python -m scripts.correction_diagnosis_co10_2`, which embeds the pool,
+since the soak store is wiped before go-live.
+
 ### CO10.3 — the gate flagging an accurate storage claim: I had this backwards
 
 I promoted *"Corrected. I have updated the record to reflect that the bike lock code is
@@ -744,7 +789,8 @@ supersession — and not to the gate or the classifier. Reclassified out of the 
    the gate's `N7` received.
 2. **CO10.2 may be a symptom rather than a defect of its own**, given `MAX_CANDIDATES`
    truncating before the role filter is already a recorded finding. Whether fixing that
-   changes this is untested.
+   changes this is untested. *Answered 2026-09-27: it is a defect of its own. B2 fixed the
+   truncation, and the link reproduces 20/20 afterwards — see "CO10.2 corrected".*
 3. **Neither is in the frozen set, and the set says this area is clean**: `self_correction`
    reports false links **0/20** and missed **0/20**, its two cases (`C4`, `N6`) perfect at
    20/20 each, while **both** false links produced on the live store are self-corrections.

@@ -2778,7 +2778,9 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
 - `[unverified]` **Live behaviour of the widened pool is unmeasured.** More candidates reach
   the classifier on boundary turns and on turns with retrieval hits, and CO10.2's false
   link needed a six-candidate pool to reproduce; whether the wider pool raises false links
-  in production is what B11 should look at.
+  in production is what B11 should look at. *B11 (2026-09-27): CO10.2 reproduces 20/20 on
+  the post-B2 pool, but the trigger is the claim's position in the pool, not the pool's
+  size — see the correction eval entries below.*
 
 ### Retrieval resolves the link (task 3.5, 2026-09-19)
 
@@ -3025,8 +3027,10 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   rather than eliminated: it closes both failing strings found, and only two were findable. A
   third phrasing would mean the boundary is still open. **One unusable classifier reply in
   340 calls**, scored as production behaves rather than excluded; it landed on a no-link case,
-  so `missed` is unchanged. The soak's *other* false link — *"not in my records"*, which needs
-  a 6-candidate pool **and** a long message — is untouched and stays open as CO10.2.
+  so `missed` is unchanged. The soak's *other* false link — *"not in my records"* — is
+  untouched and stays open as CO10.2. *Its recorded cause (a 6-candidate pool **and** a long
+  message) was refuted at B11, 2026-09-27: it is position. The claim first in the pool links
+  20/20, and the same pool with it last links 0/20.*
 - `[unverified]` **MEASURED FAILING: `C7-referential-contradiction` is missed
   0/20 = 100% [84–100%]**, and it is the whole 14% miss rate. *"That's not right."*
   contradicts **purely by reference**, where `C6` restates the fact it denies. The
@@ -3059,6 +3063,12 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   would move `C3-position-third`'s target to position 1, destroying that case's
   purpose, so it needs a frozen-case re-authoring and belongs to review. Pinned by a
   test asserting both orderings.
+  **It now demonstrably matters (2026-09-27, B11).** CO10.2's false link depends on
+  position: the same 11-candidate pool links **20/20** with the claim first
+  (production's order) and **0/20** with it last. So the frozen set cannot see that
+  defect as built. The fix is approved and sequenced: production order in the harness,
+  plus a frozen case for the shape, then re-measure. See `docs/CORRECTION_DESIGN.md`,
+  "CO10.2 corrected".
 - `[built]` **Three outcomes, not two.** `false_link`, `missed` and
   `wrong_target` are scored separately and **a wrong target is never a pass**: a
   miss leaves the record accurate and merely uncorrected, while a wrong link makes

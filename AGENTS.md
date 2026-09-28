@@ -172,6 +172,28 @@ like nothing.
   queued under the wrong identity. The changelog was mine, and the mis-numbering
   propagated into a later brief before anyone read the code.
 
+### A harness must build what production builds
+
+An eval harness or diagnostic that calls the same function production calls is not
+thereby measuring production. **It has to hand that function what production hands
+it: the same ordering, the same defaults, the same surrounding configuration.**
+Arbitrary inputs to the right function measure a system nobody runs. Before trusting
+a harness, list what production builds around the call (candidate order, pool size
+and composition, defaults, which registry or settings are in force) and check that
+the harness builds the same. Where it cannot, record the difference beside the
+harness and treat it as unknown, not as harmless.
+
+The failure is quiet for the same reason as the rest of this section: the harness
+returns clean, stable numbers, just about a configuration that never occurs.
+
+- **Occurrence (2026-09-27, B11).** The correction eval lists candidates oldest
+  first; `corrections.candidates()` lists them newest first. This was recorded in
+  `BUILT.md` as a known difference with *"no measured result … known to depend on
+  it"*. CO10.2's false link depends on exactly that: the same 11-candidate pool links
+  **20/20** with the claim first (production's order) and **0/20** with it last. The
+  frozen set reported this area clean because it never builds production's order.
+  *"Not known to matter"* was only ever untested.
+
 ## Adding a runtime directory
 
 **Any new directory resolved from its own config key gets `backup.py` coverage and
