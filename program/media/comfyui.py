@@ -507,12 +507,48 @@ def _await_result(host: str, prompt_id: str, started: float, deadline: float) ->
         if entry is not None:
             status = entry.get("status") or {}
             if status.get("status_str") == "error":
+                # The full record goes to the log for the operator; the exception
+                # text — which reaches the model as a tool result — gets a summary.
+                logger.warning(
+                    "ComfyUI execution failed (prompt %s): %s",
+                    prompt_id, json.dumps(status.get("messages", status)),
+                )
                 raise ComfyUIGenerationFailed(
-                    f"ComfyUI ran the workflow and it failed: "
-                    f"{json.dumps(status.get('messages', status))[:400]}"
+                    f"ComfyUI ran the workflow and it failed: {_execution_failure(status)}"
                 )
             return entry
         time.sleep(min(interval, max(remaining, 0.01)))
+
+
+#: Characters of ComfyUI's own exception message quoted in an execution failure.
+_EXCEPTION_MESSAGE_CHARS = 300
+
+
+def _execution_failure(status: dict[str, Any]) -> str:
+    """What failed, in terms fit to hand the model: the node, the exception type and
+    ComfyUI's message — **never the traceback**.
+
+    ``status.messages`` is a list of ``[event, data]`` pairs. An ``execution_error``'s
+    data carries ``traceback`` (``traceback.format_tb()`` — file paths under the local
+    ComfyUI installation) and ``current_inputs``. The whole record used to be quoted,
+    400 characters of it, into an exception whose text reaches the model through
+    ``TOOL_ERROR``. The caller logs the full record instead.
+    """
+    messages = status.get("messages") or []
+    events = [m for m in messages if isinstance(m, (list, tuple)) and len(m) == 2]
+    for event, data in events:
+        if event == "execution_error" and isinstance(data, dict):
+            node = f"{data.get('node_type', '?')} (node {data.get('node_id', '?')})"
+            kind = data.get("exception_type") or "error"
+            text = str(data.get("exception_message") or "").strip()
+            text = text[:_EXCEPTION_MESSAGE_CHARS] or "no message"
+            return f"{node} raised {kind}: {text}"
+    for event, data in events:
+        if event == "execution_interrupted" and isinstance(data, dict):
+            return (f"interrupted at {data.get('node_type', '?')} "
+                    f"(node {data.get('node_id', '?')})")
+    names = ", ".join(str(event) for event, _ in events) or "none"
+    return f"no execution_error was recorded (events: {names})"
 
 
 def _image_reference(entry: dict[str, Any]) -> dict[str, Any]:

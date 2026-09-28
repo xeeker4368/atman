@@ -1470,6 +1470,15 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   control in the same process shows the default opener really reaches it, and the client
   must report `ComfyUIUnreachable`. Reverting to `urlopen` fails it with the original
   bug's shape (`client: 'PROXY!!'`).
+- `[built]` **An execution failure reaches the model without its traceback**
+  (2026-09-27, B10 follow-up). `ComfyUIGenerationFailed` quoted 400 characters of
+  ComfyUI's raw `status.messages`, whose `execution_error` carries a `format_tb()`
+  traceback of paths under the local ComfyUI installation — and the exception text is
+  what `TOOL_ERROR` hands the model. It now says only the node, the exception type and
+  ComfyUI's message (≤300 characters); the full record is logged at WARNING. **Proven
+  to bite**: restoring the raw dump fails 4 tests, with the traceback visible in the
+  output. *ComfyUI's own `exception_message` is still quoted, as approved, so an
+  exception whose message names a file still carries that one path.*
 - `[built]` **`comfyui.host` must be an IP literal** (B10 C4, review addition).
   `config.comfyui_host()` raises `ConfigError` for a name such as `localhost`, closing
   the gap where a hostname is resolved once for the check and again for the connection.
@@ -3570,8 +3579,8 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   no state and asserts about state — has ~20 `db.init_databases()` call sites in
   `tests/` worth a deliberate pass. Not done.*
 
-- `[built]` **Test suite** — 1,264 tests passing plus 2 skipped (`pytest`), `ruff check`
-  clean (2026-09-27, after B10; 1,234 on 2026-09-24, 1,140 on 2026-09-18). The backup race test is no longer
+- `[built]` **Test suite** — 1,268 tests passing plus 2 skipped (`pytest`), `ruff check`
+  clean (2026-09-27, after B10 and its follow-up; 1,234 on 2026-09-24, 1,140 on 2026-09-18). The backup race test is no longer
   flaky (B14). *Two standing failures, both known and neither from this work:
   `test_a_missing_session_secret_stops_the_server_from_starting`, caused by an
   uncommitted `session_secret` in `config/defaults.toml` (confirmed local-only,

@@ -658,3 +658,96 @@ def test_the_content_type_is_what_the_bytes_are_not_what_the_header_says(monkeyp
     image = comfyui.generate("a kettle")
 
     assert image.content_type == comfyui.IMAGE_CONTENT_TYPE == "image/png"
+
+
+# --- an execution failure reaches the model without its traceback -----------------
+
+#: The shape `execution.py`'s `handle_execution_error` records (ComfyUI 0.37.0):
+#: `[event, data]` pairs, the error carrying `format_tb()` output and the inputs.
+_TRACEBACK_PATH = "/Volumes/Dock Storage/ComfyUI/comfy/samplers.py"
+_EXECUTION_ERROR = {
+    "56b4126f-594f-4109-90f1-f9cbcc656b5d": {
+        "status": {"status_str": "error", "completed": False, "messages": [
+            ["execution_start", {"prompt_id": "56b4126f"}],
+            ["execution_cached", {"nodes": [], "prompt_id": "56b4126f"}],
+            ["execution_error", {
+                "prompt_id": "56b4126f", "node_id": "sampler", "node_type": "KSampler",
+                "executed": ["checkpoint"],
+                "exception_message": "Allocation on device \nThis error means you ran "
+                                     "out of memory on your GPU.",
+                "exception_type": "torch.OutOfMemoryError",
+                "traceback": [
+                    '  File "/Volumes/Dock Storage/ComfyUI/execution.py", line 496, '
+                    "in execute\n",
+                    f'  File "{_TRACEBACK_PATH}", line 1051, in sample\n',
+                ],
+                "current_inputs": {"seed": ["SECRET-INPUT-MARKER"]},
+                "current_outputs": [],
+            }],
+        ]},
+        "outputs": {},
+    }
+}
+
+
+def test_an_execution_error_names_the_node_and_exception_but_not_the_traceback(
+    monkeypatch, caplog
+):
+    transport(monkeypatch, history=_EXECUTION_ERROR)
+
+    with caplog.at_level("WARNING", logger="program.media.comfyui"):
+        with pytest.raises(comfyui.ComfyUIGenerationFailed) as caught:
+            comfyui.generate("a kettle")
+
+    message = str(caught.value)
+    assert "KSampler (node sampler)" in message
+    assert "torch.OutOfMemoryError" in message
+    assert "ran out of memory" in message
+    for leaked in (_TRACEBACK_PATH, "execution.py", "/Volumes/", "line 1051",
+                   "SECRET-INPUT-MARKER"):
+        assert leaked not in message, f"{leaked!r} reached the exception text"
+    # ...and the operator still has all of it.
+    assert _TRACEBACK_PATH in caplog.text
+    assert "SECRET-INPUT-MARKER" in caplog.text
+
+
+def test_the_exception_message_is_bounded(monkeypatch):
+    long = json.loads(json.dumps(_EXECUTION_ERROR))
+    error = long["56b4126f-594f-4109-90f1-f9cbcc656b5d"]["status"]["messages"][2][1]
+    error["exception_message"] = "y" * 2000
+    transport(monkeypatch, history=long)
+
+    with pytest.raises(comfyui.ComfyUIGenerationFailed) as caught:
+        comfyui.generate("a kettle")
+
+    assert "y" * comfyui._EXCEPTION_MESSAGE_CHARS in str(caught.value)
+    assert "y" * (comfyui._EXCEPTION_MESSAGE_CHARS + 1) not in str(caught.value)
+
+
+def test_an_interrupted_run_says_where_without_quoting_the_record(monkeypatch):
+    interrupted = {"56b4126f-594f-4109-90f1-f9cbcc656b5d": {
+        "status": {"status_str": "error", "messages": [
+            ["execution_start", {"prompt_id": "56b4126f"}],
+            ["execution_interrupted", {"node_id": "sampler", "node_type": "KSampler",
+                                       "executed": ["/Volumes/should-not-appear"]}],
+        ]}, "outputs": {}}}
+    transport(monkeypatch, history=interrupted)
+
+    with pytest.raises(comfyui.ComfyUIGenerationFailed,
+                       match=r"interrupted at KSampler \(node sampler\)") as caught:
+        comfyui.generate("a kettle")
+    assert "/Volumes/" not in str(caught.value)
+
+
+def test_a_failure_with_no_error_event_lists_event_names_only(monkeypatch):
+    odd = {"56b4126f-594f-4109-90f1-f9cbcc656b5d": {
+        "status": {"status_str": "error", "messages": [
+            ["execution_start", {"prompt_id": "56b4126f", "path": "/Volumes/nope"}],
+        ]}, "outputs": {}}}
+    transport(monkeypatch, history=odd)
+
+    with pytest.raises(comfyui.ComfyUIGenerationFailed,
+                       match=r"no execution_error was recorded \(events: execution_start\)"
+                       ) as caught:
+        comfyui.generate("a kettle")
+    assert "/Volumes/" not in str(caught.value)
