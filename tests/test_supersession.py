@@ -357,7 +357,7 @@ def test_the_two_states_render_differently(store):
     replaced = render_one(make_item(REPLACED))
     contradicted = render_one(make_item(REPLACED if False else CONTRADICTED))
 
-    assert "Later corrected." in replaced and "superseded on 2026-09-19" in replaced
+    assert "Later corrected by" in replaced and "superseded on 2026-09-19" in replaced
     assert "no replacement given" in contradicted
     assert "contradicted on 2026-09-19" in contradicted
     assert "no replacement given" not in replaced
@@ -403,7 +403,7 @@ def test_the_per_chunk_cap_counts_the_remainder_rather_than_dropping_it():
     items = [make_item(superseding=f"correction {n}") for n in range(6)]
     text = render_one(*items)
 
-    assert text.count("Later corrected.") == prompt.SUPERSEDING_MAX_PER_CHUNK
+    assert text.count("Later corrected by") == prompt.SUPERSEDING_MAX_PER_CHUNK
     extra = 6 - prompt.SUPERSEDING_MAX_PER_CHUNK
     assert f"And {extra} further corrections to this record, not shown." in text
 
@@ -419,8 +419,8 @@ def test_the_quote_budget_shortens_annotations_before_dropping_them():
         chunks.append(chunk)
     text = prompt.render_retrieved(retrieval.RetrievalResult(query="q", results=chunks))
 
-    assert text.count("Later corrected.") == prompt.SUPERSESSION_MAX_ANNOTATIONS
-    quoted = text.count('by: "')
+    assert text.count("Later corrected by") == prompt.SUPERSESSION_MAX_ANNOTATIONS
+    quoted = text.count('2026-09-19: "')
     assert 0 < quoted < prompt.SUPERSESSION_MAX_ANNOTATIONS, (
         "the budget should have run out part-way, leaving later annotations unquoted"
     )
@@ -437,7 +437,7 @@ def test_the_global_cap_counts_what_it_withholds():
         chunks.append(chunk)
     text = prompt.render_retrieved(retrieval.RetrievalResult(query="q", results=chunks))
 
-    assert text.count("Later corrected.") == prompt.SUPERSESSION_MAX_ANNOTATIONS
+    assert text.count("Later corrected by") == prompt.SUPERSESSION_MAX_ANNOTATIONS
     assert "further corrections apply to" in text and "not shown." in text
 
 
@@ -492,7 +492,7 @@ def test_the_tool_and_the_passive_context_render_a_correction_identically(store)
     rendered = memory_search.MEMORY_SEARCH.handler("dentist Tuesday")
     passive = prompt.render_retrieved(retrieval.search("dentist Tuesday"))
 
-    assert "Later corrected." in passive
+    assert "Later corrected by" in passive
     assert passive in rendered, "the tool must not render a correction differently"
 
 
@@ -556,4 +556,71 @@ def test_the_failure_path_produces_the_note_end_to_end(store, monkeypatch):
     text = prompt.render_retrieved(retrieval.search("dentist Tuesday"))
 
     assert "did not complete" in text
-    assert "Later corrected." not in text, "nothing resolved, so nothing to show"
+    assert "Later corrected by" not in text, "nothing resolved, so nothing to show"
+
+
+# --- who made the correction (B11 stage 3, D8) --------------------------------
+
+
+def test_every_annotation_names_who_made_the_correction(store):
+    """Since stage 3 a person may correct the entity, so an unattributed "later
+    corrected" would read a person's disagreement as fact (D6). The person is named
+    from their `users` row, and the entity by the word chunk text uses for it."""
+    conversation, ids = write(store, ("user", "What does the boiler want?"),
+                              ("assistant", "The boiler should sit at 2.5 bar."))
+    _, person = write(store, ("user", "No, it should sit at 1.5 bar."))
+    _, entity = write(store, ("assistant", "I had that wrong: 1.5 bar."))
+    link(person[0], ids[1])
+    link(entity[0], ids[0], CONTRADICTED)
+
+    by_chunk, _ = supersession.resolve_for_chunks(chunk_ids_of(conversation))
+    speakers = {item.superseding_message_id: item.superseding_speaker
+                for items in by_chunk.values() for item in items}
+    assert speakers == {person[0]: "Lyle", entity[0]: supersession.ENTITY_SPEAKER}
+
+    [chunk_id] = chunk_ids_of(conversation)
+    rendered = render_one(*by_chunk[chunk_id])
+    assert "Later corrected by Lyle." in rendered
+    assert "Later contradicted by the assistant, with no replacement given." in rendered
+
+
+def test_a_chain_names_whoever_made_its_tip(store):
+    conversation, ids = write(store, ("assistant", "The code is 1111."))
+    _, b = write(store, ("user", "No, 2222."))
+    _, c = write(store, ("assistant", "Checked again: it is 3333."))
+    link(b[0], ids[0])
+    link(c[0], b[0])
+
+    by_chunk, _ = supersession.resolve_for_chunks(chunk_ids_of(conversation))
+
+    [item] = next(iter(by_chunk.values()))
+    assert item.superseding_message_id == c[0]
+    assert item.superseding_speaker == supersession.ENTITY_SPEAKER
+
+
+def test_the_speaker_is_rendered_never_written_into_chunk_text(store):
+    """D8's distinction. Chunk text reaches FTS5 and the embedding, and re-chunking
+    reproduces it, so a speaker label written there could never be removed."""
+    conversation, ids = write(store, ("assistant", "The library shuts at eight."))
+    _, person = write(store, ("user", "It shuts at six on Saturdays."))
+    before = {c["id"]: c["text"] for c in db.get_conversation_chunks(conversation)}
+
+    link(person[0], ids[0])
+    by_chunk, _ = supersession.resolve_for_chunks(list(before))
+    assert "corrected by Lyle" in render_one(*next(iter(by_chunk.values())))
+
+    after = {c["id"]: c["text"] for c in db.get_conversation_chunks(conversation)}
+    assert after == before
+    with db.connection() as conn:
+        hits = conn.execute(
+            "SELECT count(*) FROM chunks_fts WHERE chunks_fts MATCH 'corrected'"
+        ).fetchone()[0]
+    assert hits == 0
+
+
+def test_the_entity_sentinel_and_a_missing_name_never_render():
+    assert supersession.speaker_label("user", db.ENTITY_USER_NAME) == (
+        supersession.UNKNOWN_SPEAKER)
+    assert supersession.speaker_label("user", None) == supersession.UNKNOWN_SPEAKER
+    # The entity is named by role, never by its row: even a real name is ignored.
+    assert supersession.speaker_label("assistant", "Lyle") == supersession.ENTITY_SPEAKER

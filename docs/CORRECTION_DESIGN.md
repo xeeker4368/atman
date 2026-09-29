@@ -1027,12 +1027,12 @@ being rare.
 Built from the stage 3 plan and its rulings (D1–D11). This section records what was
 built and measured. The plan's text is the reviewer's, and each D-number refers to it.
 
-### D3: CO4 amended (confirmed at review, 2026-09-28)
+### D3: CO4 amended (confirmed at review, 2026-09-29)
 
 The wording below is the `corrections.py` module docstring's, copied verbatim, so the two
 files carry one phrasing of the amendment.
 
-*CO4 as amended at B11 stage 3 (D3). Confirmed at review, 2026-09-28.*
+*CO4 as amended at B11 stage 3 (D3). Confirmed at review, 2026-09-29.*
 
 * A person may correct **their own** earlier statements, and **the entity's**
   statements, in their own conversations.
@@ -1222,3 +1222,12 @@ Everything above except the switch: CO4 by construction, D5's tie-break, the D6/
 bullets, speaker-named annotations, `candidate_role` in the harness and the 16 cases.
 `corrections.person_corrects_entity` defaults **off** and is not to be switched on until
 `PN9` is understood and closed.
+
+### Added before commit (2026-09-29)
+
+`PN9` carries `known_unstable = true`, and the harness report marks it `PASS*`/`FAIL*`
+with a warning line beside the result. So a future green run cannot be read as a fix
+without the warning on the same screen. The flag is not fingerprinted.
+
+`GUIDANCE.md`'s corrections paragraph now describes CO4 as amended, closing the
+reconciliation decision #21 asked for at task 3.3.

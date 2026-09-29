@@ -40,10 +40,26 @@ fabrication (invented artifact IDs, claimed actions that didn't happen) and
 identity-claim fabrication (false statements about the entity's own nature
 or mechanism). Do not build these as two separate systems.
 
-**Corrections and supersession.** When a human corrects something the
-entity said, that correction should be retrievable as current going
+**Corrections and supersession.** When something said earlier is
+corrected, the correction should be retrievable as current going
 forward — not sitting alongside the original wrong claim with no signal
-about which one is current. Detecting "this message corrects that prior
+about which one is current. Who may correct what (`NOW.md` decision #21,
+CO4 as amended in `docs/CORRECTION_DESIGN.md`):
+
+- A person may correct their own earlier statements.
+- The entity may correct its own earlier statements.
+- A person may correct the entity's statements, in their own
+  conversations. *The mechanism is built but switched off
+  (`corrections.person_corrects_entity`) until an open false-link defect
+  (`PN9`, CO16) is understood and closed.*
+- The entity never supersedes a person's statement, and one person
+  never supersedes the other's.
+
+A person disagreeing with the entity's account of itself, or with an
+opinion it gave, is not a correction. Every correction shown with a
+retrieved record names who made it.
+
+Detecting "this message corrects that prior
 claim" is model-judged (a small classification call), not keyword
 heuristics. A correction gets linked to what it corrects via a
 `supersedes` relationship; retrieval must respect that link. This

@@ -19,7 +19,7 @@ not. See C3, and migration 5 for the reasoning in the schema itself.
 
 Who may correct whom
 ====================
-*CO4 as amended at B11 stage 3 (D3). Confirmed at review, 2026-09-28.*
+*CO4 as amended at B11 stage 3 (D3). Confirmed at review, 2026-09-29.*
 
 * A person may correct **their own** earlier statements, and **the entity's**
   statements, in their own conversations.

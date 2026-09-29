@@ -87,8 +87,30 @@ known-good results without understanding why they held. `N9` beside `N10` still 
 - **Notes** must still be tested against this pattern and `PN9`'s family before it ships
   (`NOW.md` backlog).
 - The person-corrects-entity path has therefore never run in production.
-- `GUIDANCE.md`'s wording ("when a human corrects something the entity said") is the
-  reconciliation decision #21 asked for at 3.3; not done here.
+- ~~`GUIDANCE.md`'s wording is the reconciliation decision #21 asked for at 3.3; not
+  done here.~~ Done before commit, at review's request: see "Added at review" below.
+
+## Added at review (2026-09-29), before commit
+
+- **`GUIDANCE.md` reconciled with the shipped scope.** Its corrections paragraph said
+  *"when a human corrects something the entity said"*, which no longer describes the
+  scope under CO4 as amended. It now lists who may correct what, says the
+  person-corrects-entity mechanism is built but switched off pending `PN9`, and states
+  that disagreeing with the entity's account of itself or its opinions is not a
+  correction, and that every shown correction names who made it. Documentation only.
+- **`known_unstable` in the case file, surfaced in the report.**
+  - `PN9` carries `known_unstable = true`.
+  - `correction_eval.render()` prints its state as `PASS*` or `FAIL*`, with a line
+    directly underneath: *"KNOWN UNSTABLE: this result is not evidence either way"*.
+  - The case-states summary lists known-unstable cases, and the JSON report carries
+    the flag.
+  - The reason: a future green run would otherwise show `PN9` passing, with nothing on
+    the screen to say it isn't real.
+  - **Not fingerprinted**, beside `note`/`documented`: it qualifies how a result is read,
+    not what is measured, so the fingerprint stays `c7760e49…`.
+  - Tests pin the flag on `PN9`, the non-fingerprinting, the marker beside the result,
+    and a malformed value refused at load. Removing the marker from `render()` fails
+    the report test.
 
 ## Tests
 

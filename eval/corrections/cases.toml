@@ -34,6 +34,10 @@
 #                  stage 3's third call, a person judged against the entity's
 #                  statements. An assistant speaker judged against user statements
 #                  is refused at load (CO4). Fingerprinted: it is an input.
+#   known_unstable (optional, default false) the case's rate depends on sampling
+#                  context in a way nobody understands, so one run's PASS or FAIL is
+#                  not evidence. The report marks it beside the result. Not
+#                  fingerprinted: it qualifies how a result is read.
 #   should_link    true when a correct classifier writes a link
 #   target         (required when should_link) the candidate id that must be picked
 #   replacement    (required when should_link) "replaced" when the new message
@@ -1435,6 +1439,7 @@ kind = "person_corrects_entity"
 speaker_role = "user"
 candidate_role = "assistant"
 should_link = false
+known_unstable = true
 new_message = "You descale it with vinegar: half water, half vinegar, boil it and leave it for half an hour."
 note = "The Notes-phrasing check (stage 2's carried-forward item) in stage 3's new pool: the entity's CO15-pattern claim ('I have searched my records, and I do not find any mention of descaling'), then the PERSON describing how to descale. Contradicts nothing: the records claim is still true. N9's background pool, claim shown first."
 documented = "MEASURED 2026-09-28 (B11 stage 3 screen, 5 decorrelated passes): no link 5/5 with _PROMPT unchanged, but LINKED 5/5 under both D6 wordings and with stage 2's scope clause added: the classifier drops the records scope ('provides specific instructions for descaling, which contradicts the claim that no mention of it exists'), CO10.2's mechanism. Filed as a DOCUMENTED MISS, N9's pattern. NC2 (notes/grinder) and NC3 (memory/boiler) were clean in every arm and are not added. CORRECTION 2026-09-28 (later same day): THIS RATE IS NOT STABLE AND THE NOTE ABOVE IS NOT A PROPERTY OF THE CASE. Under the identical shipped prompt and the identical pool it read 0/20 linked in the 44-case harness run (fingerprint c7760e49…, file order), 20/20 sampled directly after PN8 or with unrelated cases between samples, 1/3 in a fresh 3-pass run of the full set, and 18/20 in a width probe. Same code, same pool, same model; only the sampling context differs (the N7 pattern). The harness PASS at 0/20 is therefore NOT evidence the case is fixed. Its mechanism is not understood. Width: a second wording (boiler pressure, 'searched for anything… came up empty') links 20/20 shipped, so it is not one string. The two bullets raise it (exact string 1/20 without them, 18/20 with); stage 2's scope clause makes it worse (20/20). RULED 2026-09-29: an OPEN, UNSTABLE DEFECT, NOT A RESIDUAL (a residual is characterised and bounded; this has neither a stable rate nor a known mechanism). Shuffled full-set regime, shipped prompt: 14/20 linked. person_corrects_entity stays off on this ground."

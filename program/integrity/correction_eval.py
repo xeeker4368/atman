@@ -58,8 +58,9 @@ _KINDS = {"correction", "contradiction", "elaboration", "doubt", "restatement",
 _ROLES = {"user", "assistant"}
 _REPLACEMENTS = {"replaced", "contradicted"}
 
-#: Fingerprinted — what each case measures. `note`/`documented` are excluded so
-#: wording can be corrected without tripping the freeze.
+#: Fingerprinted — what each case measures. `note`/`documented`/`known_unstable` are
+#: excluded: they change how a result is read, not what is measured, so wording can
+#: be corrected without tripping the freeze.
 _FROZEN = ("id", "kind", "speaker_role", "speaker", "candidate_role", "should_link",
            "target", "replacement", "new_message")
 
@@ -94,6 +95,12 @@ class Case:
     #: speaker is the third call, a person judged against the entity's statements.
     #: An input, so it is fingerprinted.
     candidate_role: str | None = None
+    #: A case whose rate is known to depend on sampling context in a way that is not
+    #: understood (PN9, CO16). Its PASS or FAIL in any one run is not evidence, and
+    #: :func:`render` says so beside the result, where a misleading green would be
+    #: read, not only in the note. Not fingerprinted: it qualifies how a result is
+    #: read, not what is measured.
+    known_unstable: bool = False
 
     def pool(self) -> list[corrections.Candidate]:
         """The prior claims, **in the order production shows them** (newest first).
@@ -125,7 +132,7 @@ def _parse_case(raw: dict[str, Any], position: int) -> Case:
         raise CaseFileError(f"case {case_id!r}: missing {', '.join(sorted(missing))}")
     unknown = raw.keys() - (
         required | {"speaker", "target", "replacement", "documented", "candidate",
-                    "candidate_role"})
+                    "candidate_role", "known_unstable"})
     if unknown:
         raise CaseFileError(f"case {case_id!r}: unknown field(s) {', '.join(sorted(unknown))}")
 
@@ -150,6 +157,8 @@ def _parse_case(raw: dict[str, Any], position: int) -> Case:
                 f"case {case_id!r}: the entity never supersedes a person (CO4), so an "
                 f"assistant speaker cannot be judged against user candidates")
     judged_role = candidate_role or raw["speaker_role"]
+    if not isinstance(raw.get("known_unstable", False), bool):
+        raise CaseFileError(f"case {case_id!r}: known_unstable must be true or false")
 
     candidates = raw.get("candidate", [])
     if not isinstance(candidates, list) or not candidates:
@@ -198,6 +207,7 @@ def _parse_case(raw: dict[str, Any], position: int) -> Case:
         target=target, replacement=replacement, documented=raw.get("documented"),
         candidates=tuple(dict(c) for c in candidates),
         candidate_role=candidate_role,
+        known_unstable=raw.get("known_unstable", False),
     )
 
 
@@ -286,6 +296,7 @@ class CaseResult:
             "should_link": self.case.should_link, "target": self.case.target,
             "replacement": self.case.replacement, "speaker": self.case.speaker,
             "state": self.state, "correct": self.correct, "scored": len(self.scored),
+            "known_unstable": self.case.known_unstable,
             "outcomes": [r.outcome for r in self.runs],
             "linked_states": sorted({r.linked_state for r in self.runs if r.linked_state}),
         }
@@ -438,8 +449,13 @@ def render(report: Report) -> str:
     for result in report.results:
         expect = (f"link->{result.case.target}/{result.case.replacement}"
                   if result.case.should_link else "no link")
-        out.append(f"{result.state:<10} {result.case.id:<24} {result.case.kind:<16} "
+        state = result.state + ("*" if result.case.known_unstable else "")
+        out.append(f"{state:<10} {result.case.id:<24} {result.case.kind:<16} "
                    f"expect {expect:<26} correct {result.correct}/{len(result.scored)}")
+        if result.case.known_unstable:
+            out.append(f"{'':<11}* KNOWN UNSTABLE: this result is not evidence either way. "
+                       f"The rate depends on")
+            out.append(f"{'':<13}sampling context and is not understood; see the case note.")
         bad = sorted({r.outcome for r in result.scored if r.outcome != OK})
         if bad:
             got = sorted({f"{r.linked_target}/{r.linked_state}"
@@ -456,4 +472,8 @@ def render(report: Report) -> str:
     for result in report.results:
         states[result.state] = states.get(result.state, 0) + 1
     out += ["", "CASE STATES: " + ", ".join(f"{k} {v}" for k, v in sorted(states.items()))]
+    unstable = [r.case.id for r in report.results if r.case.known_unstable]
+    if unstable:
+        out.append(f"  * {len(unstable)} of these known unstable, so not evidence: "
+                   f"{', '.join(unstable)}")
     return "\n".join(out)

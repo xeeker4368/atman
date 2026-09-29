@@ -3079,7 +3079,7 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   person; `record()` re-reads both ends of a link and raises `CorrectionScopeError`; the
   case file refuses the pairing), D5's tie-break, the D6/D7 prompt bullets, speaker-named
   annotations at render time, `candidate_role` in the harness. **D3 wording confirmed at
-  review and landed verbatim** in the `corrections.py` docstring and CO16. **Not live:**
+  review 2026-09-29 and landed verbatim** in the `corrections.py` docstring and CO16. **Not live:**
   the third classifier call, behind `corrections.person_corrects_entity` (default
   `false`, bootstrap-only). **The person-corrects-entity path has never run in production.**
 - `[built]` **THE MEASUREMENT OF RECORD (2026-09-29, B11 stage 3, D11): 44 cases**,
@@ -3121,6 +3121,15 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   call takes 1.7–4.5 s (median about 2.9 s), about **+2.9 s per turn**, inside the request
   after the answer is saved. Applies only if the switch is turned on. One pair of 8-turn
   conversations; whole-turn time ranged 9–34 s, so it cannot resolve a smaller effect.
+- `[built]` **`PN9` is flagged where a green run would be read** (2026-09-29).
+  - The case file carries `known_unstable = true`.
+  - The harness report prints its state as `PASS*` or `FAIL*`, with a *"KNOWN UNSTABLE:
+    this result is not evidence either way"* line under it, and lists it in the
+    case-states summary.
+  - The flag is not fingerprinted (`c7760e49…` unchanged).
+  - Removing the marker fails its test.
+- `[built]` **`GUIDANCE.md` now describes CO4 as amended** (2026-09-29): who may correct
+  what, and that the person-corrects-entity call is built but off pending `PN9`.
 - `[built]` **Frozen case-file notes corrected** (fingerprint unchanged): `C7` and `N10`
   say they no longer fail and that the mechanism is unexplained; `PN9` says its rate is
   not stable and carries the ruling above.
@@ -3714,7 +3723,7 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   no state and asserts about state — has ~20 `db.init_databases()` call sites in
   `tests/` worth a deliberate pass. Not done.*
 
-- `[built]` **Test suite** — 1,296 tests passing plus 2 skipped (2026-09-29, after B11 stage 3; 1,268 before) (`pytest`), `ruff check`
+- `[built]` **Test suite** — 1,300 tests passing plus 2 skipped (2026-09-29, after B11 stage 3; 1,268 before) (`pytest`), `ruff check`
   clean (2026-09-27, after B10 and its follow-up; 1,234 on 2026-09-24, 1,140 on 2026-09-18). The backup race test is no longer
   flaky (B14). *Two standing failures, both known and neither from this work:
   `test_a_missing_session_secret_stops_the_server_from_starting`, caused by an

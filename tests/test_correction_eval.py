@@ -358,6 +358,8 @@ def test_a_well_formed_file_loads(tmp_path):
      "never supersedes a person"),
     (GOOD.replace('note = "n"', 'note = "n"\ncandidate_role = "assistant"'),
      "not one of the statements this call judges"),
+    (GOOD.replace('note = "n"', 'note = "n"\nknown_unstable = "yes"'),
+     "known_unstable must be true or false"),
 ])
 def test_a_malformed_case_raises_rather_than_being_skipped(tmp_path, text, message):
     with pytest.raises(correction_eval.CaseFileError, match=message.replace("[", r"\[")):
@@ -788,3 +790,39 @@ def test_the_prompt_states_the_self_description_and_opinion_boundaries():
     assert "disagreeing with what the system has said about itself" in text
     assert "even when they flatly say it is wrong or claim to have seen otherwise" in text
     assert "disagreeing with an opinion, preference or judgment the system gave" in text
+
+
+# --- known-unstable cases are marked where the result is read -----------------
+
+
+def test_pn9_is_flagged_known_unstable(cases):
+    """Ruled at review 2026-09-29: PN9's rate runs 0-100% by sampling context, so a
+    green run must not read as a fix. Dropping the flag fails here."""
+    flagged = {c.id for c in cases if c.known_unstable}
+    assert flagged == {"PN9-records-scope-person-supplies"}
+
+
+def test_the_flag_is_not_fingerprinted(cases):
+    toggled = [dataclasses.replace(c, known_unstable=not c.known_unstable) for c in cases]
+    assert correction_eval.fingerprint(toggled) == correction_eval.fingerprint(cases)
+
+
+def test_the_report_marks_a_known_unstable_pass_beside_the_result(cases):
+    """The point of the flag: a PASS on PN9 must not be readable as a real PASS
+    without the warning on the same screen."""
+    pn9 = next(c for c in cases if c.known_unstable)
+    steady = next(c for c in cases if c.id == "N1-elaboration")
+    report = correction_eval.Report(
+        [correction_eval.CaseResult(pn9, [correction_eval.RunOutcome("ok")] * 3),
+         correction_eval.CaseResult(steady, [correction_eval.RunOutcome("ok")] * 3)],
+        {"decorrelated": True})
+    text = correction_eval.render(report)
+    lines = text.splitlines()
+
+    row = next(i for i, line in enumerate(lines) if pn9.id in line and "correct" in line)
+    assert lines[row].startswith("PASS*")
+    assert "KNOWN UNSTABLE" in lines[row + 1] and "not evidence" in lines[row + 1]
+    other = next(line for line in lines if steady.id in line and "correct" in line)
+    assert other.startswith("PASS ") and "*" not in other.split()[0]
+    assert f"known unstable, so not evidence: {pn9.id}" in text
+    assert report.to_dict()["cases"][0]["known_unstable"] is True

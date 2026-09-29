@@ -182,7 +182,8 @@ it rather than deciding silently.
       claim counts, not only a human correcting it. This is a deliberate
       expansion beyond `GUIDANCE.md`'s current wording ("when a human corrects
       something the entity said"), and that wording should be reconciled when
-      task 3.3 lands. **It opens a question 3.3's design must answer rather
+      task 3.3 lands. *(Reconciled 2026-09-29, at B11 stage 3: `GUIDANCE.md`
+      now describes CO4 as amended.)* **It opens a question 3.3's design must answer rather
       than default into:** a human correction has an obvious trigger — someone
       said something contradicting the record — and self-correction has none.
       Whether it is flagged inline in the turn where the entity notices, or by
