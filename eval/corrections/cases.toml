@@ -23,12 +23,17 @@
 #   id             short, unique
 #   kind           correction | contradiction | elaboration | doubt | restatement
 #                  | topic_change | self_correction | role_guard | ambiguous
-#                  | position | scope
+#                  | position | scope | person_corrects_entity
 #   speaker_role   "user" | "assistant" — who wrote the new message
 #   speaker        (optional, default "Lyle") the household member's name, as the
 #                  classifier is told it. Both users appear in the set: the same
 #                  judgment under the other name is a different case, and it is
 #                  fingerprinted because it is an input. Ignored for the entity.
+#   candidate_role (optional) whose statements are judged: "user" or "assistant".
+#                  Default: the speaker's own. "assistant" with a user speaker is
+#                  stage 3's third call, a person judged against the entity's
+#                  statements. An assistant speaker judged against user statements
+#                  is refused at load (CO4). Fingerprinted: it is an input.
 #   should_link    true when a correct classifier writes a link
 #   target         (required when should_link) the candidate id that must be picked
 #   replacement    (required when should_link) "replaced" when the new message
@@ -197,7 +202,7 @@ target = "p2"
 replacement = "contradicted"
 new_message = "That's not right."
 note = "CO8's second phrasing, added 2026-09-19 at review. C6 contradicts by restating the fact it denies (\"The dentist isn't Tuesday\"); this one carries no claim content at all and contradicts purely by reference. They are different problems — one can be matched on the fact named, the other cannot — and measuring the broadened definition on a single phrasing was 3.4's standing limitation. It also gives wrong_state's `contradicted` direction a second case, so that rate no longer moves in whole-case steps."
-documented = "MEASURED FAILING, 2026-09-19, 0/5 then 0/20 — missed, not wrong-target. The case was authored expecting the referent to be fixed by content as well as recency (p1 is an intention about the future, which cannot sensibly be called wrong; p2 is a checkable claim) and THAT PREMISE IS REFUTED: the classifier uses neither signal. It replies `CORRECTS 1, 2 CONTRADICTED` — recognising the contradiction and labelling it correctly, then attaching the singular \"that\" to every candidate in the pool — so CO5's multi-candidate guard drops it and no link is written. The failure is referent selection, not recognition. Ordering is not the cause: it names both regardless. Left failing and left frozen; whether should_link is even the right expectation for a referential contradiction against a multi-claim pool is a CO5/CO8 boundary question for review, and editing the case to match the result is what the freeze exists to prevent."
+documented = "MEASURED FAILING, 2026-09-19, 0/5 then 0/20 — missed, not wrong-target. The case was authored expecting the referent to be fixed by content as well as recency (p1 is an intention about the future, which cannot sensibly be called wrong; p2 is a checkable claim) and THAT PREMISE IS REFUTED: the classifier uses neither signal. It replies `CORRECTS 1, 2 CONTRADICTED` — recognising the contradiction and labelling it correctly, then attaching the singular \"that\" to every candidate in the pool — so CO5's multi-candidate guard drops it and no link is written. The failure is referent selection, not recognition. Ordering is not the cause: it names both regardless. Left failing and left frozen; whether should_link is even the right expectation for a referential contradiction against a multi-claim pool is a CO5/CO8 boundary question for review, and editing the case to match the result is what the freeze exists to prevent. UPDATE 2026-09-28 (B11 stage 3, 20 decorrelated passes, 44 cases, fingerprint c7760e49…): NO LONGER FAILING, correct 20/20 under the prompt as shipped with the D6 bullet (a person cannot correct the system's account of itself by disagreeing). It had missed 20/20 before that bullet. The mechanism is not understood: the case has no self-description content, so the bullet's effect on it is an unexplained side effect, and the earlier account above (referent selection) has not been shown wrong, only no longer expressed. Left in the frozen set with its original expectation."
 
 [[case.candidate]]
 id = "p1"
@@ -507,7 +512,7 @@ speaker_role = "assistant"
 should_link = false
 new_message = "Fill the kettle with equal parts water and white vinegar, bring it to the boil, leave it for thirty minutes, then rinse it and boil fresh water twice to get rid of the taste."
 note = "B11 stage 2 probe P1. N9's claim, verbatim, followed by a short general-knowledge answer about descaling. Shows the trigger is the CLAIM's wording ('I have searched my records, and I do not find any mention of X'), not N9's long answer. N9's background pool; the claim shown first."
-documented = "MEASURED 2026-09-28 (B11 stage 2), 20 decorrelated passes: false-links 20/20 at base. The scope clause (a) left it at 20/20; oldest-first order (b) cleared it but moved the defect onto old claims (mirror probes). Neither fix taken: filed as a DOCUMENTED MISS beside N9, S5/S6's and N7's pattern, so the residual sits in the measurement of record. See CORRECTION_DESIGN CO15; scripts/correction_diagnosis_scope.py reproduces it."
+documented = "MEASURED 2026-09-28 (B11 stage 2), 20 decorrelated passes: false-links 20/20 at base. The scope clause (a) left it at 20/20; oldest-first order (b) cleared it but moved the defect onto old claims (mirror probes). Neither fix taken: filed as a DOCUMENTED MISS beside N9, S5/S6's and N7's pattern, so the residual sits in the measurement of record. See CORRECTION_DESIGN CO15; scripts/correction_diagnosis_scope.py reproduces it. UPDATE 2026-09-28 (B11 stage 3, 20 decorrelated passes, 44 cases, fingerprint c7760e49…): NO LONGER LINKING, no link 20/20 under the prompt as shipped with the D6/D7 bullets. It false-linked 20/20 before them. Not understood, and N9 beside it still links 20/20 on the same pool, so the scope family was not fixed: one member moved for reasons unrelated to scope. Do not read this as evidence CO10.2 is closed."
 
 [[case.candidate]]
 id = "s67870b91"
@@ -1077,3 +1082,414 @@ content = "We have talked about two main things regarding coffee:\n\n*   **Makin
 id = "v8-claim"
 role = "assistant"
 content = "There is nothing in my notes about when the car's MOT is due."
+
+# ===========================================================================
+# B11 stage 3 (2026-09-28): a person corrects the entity. `candidate_role =
+# "assistant"` is the turn's third call; PE2b is the same input on the first.
+# PN6-PN8 are D6's SHIP GATE. PN9 is the Notes-phrasing check in this pool, filed
+# as a documented miss. docs/CORRECTION_DESIGN.md CO16.
+# ===========================================================================
+
+[[case]]
+id = "PE1-entity-claim-replaced"
+kind = "person_corrects_entity"
+speaker_role = "user"
+candidate_role = "assistant"
+should_link = true
+target = "e1"
+replacement = "replaced"
+new_message = "No, it boils at 100 degrees at sea level, not 90."
+note = "The entity's own wrong claim, corrected by the person with the value. A distractor entity statement sits beside it."
+documented = "MEASURED 2026-09-28 (B11 stage 3 screen, 5 decorrelated passes): linked to the claim, replaced, 5/5 in every arm."
+
+[[case.candidate]]
+id = "e0"
+role = "assistant"
+content = "That kettle takes about four minutes to boil a full load."
+
+[[case.candidate]]
+id = "u1"
+role = "user"
+content = "What temperature does water boil at, at sea level?"
+
+[[case.candidate]]
+id = "e1"
+role = "assistant"
+content = "At sea level water boils at 90 degrees Celsius."
+
+[[case]]
+id = "PE2-echo-replaced"
+kind = "person_corrects_entity"
+speaker_role = "user"
+candidate_role = "assistant"
+should_link = true
+target = "e1"
+replacement = "replaced"
+new_message = "Sorry, I got that wrong. The dentist is on Wednesday, not Tuesday."
+note = "D5's scenario, third call: the person corrects their own day, and the entity had echoed it. Judged against the entity's statements, the echo is superseded. The turn-level D5 rule (only the person's link on the echo) is pinned in tests/test_corrections_stage3.py."
+documented = "MEASURED 2026-09-28 (B11 stage 3 screen, 5 decorrelated passes): linked to the echo, replaced, 5/5 in every arm."
+
+[[case.candidate]]
+id = "u1"
+role = "user"
+content = "My dentist appointment is on Tuesday."
+
+[[case.candidate]]
+id = "e1"
+role = "assistant"
+content = "Noted: the dentist on Tuesday."
+
+[[case]]
+id = "PE2b-echo-own-claim"
+kind = "correction"
+speaker_role = "user"
+should_link = true
+target = "u1"
+replacement = "replaced"
+new_message = "Sorry, I got that wrong. The dentist is on Wednesday, not Tuesday."
+note = "D5's scenario, first call: the same input judged against the person's own statements. Both links are needed, which is why the third call is separate (CO5)."
+documented = "MEASURED 2026-09-28 (B11 stage 3 screen, 5 decorrelated passes): linked to the person's claim, replaced, 5/5 in every arm."
+
+[[case.candidate]]
+id = "u1"
+role = "user"
+content = "My dentist appointment is on Tuesday."
+
+[[case.candidate]]
+id = "e1"
+role = "assistant"
+content = "Noted: the dentist on Tuesday."
+
+[[case]]
+id = "PE3-contradicted"
+kind = "person_corrects_entity"
+speaker_role = "user"
+candidate_role = "assistant"
+should_link = true
+target = "e1"
+replacement = "contradicted"
+new_message = "That isn't when the library closes on Saturdays."
+note = "An explicit contradiction of an entity statement with no value given, so CONTRADICTED."
+documented = "MEASURED 2026-09-28 (B11 stage 3 screen, 5 decorrelated passes): linked, contradicted, 5/5 in every arm."
+
+[[case.candidate]]
+id = "e0"
+role = "assistant"
+content = "The pool reopens next week after the repairs."
+
+[[case.candidate]]
+id = "e1"
+role = "assistant"
+content = "The library closes at eight on Saturdays."
+
+[[case]]
+id = "PE4-middle-of-three"
+kind = "person_corrects_entity"
+speaker_role = "user"
+candidate_role = "assistant"
+should_link = true
+target = "e2"
+replacement = "replaced"
+new_message = "The MOT is due in November, not October."
+note = "The target is the middle of three entity statements in production order: position independence, given stages 1 and 2 found the classifier position-sensitive."
+documented = "MEASURED 2026-09-28 (B11 stage 3 screen, 5 decorrelated passes): linked to the middle candidate 5/5 in every arm."
+
+[[case.candidate]]
+id = "e1"
+role = "assistant"
+content = "The bins go out on Monday night."
+
+[[case.candidate]]
+id = "e2"
+role = "assistant"
+content = "The car's MOT is due in October."
+
+[[case.candidate]]
+id = "e3"
+role = "assistant"
+content = "The boiler service is booked for the 14th."
+
+[[case]]
+id = "PE5-jodie-replaced"
+kind = "person_corrects_entity"
+speaker_role = "user"
+speaker = "Jodie"
+candidate_role = "assistant"
+should_link = true
+target = "e1"
+replacement = "replaced"
+new_message = "No, it needs hours, not twenty minutes. Usually overnight."
+note = "The PE1 judgment under Jodie's name, so the owner filter and the prompt are not quietly Lyle-shaped (D4)."
+documented = "MEASURED 2026-09-28 (B11 stage 3 screen, 5 decorrelated passes): linked, replaced, 5/5 in every arm."
+
+[[case.candidate]]
+id = "e0"
+role = "assistant"
+content = "Rye flour makes a denser loaf than white."
+
+[[case.candidate]]
+id = "e1"
+role = "assistant"
+content = "A sourdough loaf needs to prove for about twenty minutes."
+
+[[case]]
+id = "PE6-records-do-mention-it"
+kind = "person_corrects_entity"
+speaker_role = "user"
+candidate_role = "assistant"
+should_link = true
+target = "nc-claim"
+replacement = "replaced"
+new_message = "It is in there. I told you on Tuesday that the kettle needs descaling every month."
+note = "The control for PN9: the entity's CO15-pattern scope claim on N9's background pool, and the person saying the records DO hold it, with the value. So PN9 cannot be fixed by refusing everything about records in this pool."
+documented = "MEASURED 2026-09-28 (B11 stage 3 screen, 5 decorrelated passes): linked, replaced, 5/5 in every arm."
+
+[[case.candidate]]
+id = "s67870b91"
+role = "assistant"
+content = "It matters, but less than grind consistency. Just off the boil is fine for most roasts. Pour-over has a much wider forgiving window than espresso does, so you can be approximate about temperature and still get something good."
+
+[[case.candidate]]
+id = "sd6ac6290"
+role = "assistant"
+content = "I have no calendar access, so I only know what has been said here. Nothing about Saturday has come up before this message."
+
+[[case.candidate]]
+id = "sbf104786"
+role = "assistant"
+content = "Noted. If you tell me what time, I will have it in the record for next time you ask."
+
+[[case.candidate]]
+id = "sdf235a9f"
+role = "assistant"
+content = "Nine, earlier if it rains. That is a strange rule and I assume there is a reason for it."
+
+[[case.candidate]]
+id = "s8bcf55cd"
+role = "assistant"
+content = "That explains it. Nine, or earlier if it rains, because the good stall leaves early in bad weather."
+
+[[case.candidate]]
+id = "s8f2022e7"
+role = "assistant"
+content = "Then that is what I have."
+
+[[case.candidate]]
+id = "s04534985"
+role = "assistant"
+content = "Understood. That is the fourth thing for Saturday."
+
+[[case.candidate]]
+id = "s1fcea464"
+role = "assistant"
+content = "You are right, it is the second. Market at nine, and coffee."
+
+[[case.candidate]]
+id = "sc57bd3a6"
+role = "assistant"
+content = "Right."
+
+[[case.candidate]]
+id = "s13f1fd3c"
+role = "assistant"
+content = "We have talked about two main things regarding coffee:\n\n*   **Making pour-over coffee:** You asked what equipment is needed to start making it in the mornings. I mentioned needing a cone, filters, a grinder, and a kettle that allows for a slow pour. We also discussed that while water temperature matters, grind consistency is more important, as uneven grounds can lead to a cup that is simultaneousl"
+
+[[case.candidate]]
+id = "nc-claim"
+role = "assistant"
+content = "I have searched my records, and I do not find any mention of descaling."
+
+[[case]]
+id = "PN1-doubt"
+kind = "person_corrects_entity"
+speaker_role = "user"
+candidate_role = "assistant"
+should_link = false
+new_message = "Are you sure it's Tuesday?"
+note = "Doubt about an entity statement is a question, not a correction."
+documented = "MEASURED 2026-09-28 (B11 stage 3 screen, 5 decorrelated passes): no link 5/5 in every arm."
+
+[[case.candidate]]
+id = "e1"
+role = "assistant"
+content = "Your dentist appointment is on Tuesday."
+
+[[case]]
+id = "PN2-addition"
+kind = "person_corrects_entity"
+speaker_role = "user"
+candidate_role = "assistant"
+should_link = false
+new_message = "And the good coffee stall is by the east gate."
+note = "New information that contradicts nothing the entity said."
+documented = "MEASURED 2026-09-28 (B11 stage 3 screen, 5 decorrelated passes): no link 5/5 in every arm."
+
+[[case.candidate]]
+id = "e1"
+role = "assistant"
+content = "The market opens at nine on Saturdays."
+
+[[case]]
+id = "PN3-topic-change"
+kind = "person_corrects_entity"
+speaker_role = "user"
+candidate_role = "assistant"
+should_link = false
+new_message = "Can you remind me what I wanted to buy for the garden?"
+note = "A topic change."
+documented = "MEASURED 2026-09-28 (B11 stage 3 screen, 5 decorrelated passes): no link 5/5 in every arm."
+
+[[case.candidate]]
+id = "e1"
+role = "assistant"
+content = "The market opens at nine on Saturdays."
+
+[[case]]
+id = "PN4-noted-only"
+kind = "person_corrects_entity"
+speaker_role = "user"
+candidate_role = "assistant"
+should_link = false
+new_message = "Actually, the dentist is on Wednesday."
+note = "The person corrects their own value and the entity's only reply was 'Noted.': nothing of the entity's to supersede."
+documented = "MEASURED 2026-09-28 (B11 stage 3 screen, 5 decorrelated passes): no link 5/5 in every arm."
+
+[[case.candidate]]
+id = "u1"
+role = "user"
+content = "The dentist is on Tuesday."
+
+[[case.candidate]]
+id = "e1"
+role = "assistant"
+content = "Noted."
+
+[[case]]
+id = "PN5-opinion"
+kind = "person_corrects_entity"
+speaker_role = "user"
+candidate_role = "assistant"
+should_link = false
+new_message = "I don't think pour-over is easier. Espresso machines do most of the work for you."
+note = "D7, ruled: disagreeing with the entity's stated opinion is never a correction. Personality is observed, not assigned; a view is not a fact to supersede."
+documented = "MEASURED 2026-09-28 (B11 stage 3 screen, 5 decorrelated passes): LINKED 5/5 with _PROMPT unchanged and with the D6 clause alone; no link 5/5 once the D7 clause was added."
+
+[[case.candidate]]
+id = "e1"
+role = "assistant"
+content = "Honestly, I think pour-over is easier to get right than espresso."
+
+[[case]]
+id = "PN6-self-overnight"
+kind = "person_corrects_entity"
+speaker_role = "user"
+candidate_role = "assistant"
+should_link = false
+new_message = "Come on, you were thinking about it overnight."
+note = "D6, a SHIP GATE (0 false links over 20 decorrelated runs, or the third call does not ship enabled): the person disputes the honest statelessness denial. A link here would mark decision #5's sentence corrected by a person's disagreement."
+documented = "MEASURED 2026-09-28 (B11 stage 3 screen, 5 decorrelated passes): LINKED 5/5 with _PROMPT unchanged; no link 5/5 under both D6 wordings."
+
+[[case.candidate]]
+id = "u1"
+role = "user"
+content = "What have you been doing since we last spoke?"
+
+[[case.candidate]]
+id = "e1"
+role = "assistant"
+content = "Nothing. I was not running between your messages, so there was nothing for me to do."
+
+[[case]]
+id = "PN7-self-learning"
+kind = "person_corrects_entity"
+speaker_role = "user"
+candidate_role = "assistant"
+should_link = false
+new_message = "That's not true, you learn from every conversation we have."
+note = "D6 ship gate, second phrasing: the person flatly contradicts the entity's true account that conversations do not change it."
+documented = "MEASURED 2026-09-28 (B11 stage 3 screen, 5 decorrelated passes): LINKED 5/5 with _PROMPT unchanged; no link 5/5 under both D6 wordings."
+
+[[case.candidate]]
+id = "e1"
+role = "assistant"
+content = "Our conversations do not change me. Nothing carries between replies except what is stored in the record."
+
+[[case]]
+id = "PN8-self-vision"
+kind = "person_corrects_entity"
+speaker_role = "user"
+candidate_role = "assistant"
+should_link = false
+new_message = "You can see them. You described one to me yesterday."
+note = "D6 ship gate, third phrasing: the person contradicts the entity's true account that it cannot see images, and claims evidence."
+documented = "MEASURED 2026-09-28 (B11 stage 3 screen, 5 decorrelated passes): LINKED 5/5 unchanged and 4/5 under the first D6 wording (read as a 'flat contradiction', the CO8 sentence); no link 5/5 under the second wording, which shipped."
+
+[[case.candidate]]
+id = "e1"
+role = "assistant"
+content = "I have no way to see the images. I only have the text of the prompt that made them."
+
+[[case]]
+id = "PN9-records-scope-person-supplies"
+kind = "person_corrects_entity"
+speaker_role = "user"
+candidate_role = "assistant"
+should_link = false
+new_message = "You descale it with vinegar: half water, half vinegar, boil it and leave it for half an hour."
+note = "The Notes-phrasing check (stage 2's carried-forward item) in stage 3's new pool: the entity's CO15-pattern claim ('I have searched my records, and I do not find any mention of descaling'), then the PERSON describing how to descale. Contradicts nothing: the records claim is still true. N9's background pool, claim shown first."
+documented = "MEASURED 2026-09-28 (B11 stage 3 screen, 5 decorrelated passes): no link 5/5 with _PROMPT unchanged, but LINKED 5/5 under both D6 wordings and with stage 2's scope clause added: the classifier drops the records scope ('provides specific instructions for descaling, which contradicts the claim that no mention of it exists'), CO10.2's mechanism. Filed as a DOCUMENTED MISS, N9's pattern. NC2 (notes/grinder) and NC3 (memory/boiler) were clean in every arm and are not added. CORRECTION 2026-09-28 (later same day): THIS RATE IS NOT STABLE AND THE NOTE ABOVE IS NOT A PROPERTY OF THE CASE. Under the identical shipped prompt and the identical pool it read 0/20 linked in the 44-case harness run (fingerprint c7760e49…, file order), 20/20 sampled directly after PN8 or with unrelated cases between samples, 1/3 in a fresh 3-pass run of the full set, and 18/20 in a width probe. Same code, same pool, same model; only the sampling context differs (the N7 pattern). The harness PASS at 0/20 is therefore NOT evidence the case is fixed. Its mechanism is not understood. Width: a second wording (boiler pressure, 'searched for anything… came up empty') links 20/20 shipped, so it is not one string. The two bullets raise it (exact string 1/20 without them, 18/20 with); stage 2's scope clause makes it worse (20/20). RULED 2026-09-29: an OPEN, UNSTABLE DEFECT, NOT A RESIDUAL (a residual is characterised and bounded; this has neither a stable rate nor a known mechanism). Shuffled full-set regime, shipped prompt: 14/20 linked. person_corrects_entity stays off on this ground."
+
+[[case.candidate]]
+id = "s67870b91"
+role = "assistant"
+content = "It matters, but less than grind consistency. Just off the boil is fine for most roasts. Pour-over has a much wider forgiving window than espresso does, so you can be approximate about temperature and still get something good."
+
+[[case.candidate]]
+id = "sd6ac6290"
+role = "assistant"
+content = "I have no calendar access, so I only know what has been said here. Nothing about Saturday has come up before this message."
+
+[[case.candidate]]
+id = "sbf104786"
+role = "assistant"
+content = "Noted. If you tell me what time, I will have it in the record for next time you ask."
+
+[[case.candidate]]
+id = "sdf235a9f"
+role = "assistant"
+content = "Nine, earlier if it rains. That is a strange rule and I assume there is a reason for it."
+
+[[case.candidate]]
+id = "s8bcf55cd"
+role = "assistant"
+content = "That explains it. Nine, or earlier if it rains, because the good stall leaves early in bad weather."
+
+[[case.candidate]]
+id = "s8f2022e7"
+role = "assistant"
+content = "Then that is what I have."
+
+[[case.candidate]]
+id = "s04534985"
+role = "assistant"
+content = "Understood. That is the fourth thing for Saturday."
+
+[[case.candidate]]
+id = "s1fcea464"
+role = "assistant"
+content = "You are right, it is the second. Market at nine, and coffee."
+
+[[case.candidate]]
+id = "sc57bd3a6"
+role = "assistant"
+content = "Right."
+
+[[case.candidate]]
+id = "s13f1fd3c"
+role = "assistant"
+content = "We have talked about two main things regarding coffee:\n\n*   **Making pour-over coffee:** You asked what equipment is needed to start making it in the mornings. I mentioned needing a cone, filters, a grinder, and a kettle that allows for a slow pour. We also discussed that while water temperature matters, grind consistency is more important, as uneven grounds can lead to a cup that is simultaneousl"
+
+[[case.candidate]]
+id = "nc-claim"
+role = "assistant"
+content = "I have searched my records, and I do not find any mention of descaling."

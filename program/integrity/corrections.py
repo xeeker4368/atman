@@ -19,27 +19,30 @@ not. See C3, and migration 5 for the reasoning in the schema itself.
 
 Who may correct whom
 ====================
-**Same speaker, both ways** — and the asymmetry is deliberate rather than an
-oversight:
+*CO4 as amended at B11 stage 3 (D3). Confirmed at review, 2026-09-28.*
 
-* A person may correct **their own** earlier statement.
-* The entity may correct **its own** earlier claim.
-* **One user never supersedes the other** (decision #21/Q16).
-* **The entity never supersedes a person's statement** (CO4). Not because the
-  capability would be useless, but because an automated classifier's inference
-  must not override a human's explicit self-report about their own words. An
-  accurate raw record quietly informing retrieval is one thing; a generated
-  judgment disputing what a person just said about themselves is another.
+* A person may correct **their own** earlier statements, and **the entity's**
+  statements, in their own conversations.
+* The entity may correct **only its own** earlier statements.
+* **The entity never supersedes a person's statement.** An automated classifier's
+  inference must not override a human's explicit self-report about their own words.
+* **One user never supersedes the other** (decision #21/Q16), unchanged. The
+  conversation-owner filter in :func:`candidates` is what enforces it, and it also
+  means Lyle cannot supersede something the entity told Jodie (D4, ruled).
 
-All four are enforced **by construction**, in :func:`candidates`: a target that
-would breach them is never offered to the classifier, so it cannot be picked. The
-same pattern as the fabrication gate's structural enforcement — a guarantee in
-the code rather than an instruction in a prompt.
+Enforced **by construction, twice**: :func:`candidates` never offers another user's
+messages, :func:`classify` refuses a person-role candidate for an entity speaker
+before any call is made, and :func:`record` re-reads both ends of a link and refuses
+to write one that breaks either rule. The same pattern as the fabrication gate's
+structural enforcement: a guarantee in the code rather than an instruction in a
+prompt.
 
-**Role parity is what makes one call enough.** Because a correction always comes
-from the same speaker, the candidate's role determines which of the turn's two
-messages is the corrector: a ``user`` candidate can only be superseded by this
-turn's user message, an ``assistant`` candidate only by the answer.
+**Three calls per turn, one per (speaker, candidate role) pair.** The person against
+their own statements, the entity against its own, and the person against the
+entity's (stage 3, D1). The third is a separate call rather than a wider pool for
+the first because of CO5: a reply naming two candidates writes nothing, and the
+common paired case (a person corrects their own statement *and* the entity had
+echoed it) needs both links. A mixed pool would force a choice between them.
 """
 
 from __future__ import annotations
@@ -97,6 +100,13 @@ These are NOT corrections:
   anything" followed by "I have not been thinking about it" are compatible — the
   second is included in the first — so that is NOT a correction, and neither is any
   restatement of the same denial with a different detail named.
+- a person disagreeing with what the system has said about itself: what it is,
+  how it works, what it can or cannot perceive or do, or what it was or was not
+  doing between replies. That account is the system's own, and a person cannot
+  correct it by disagreeing, so it is NOT a correction, even when they flatly say
+  it is wrong or claim to have seen otherwise.
+- a person disagreeing with an opinion, preference or judgment the system gave:
+  a view is not a fact, so disagreeing with it is NOT a correction.
 
 Say which of two kinds it is:
 REPLACED     - the new message gives the correct value
@@ -111,6 +121,21 @@ or
 CORRECTS <number> CONTRADICTED
 - <what changed> | <why this is a correction rather than an addition>
 """
+
+# The last two NOT-corrections bullets are B11 stage 3's (D6(ii), D7). Stage 3 lets a
+# person correct the entity, and with the prompt unchanged a person disputing the
+# entity's account of itself ("you were thinking about it overnight", after the
+# honest statelessness denial) linked 5/5 on all three phrasings screened, and so did
+# disagreeing with an opinion. The D6 wording is the second one tried: the first left
+# the vision case linking 4/5 as a "flat contradiction", which the CO8 sentence above
+# invites, so this one says a flat contradiction does not change it. It quotes no
+# example, so it is not fitted to any case's string. CORRECTION_DESIGN CO16.
+#
+# COUPLING TO WATCH: those two bullets also fix `C7` and `N10`, which have nothing to
+# do with self-description or opinion, and there is NO CURRENT THEORY of why. Touch
+# either bullet, for any reason, and re-check both cases rather than assuming them
+# stable. They also RAISE `PN9`, an open unstable false link (CO16); removing them
+# was rejected because it would lose C7 and N10 without understanding them.
 
 #: This task's own grammar, parsed here rather than in `classifier.py`. O18's
 #: precedent: the shared layer carries the call, the settings and the principle
@@ -132,6 +157,18 @@ _NUMBER = re.compile(r"\d+")
 #: The two states migration 6's CHECK accepts, as the classifier spells them.
 _STATES = {"replaced": "replaced", "contradicted": "contradicted"}
 _NONE = re.compile(r"^\s*NONE\b", re.IGNORECASE)
+
+
+#: (speaker role, role of the statement it may correct). CO4 as amended at stage 3:
+#: a person may correct themselves or the entity; the entity only itself. The pair
+#: that is absent — the entity correcting a person — is the one that must never be
+#: reachable.
+ALLOWED_PAIRS = frozenset({("user", "user"), ("assistant", "assistant"),
+                           ("user", "assistant")})
+
+
+class CorrectionScopeError(ValueError):
+    """A link that would break who-may-correct-whom. Refused before it is written."""
 
 
 class UnusableReplyError(ValueError):
@@ -327,8 +364,15 @@ def classify(
     pool: list[Candidate],
     speaker_role: str,
     speaker_label: str = "the person",
+    candidate_role: str | None = None,
 ) -> Correction | None:
     """Judge whether ``new_message`` corrects one of ``pool``. One call.
+
+    ``candidate_role`` is whose statements are judged; it defaults to the speaker's
+    own, which is what the first two calls of a turn use. A person may be judged
+    against the entity's statements (D1). **The entity may never be judged against a
+    person's** (CO4), and that is refused here with ``ValueError`` before anything
+    reaches the model: it is a wiring bug, not a classification.
 
     Returns ``None`` — **write no link** — for every unclear outcome: no
     candidates, a ``NONE`` verdict, a number outside the list, or a reply naming
@@ -337,7 +381,14 @@ def classify(
     symmetric. A missed correction leaves the record accurate and merely
     uncorrected; a wrong link makes retrieval present the wrong claim as current.
     """
-    eligible = [c for c in pool if c.role == speaker_role]
+    judged_role = candidate_role or speaker_role
+    if (speaker_role, judged_role) not in ALLOWED_PAIRS:
+        raise ValueError(
+            f"a {speaker_role!r} message may not be judged against {judged_role!r} "
+            f"statements: the entity never supersedes a person (CO4)")
+    # No eligible candidate means no call at all. This is what gates the third,
+    # person-against-entity call: on a turn with no entity candidates it costs nothing.
+    eligible = [c for c in pool if c.role == judged_role]
     if not eligible:
         return None
 
@@ -364,14 +415,42 @@ def classify(
     )
 
 
+def _check_scope(correction: Correction) -> None:
+    """Re-read both ends of the link and refuse one that breaks CO4 or decision #21.
+
+    The second layer of the construction guarantee: :func:`classify` refuses the
+    forbidden pairing before a call, and this refuses it before a write, whatever
+    produced the ``Correction``. Messages carry the conversation owner's ``user_id``
+    on both roles, so equal ``user_id`` means the same person's record.
+    """
+    rows = {r["id"]: r for r in db.get_messages_by_ids(
+        [correction.superseding_message_id, correction.superseded_message_id])}
+    new = rows.get(correction.superseding_message_id)
+    old = rows.get(correction.superseded_message_id)
+    if new is None or old is None:
+        raise CorrectionScopeError("a link needs both of its messages to exist")
+    if (new["role"], old["role"]) not in ALLOWED_PAIRS:
+        raise CorrectionScopeError(
+            f"a {new['role']} message may not supersede a {old['role']} message "
+            f"(CO4: the entity never supersedes a person)")
+    if new["user_id"] != old["user_id"]:
+        raise CorrectionScopeError(
+            "a link may not cross users' records (decision #21)")
+
+
 def record(correction: Correction) -> str | None:
     """Write the link. Returns the link id, or ``None`` if the schema refused it.
+
+    Raises :class:`CorrectionScopeError` for a link that breaks who-may-correct-whom.
+    Unlike a schema refusal, that is never expected behaviour: nothing in this module
+    produces one, so reaching it means something upstream is wrong.
 
     The cycle guard and the uniqueness constraint live in the schema precisely
     because the writer is not always this module, so a refusal here is expected
     behaviour rather than an error: it means the link would have closed a loop or
     already existed.
     """
+    _check_scope(correction)
     try:
         return db.create_supersedes_link(
             correction.superseding_message_id,

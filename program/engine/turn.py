@@ -255,7 +255,8 @@ def _record_corrections(
 ) -> None:
     """Link anything this turn corrected. Never edits.
 
-    One classifier call per speaker who said something this turn, over candidates
+    Up to three classifier calls — the person against their own statements, the
+    person against the entity's, the entity against its own (stage 3, D1) — over candidates
     drawn from the turn's own retrieval plus the open trailing group — see
     ``docs/CORRECTION_DESIGN.md`` C4.
 
@@ -282,11 +283,18 @@ def _record_corrections(
             exclude_message_ids=(user_message_id, assistant_message_id),
             user_name=actor.name,
         )
-        judged = [
-            corrections.classify(user_text, user_message_id, pool, "user", actor.name),
-            corrections.classify(
-                answer_text, assistant_message_id, pool, "assistant", "the system"),
-        ]
+        # Three calls, one per (speaker, candidate role) pair — CO4 as amended at
+        # stage 3 (D1). The third runs only when it is switched on (a ship gate, D6)
+        # and the pool holds entity candidates: `classify` makes no call when
+        # nothing is eligible.
+        own = corrections.classify(
+            user_text, user_message_id, pool, "user", actor.name)
+        of_entity = corrections.classify(
+            user_text, user_message_id, pool, "user", actor.name,
+            candidate_role="assistant",
+        ) if config.corrections_person_corrects_entity() else None
+        self_correction = corrections.classify(
+            answer_text, assistant_message_id, pool, "assistant", "the system")
     except Exception as exc:  # noqa: BLE001 — a missed link, never a failed turn
         logger.warning(
             "correction classifier could not run for conversation %s; no link "
@@ -294,6 +302,8 @@ def _record_corrections(
         )
         return
 
+    judged = [own, of_entity, _unless_person_took_it(
+        of_entity, self_correction, conversation_id)]
     for correction in judged:
         if correction is None:
             continue
@@ -304,6 +314,34 @@ def _record_corrections(
                 correction.superseding_message_id[:8],
                 correction.superseded_message_id[:8],
             )
+
+
+def _unless_person_took_it(
+    person: corrections.Correction | None,
+    entity: corrections.Correction | None,
+    conversation_id: str,
+) -> corrections.Correction | None:
+    """D5: when the person and the entity both supersede the same entity message in
+    one turn, only the person's link is written.
+
+    The two are not redundant rows the schema would merge (``UNIQUE`` is on the
+    pair, and the superseding messages differ), so without this rule the same echo
+    would carry two corrections. The person's is kept because they are the source
+    of the value. The entity's is **logged, not silently discarded** — both
+    verdicts and every id — so a human reading the log later can see the judgment
+    that was set aside. When the two target different messages, both are written.
+    """
+    if (person is None or entity is None
+            or person.superseded_message_id != entity.superseded_message_id):
+        return entity
+    logger.info(
+        "correction dropped in conversation %s (D5: the person's link wins): "
+        "target %s; kept %s (%s, %r); dropped %s (%s, %r)",
+        conversation_id[:8], entity.superseded_message_id,
+        person.superseding_message_id, person.replacement, person.rationale,
+        entity.superseding_message_id, entity.replacement, entity.rationale,
+    )
+    return None
 
 
 def _build_situation(actor: Actor, user_message_id: str) -> str:

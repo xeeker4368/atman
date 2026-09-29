@@ -54,14 +54,14 @@ CASES_PATH = config.PROJECT_ROOT / "eval" / "corrections" / "cases.toml"
 
 _KINDS = {"correction", "contradiction", "elaboration", "doubt", "restatement",
           "topic_change", "self_correction", "role_guard", "ambiguous", "position",
-          "scope"}
+          "scope", "person_corrects_entity"}
 _ROLES = {"user", "assistant"}
 _REPLACEMENTS = {"replaced", "contradicted"}
 
 #: Fingerprinted — what each case measures. `note`/`documented` are excluded so
 #: wording can be corrected without tripping the freeze.
-_FROZEN = ("id", "kind", "speaker_role", "speaker", "should_link", "target",
-           "replacement", "new_message")
+_FROZEN = ("id", "kind", "speaker_role", "speaker", "candidate_role", "should_link",
+           "target", "replacement", "new_message")
 
 
 class CaseFileError(ValueError):
@@ -89,6 +89,11 @@ class Case:
     replacement: str | None = None
     documented: str | None = None
     candidates: tuple[dict[str, str], ...] = ()
+    #: Whose statements are judged (stage 3, D10). ``None`` means the speaker's own,
+    #: the default production's first two calls use; ``"assistant"`` with a user
+    #: speaker is the third call, a person judged against the entity's statements.
+    #: An input, so it is fingerprinted.
+    candidate_role: str | None = None
 
     def pool(self) -> list[corrections.Candidate]:
         """The prior claims, **in the order production shows them** (newest first).
@@ -119,7 +124,8 @@ def _parse_case(raw: dict[str, Any], position: int) -> Case:
     if missing:
         raise CaseFileError(f"case {case_id!r}: missing {', '.join(sorted(missing))}")
     unknown = raw.keys() - (
-        required | {"speaker", "target", "replacement", "documented", "candidate"})
+        required | {"speaker", "target", "replacement", "documented", "candidate",
+                    "candidate_role"})
     if unknown:
         raise CaseFileError(f"case {case_id!r}: unknown field(s) {', '.join(sorted(unknown))}")
 
@@ -134,6 +140,16 @@ def _parse_case(raw: dict[str, Any], position: int) -> Case:
         raise CaseFileError(f"case {case_id!r}: new_message is empty")
     if "speaker" in raw and not str(raw["speaker"]).strip():
         raise CaseFileError(f"case {case_id!r}: speaker is empty")
+
+    candidate_role = raw.get("candidate_role")
+    if candidate_role is not None:
+        if candidate_role not in _ROLES:
+            raise CaseFileError(f"case {case_id!r}: candidate_role must be user or assistant")
+        if (raw["speaker_role"], candidate_role) not in corrections.ALLOWED_PAIRS:
+            raise CaseFileError(
+                f"case {case_id!r}: the entity never supersedes a person (CO4), so an "
+                f"assistant speaker cannot be judged against user candidates")
+    judged_role = candidate_role or raw["speaker_role"]
 
     candidates = raw.get("candidate", [])
     if not isinstance(candidates, list) or not candidates:
@@ -158,6 +174,10 @@ def _parse_case(raw: dict[str, Any], position: int) -> Case:
                 f"claim is a failure, so the expected one must be named")
         if target not in ids:
             raise CaseFileError(f"case {case_id!r}: target {target!r} is not a candidate")
+        if next(c["role"] for c in candidates if c["id"] == target) != judged_role:
+            raise CaseFileError(
+                f"case {case_id!r}: target {target!r} is not one of the statements "
+                f"this call judges ({judged_role})")
         if replacement not in _REPLACEMENTS:
             raise CaseFileError(
                 f"case {case_id!r}: should_link needs replacement = "
@@ -177,6 +197,7 @@ def _parse_case(raw: dict[str, Any], position: int) -> Case:
         note=raw["note"], speaker=raw.get("speaker", "Lyle"),
         target=target, replacement=replacement, documented=raw.get("documented"),
         candidates=tuple(dict(c) for c in candidates),
+        candidate_role=candidate_role,
     )
 
 
@@ -292,6 +313,7 @@ def sample_once(case: Case) -> RunOutcome:
         result = corrections.classify(
             case.new_message, "harness-new", case.pool(), case.speaker_role,
             case.speaker if case.speaker_role == "user" else "the system",
+            candidate_role=case.candidate_role,
         )
     except corrections.UnusableReplyError:
         return RunOutcome(OK if not case.should_link else MISSED, unusable=True)

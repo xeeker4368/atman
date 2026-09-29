@@ -2742,8 +2742,15 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   retrieval cannot serve, because chunking never indexes it. Read-only and not an
   entry point, so the pinned two-entry-point test still holds.
 - `[built]` **A classifier failure never takes the turn down**, and the
-  idle-close floor is unchanged: `2000 + 45 + 45 = 2090 s` → **35**, flat for any
-  total classifier time ≤ 100 s.
+  idle-close floor is unchanged: the floor is **35 at 2045 s**, and the correction calls are **not** a term in it:
+  they run after the answer is saved, when the conversation's last message is the
+  assistant's and `idle.py` applies `idle_close_minutes`, not the in-flight grace.
+  *Corrected 2026-09-28 (B11 stage 3, D9): this line said `2000 + 45 + 45 = 2090 s`,
+  counting a correction call toward the floor. `tests/test_idle.py` never did
+  (2,045 s, gate classifier only), and
+  `tests/test_corrections_stage3.py::test_correction_calls_run_after_the_answer_is_durable`
+  now proves the ordering from inside the call. Three calls at the 45 s timeout is
+  135 s, inside the 15-minute idle window that does apply.*
 - `[built]` **Verified live, six cases** — both real corrections linked to the
   **right** candidate out of three; an addition, a doubt, a restatement and a
   topic change all produced no link. 1.3–2.5 s per call. *A smoke test, not a
@@ -2919,9 +2926,15 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   the assistant message" — is **withdrawn**: the write does not fold in (see the
   C9 deviation above), and the contention read on 2026-09-18 found
   `create_supersedes_link` shipping without `@retry_on_locked`. It now carries it.*
-- `[built]` **The idle-close floor does not move**: `2000 + 45 + 45 = 2090 s` →
-  floor **35**, flat for any total classifier time ≤ 100 s. Checked rather than
-  assumed.
+- `[built]` **The idle-close floor does not move**: the floor is **35 at 2045 s**, and the correction calls are **not** a term in it:
+  they run after the answer is saved, when the conversation's last message is the
+  assistant's and `idle.py` applies `idle_close_minutes`, not the in-flight grace.
+  *Corrected 2026-09-28 (B11 stage 3, D9): this line said `2000 + 45 + 45 = 2090 s`,
+  counting a correction call toward the floor. `tests/test_idle.py` never did
+  (2,045 s, gate classifier only), and
+  `tests/test_corrections_stage3.py::test_correction_calls_run_after_the_answer_is_durable`
+  now proves the ordering from inside the call. Three calls at the 45 s timeout is
+  135 s, inside the 15-minute idle window that does apply.*
 
 ### Correction eval harness (task 3.4, 2026-09-18)
 
@@ -3059,7 +3072,59 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
     `replaced` link, not a false positive.
   - **Resolved at review 2026-09-28:** P1 is filed as documented miss `N10`, V1–V8 are
     added as `N11`–`N17` and `C9`, and the mirrors and P4 are not added.
-- `[built]` **THE MEASUREMENT OF RECORD (2026-09-28, B11 stage 2): 28 cases**, fingerprint
+- `[built]` **B11 stage 3: a person may correct the entity — built, SWITCH OFF**
+  (2026-09-29, Tier 3; `docs/CORRECTION_DESIGN.md` CO16, `changelog/2026-09-28-b11-stage3-person-corrects-entity.md`).
+  Everything ships except the switch. Shipped and live: **CO4 by construction, twice**
+  (`ALLOWED_PAIRS`; `classify` raises before any model call for the entity against a
+  person; `record()` re-reads both ends of a link and raises `CorrectionScopeError`; the
+  case file refuses the pairing), D5's tie-break, the D6/D7 prompt bullets, speaker-named
+  annotations at render time, `candidate_role` in the harness. **D3 wording confirmed at
+  review and landed verbatim** in the `corrections.py` docstring and CO16. **Not live:**
+  the third classifier call, behind `corrections.person_corrects_entity` (default
+  `false`, bootstrap-only). **The person-corrects-entity path has never run in production.**
+- `[built]` **THE MEASUREMENT OF RECORD (2026-09-29, B11 stage 3, D11): 44 cases**,
+  fingerprint `c7760e49…`, `gemma4:26b` at 0.35, 20 decorrelated passes = 880 samples.
+  **43 PASS, 1 FAIL (`N9`)**, every case unanimous. False links 20/560, missed 0/320,
+  wrong target 0/320, wrong state 0/320. `person_corrects_entity` kind: 0/180 false links,
+  0/120 missed. D6 gate cases (PN6–PN8): 0 in 60. **`C7` and `N10` now pass** (they were
+  the two documented misses beside `N9`); **`N9` still false-links 20/20**, so CO10.2 is
+  not closed. It supersedes the 28-case record below.
+- `[unverified]` **`PN9`'s PASS in that table is NOT evidence it is fixed.** Same prompt,
+  pool and model, six sampling contexts: 0/20 (this harness, file order) · 20/20 · 20/20 ·
+  1/3 · 18/20 · **14/20** (shuffled full set, CI 48–85%). The harness samples in file
+  order every pass, so a case's neighbours never change, which is what hid it. This is
+  `N7`'s pattern without `N7`'s bound. **The harness's sampling was not changed**; that is
+  a change to the measurement.
+- `[built]` **`PN9` is an OPEN, UNSTABLE DEFECT, not a residual** (ruled at review
+  2026-09-29): a person supplying information after the entity said its records hold
+  nothing on it links the entity's claim as superseded. A residual here is characterised
+  and bounded (stated trigger, measured rate, footprint); this has an unstable rate and no
+  known mechanism. Width: 2 of 7 wordings (`PV7`, the exact string, 13/20; `PV5`, a
+  boiler-pressure wording, 20/20; five others 0/20). The D6/D7 bullets raise it (exact
+  string 1/20 without, 13–18/20 with); stage 2's scope clause makes it worse (20/20).
+  **Second hold on the switch**, beside D6's.
+- `[built]` **A scope-disclaimer clause was tried and rejected.** It closes the PN9 family
+  (0/20 on `PN9`, `PV5`, `PV7` under two different shuffles) and keeps every must-link
+  control at 20/20, **but makes `PC2` link 40/40** (*"Can you look again? I'm sure we
+  talked about it."*), against 0/20 on the shipped prompt. A false link on a doubt is the
+  line CO8 says must hold. Its probe-regime `PC2` figure was 1/20; the full-set regime
+  overturned it. *The clause's own exception plausibly reads "I'm sure" as the assertion;
+  not tested.* A better wording is a separate, later task.
+- `[unverified]` **COUPLING TO WATCH: the D6/D7 bullets fix `C7` and `N10`, and there is NO
+  CURRENT THEORY of why.** `C7` missed 20/20 before them and is correct 20/20 after;
+  `N10` false-linked 20/20 before and links 0/20 after. Neither case has self-description
+  or opinion content. **If either bullet is ever touched, for any reason, re-check `C7`
+  and `N10` rather than assuming them stable.** Removing them to chase `PN9` was rejected
+  on this ground. The bullets sit in the shared `_PROMPT`, so they act on all three calls,
+  including the two running with the switch off. Recorded in a comment beside the prompt.
+- `[built]` **Live cost, measured** (real turns, real model, temporary store): the third
+  call takes 1.7–4.5 s (median about 2.9 s), about **+2.9 s per turn**, inside the request
+  after the answer is saved. Applies only if the switch is turned on. One pair of 8-turn
+  conversations; whole-turn time ranged 9–34 s, so it cannot resolve a smaller effect.
+- `[built]` **Frozen case-file notes corrected** (fingerprint unchanged): `C7` and `N10`
+  say they no longer fail and that the mechanism is unexplained; `PN9` says its rate is
+  not stable and carries the ruling above.
+- `[built]` **SUPERSEDED BY THE 44-CASE RECORD ABOVE.** **THE MEASUREMENT OF RECORD (2026-09-28, B11 stage 2): 28 cases**, fingerprint
   `b27f3843…`, `gemma4:26b` at 0.35, 20 decorrelated passes = 560 samples. **Every case is
   unanimous: 25 PASS, 3 FAIL**, and each failure is a documented one:
   - `C7` misses 20/20 (20 unusable "or" replies, as before);
@@ -3649,7 +3714,7 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   no state and asserts about state — has ~20 `db.init_databases()` call sites in
   `tests/` worth a deliberate pass. Not done.*
 
-- `[built]` **Test suite** — 1,268 tests passing plus 2 skipped (`pytest`), `ruff check`
+- `[built]` **Test suite** — 1,296 tests passing plus 2 skipped (2026-09-29, after B11 stage 3; 1,268 before) (`pytest`), `ruff check`
   clean (2026-09-27, after B10 and its follow-up; 1,234 on 2026-09-24, 1,140 on 2026-09-18). The backup race test is no longer
   flaky (B14). *Two standing failures, both known and neither from this work:
   `test_a_missing_session_secret_stops_the_server_from_starting`, caused by an

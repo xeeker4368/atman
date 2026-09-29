@@ -276,6 +276,18 @@ answer about X. Use the frozen set's pool shape and production order, with 20
 decorrelated passes. If it links, it is this defect arriving through a feature, and it
 will then occur on every Notes miss rather than on one phrasing.
 
+**`PN9`: an open, unstable false link in the person-corrects-entity pool** (ruled at review
+2026-09-29, B11 stage 3). After the entity says its records hold nothing on X, a person
+supplying information about X can link the entity's claim as superseded. Its rate reads
+0–100% by sampling context, the mechanism is not understood, and it is therefore **not a
+residual** (a residual is characterised and bounded). **`corrections.person_corrects_entity`
+stays off** until it is understood and closed. A scope-disclaimer clause closes it and
+breaks `PC2` (a person merely asking the entity to look again links 40/40), so it was
+rejected; a better wording is a separate, later task, validated on the full set under at
+least two shuffles. **Coupling to watch:** the D6/D7 prompt bullets fix `C7` and `N10` with
+no current theory of why; re-check both if the bullets are ever touched. See
+`docs/CORRECTION_DESIGN.md` CO16. The Notes check above now applies to PN9's family too.
+
 **Retrieval floor calibration** — floors ship permissive/uncalibrated by
 design (see `BUILD_PLAN.md` Phase 1 notes). Once real conversation history
 exists in meaningful volume, calibrate actual threshold values and verify

@@ -494,8 +494,13 @@ def test_integrity_error_is_caught_not_leaked(store, monkeypatch):
         raise sqlite3.IntegrityError("FOREIGN KEY constraint failed")
 
     monkeypatch.setattr(db, "create_supersedes_link", boom)
+    # Real messages: since stage 3, `record()` reads both ends before writing, so
+    # made-up ids would be refused by the scope check before reaching this path.
+    conversation = db.start_conversation(store["lyle"].user_id)
+    old = db.save_message(conversation, store["lyle"].user_id, "user", "It was Tuesday.")
+    new = db.save_message(conversation, store["lyle"].user_id, "user", "It was Wednesday.")
 
-    assert corrections.record(corrections.Correction("a", "b", "x", "replaced")) is None
+    assert corrections.record(corrections.Correction(new, old, "x", "replaced")) is None
 
 
 # --- the candidate pool (merged-queue items 6, 22b, C3; plan B2) -------------

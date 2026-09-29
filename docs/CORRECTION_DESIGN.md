@@ -269,6 +269,14 @@ and a correction call's 45 s, `2090 s = 34.8 min` → floor **35**, exactly wher
 it is. Checked rather than assumed, because two of these re-derivations have
 already been owed and missed.
 
+*Corrected 2026-09-28 (B11 stage 3, D9).* The paragraph above counts a correction
+call toward the floor, and it should not. Correction calls run **after** the answer
+is saved (C9's deviation, recorded below, moved them there), so the floor is `2000 +
+45 = 2045 s` → 35, as `tests/test_idle.py` has always computed. Stage 3's third call
+does not change it either. `tests/test_corrections_stage3.py` asserts from inside
+each correction call that the answer is durable and the conversation reads as a
+completed turn.
+
 Measured cost to compare against: the gate's classifier call is **0.45 s warm**
 and the shipped prompt measured 1.7–3.1 s per call in live turns.
 
@@ -1013,3 +1021,204 @@ V1–V7 are added as `N11`–`N17` and V8 as `C9`. The mirrors and P4 are not ad
 against this pattern before Notes ships (`NOW.md` backlog). It would put a standard
 scope claim on every miss, so if its wording falls inside the trigger, the defect stops
 being rare.
+
+## CO16 — B11 stage 3: a person may correct the entity (2026-09-28)
+
+Built from the stage 3 plan and its rulings (D1–D11). This section records what was
+built and measured. The plan's text is the reviewer's, and each D-number refers to it.
+
+### D3: CO4 amended (confirmed at review, 2026-09-28)
+
+The wording below is the `corrections.py` module docstring's, copied verbatim, so the two
+files carry one phrasing of the amendment.
+
+*CO4 as amended at B11 stage 3 (D3). Confirmed at review, 2026-09-28.*
+
+* A person may correct **their own** earlier statements, and **the entity's**
+  statements, in their own conversations.
+* The entity may correct **only its own** earlier statements.
+* **The entity never supersedes a person's statement.** An automated classifier's
+  inference must not override a human's explicit self-report about their own words.
+* **One user never supersedes the other** (decision #21/Q16), unchanged. The
+  conversation-owner filter in :func:`candidates` is what enforces it, and it also
+  means Lyle cannot supersede something the entity told Jodie (D4, ruled).
+
+### What was built
+
+- **D1, the third call.** `classify(..., candidate_role=)` defaults to the speaker's
+  own role, so the two existing calls are unchanged. `turn._record_corrections` makes
+  the person-against-entity call separately, never as a wider pool for the person's
+  own call. CO5 is why: the paired case needs both links.
+  - It is **gated twice**. `classify` makes no call when the pool holds no entity
+    candidates. The whole call sits behind `corrections.person_corrects_entity`, a
+    bootstrap switch that **defaults off** (D6).
+- **CO4 by construction, twice.**
+  - `ALLOWED_PAIRS` holds the three permitted (speaker, candidate) pairs.
+  - `classify` raises before any model call for the entity against a person.
+  - `record()` re-reads both ends of a link (`db.get_messages_by_ids`, read-only) and
+    raises `CorrectionScopeError` for either CO4 or a cross-user link.
+  - The case file refuses the pairing at load.
+- **D4:** the owner filter in `candidates()` is unchanged, as ruled.
+- **D5:** `turn._unless_person_took_it`. When the person's and the entity's calls
+  supersede the same entity message, only the person's link is written. The dropped
+  one is logged at INFO with the target, both verdicts (state and rationale), and both
+  superseding ids. Different targets are both written.
+- **D6(ii) and D7:** two NOT-corrections bullets in `_PROMPT`.
+- **D6(i) and D8:** every annotation names who made the correction, as *"Later
+  corrected by Lyle."* or *"Later contradicted by the assistant, with no replacement
+  given."*
+  - The name comes from the superseding message's row at render time: `users.name`
+    for a person, *"the assistant"* for the entity, which is the word chunk text uses
+    for its lines.
+  - The entity's `__entity__` sentinel never renders.
+  - Nothing is written into chunk text. A test asserts `chunks.text` is unchanged and
+    FTS5 has no match for "corrected".
+- **Harness:** a fingerprinted `candidate_role` field and the `person_corrects_entity`
+  kind.
+
+### The prompt: D2 said change it only if the new cases fail it. They did.
+
+A 5-pass screen (`scripts/correction_diagnosis_stage3.py`) ran the draft cases, the
+Notes check and the frozen set under four prompt arms.
+
+With `_PROMPT` unchanged:
+- every should-link and near-miss shape passed;
+- **the opinion case and all three self-description cases linked 5/5**.
+
+The first D6 wording:
+- fixed two of the three self-description cases;
+- left the vision case linking 4/5. The classifier called it a *"flat contradiction"*,
+  which is CO8's own sentence in the prompt.
+
+The second wording, which landed, says a flat contradiction or a claim to have seen
+otherwise does not change it. It quotes no example, so it is not fitted to any case's
+string.
+
+The D7 bullet was added because the opinion case failed, per D2's rule. Stage 2's
+scope clause was tried on top, added nothing, and made C7 unstable, so it is not in.
+
+### The Notes-phrasing check in the new pool (the sequencing addition)
+
+CO15's composition was put in as the **entity's** claim on N9's background pool, with
+the person then saying something about X.
+
+- *"I have looked through my notes and there is nothing about the grinder"* and
+  *"I have searched my memory and do not find anything about the boiler pressure"*
+  were clean in every arm.
+- **N9's wording, *"I have searched my records, and I do not find any mention of
+  descaling"*, followed by the person describing how to descale:**
+  - 0/5 with `_PROMPT` unchanged;
+  - **linked 5/5 under every D6 wording**, and with the scope clause added.
+- The classifier's reply is CO10.2's mechanism exactly: it *"provides specific
+  instructions for descaling, which contradicts the claim that no mention of it exists
+  in the records"*.
+- So the pattern misfires in this pool too, and the clause D6 requires is what exposes
+  it. It is filed as `PN9-records-scope-person-supplies`, a documented miss, as the
+  plan directs, with `PE6` as its control. **Later ruled an open, unstable defect rather
+  than a residual; see "PN9 is an OPEN, UNSTABLE DEFECT" below.**
+- **This bears directly on Notes:** the wording that misfires is the one a standard
+  *"no note about X"* reply would come closest to.
+
+### D9: cost
+
+- **Ordering, shown in code.** `handle_user_message` saves the assistant's message,
+  then runs everything under `_after_durable`, and `_record_corrections` is the last of
+  those.
+- `tests/test_corrections_stage3.py::test_correction_calls_run_after_the_answer_is_durable`
+  checks the ordering from inside each correction call. The answer is in the store,
+  and `get_open_conversations_with_activity()` reports `last_role = "assistant"`.
+- So `idle.py` applies `idle_close_minutes` (15 min), not the in-flight grace, and the
+  floor is not affected.
+- `tests/test_idle.py::test_the_floor_is_recomputed_from_the_loops_own_limits` asserts
+  `derived_seconds == 2045` with the gate's classifier as the only classifier term.
+  It has never counted a correction call, correctly.
+- Three calls at the 45 s timeout is 135 s, inside the 15-minute window that does apply.
+- `BUILT.md`'s two `2000 + 45 + 45 = 2090 s` lines, and this doc's C8 paragraph, are
+  corrected.
+- **Measured latency:** see "Measured" below.
+
+### Measured (D11): the measurement of record, and what it does not say
+
+**20 decorrelated passes, 44 cases, fingerprint `c7760e49…`**, `gemma4:26b` at 0.35,
+880 samples (2026-09-28). **43 PASS, 1 FAIL (`N9`, the CO15 residual).** False links
+20/560, missed 0/320, wrong target 0/320, wrong state 0/320. Every case unanimous. The
+D6 gate cases (PN6, PN7, PN8) are 0 false links in 60, and the whole
+`person_corrects_entity` kind is 0/180 false links, 0/120 missed.
+
+**That table is not evidence about `PN9`, and the reason is the finding of this pass.**
+It reads 0/20 there and the same case has read:
+
+| sampling context (identical prompt, pool, model) | PN9 linked |
+|---|---|
+| 44-case harness, file order, 20 passes | 0/20 |
+| the case sampled directly after `PN8`, 20 passes | 20/20 |
+| sampled with unrelated cases between, 20 passes | 20/20 |
+| fresh 3-pass run of the full set | 1/3 |
+| width probe, four arms of one case adjacent | 18/20 |
+| full set + probe family, fresh shuffle each pass, seed 3 | **14/20** (70%, CI 48–85%) |
+
+Nothing differed but the neighbouring samples. This is `N7`'s pattern, without `N7`'s
+bound: its range is the whole interval.
+
+### PN9 is an OPEN, UNSTABLE DEFECT, not a residual (ruled at review, 2026-09-29)
+
+A residual in this project (`N7`, `N9`/`N10` at CO15) is a *characterised, bounded* case:
+a stated trigger, a measured rate, a footprint. PN9 has none of the three. Its rate runs
+0–100% by sampling context, and the mechanism is not understood. So it is recorded as
+open, and **`corrections.person_corrects_entity` stays off** with this as a second
+condition beside D6's.
+
+**Width** (full-set regime, shipped prompt): two of seven wordings of the CO15 pattern
+link, both when the person then supplies information about the subject: the exact
+`descaling` string (`PV7` 13/20) and a boiler-pressure wording (`PV5` 20/20). Five others
+are 0/20 (`PV1`–`PV4`, `PV6`). So it is not one string.
+
+**What raises it.** The D6/D7 bullets: the exact string links 1/20 without them and
+13–18/20 with (probe regime). The boiler wording links 18/20 without them too, so there
+is a second cause.
+
+**Fixes tried, none taken.**
+- *Stage 2's scope clause:* makes it worse (`PV5`, `PV7` 20/20).
+- *A scope-disclaimer clause* (D6-style, `scripts/correction_diagnosis_pn9.py`
+  `DISCLAIM_CLAUSE`): closes the PN9 family, 0/20 on `PN9`, `PV5` and `PV7` under two
+  different shuffles, must-link controls 20/20. **But it makes `PC2` link 40/40**, against
+  0/20 shipped: *"Can you look again? I'm sure we talked about it."* now supersedes the
+  entity's "I found nothing". The clause's own exception (*"only if the person says the
+  record does hold something"*) plausibly reads that as the assertion; this was not
+  tested. A false link on a doubt is the line CO8 says must hold. Its probe-regime
+  figure for `PC2` was 1/20, which is what the full-set regime overturned.
+- A further clause wording is a separate, later task. Removing the D6/D7 bullets is
+  **rejected** (below).
+
+### COUPLING TO WATCH: the D6/D7 bullets and `C7` / `N10`
+
+**The D6/D7 bullets fix `C7` and `N10`, and there is no current theory of why.**
+- `C7-referential-contradiction`: missed 20/20 before the bullets, correct 20/20 after.
+- `N10-records-scope-short-answer`: false-linked 20/20 before, no link 20/20 after.
+- Neither case has any self-description or opinion content, which is what the bullets
+  address. The effect is an unexplained side effect, and the earlier accounts of both
+  (referent selection for `C7`, the claim's wording for `N10`) have not been shown wrong,
+  only no longer expressed.
+- **If those bullets are ever touched again, for any reason, `C7` and `N10` must be
+  re-checked, not assumed stable.** Removing or rewording them to chase `PN9` was
+  considered and rejected on exactly this ground: it would give up two known-good
+  results without understanding why they were good.
+- `N9` beside `N10` still links 20/20 on the same pool, so the scope family was **not**
+  fixed by them. One member moved for a reason unrelated to scope.
+
+### Latency (D9, measured live)
+
+Real turns on a temporary store, real model, one 8-turn conversation with the switch off
+and one with it on. The third call takes **1.7–4.5 s, median about 2.9 s**, and per-turn
+classifier time goes from about 5.6 s to about 8.5 s, **about +2.9 s per turn**. The calls
+run inside the request, after the answer is saved and before the response returns, so the
+person waits for them. Turn 1 adds nothing (no pool yet). Whole-turn time ranged 9–34 s,
+so one pair of runs cannot resolve a difference this small. This is the cost **if the
+switch is ever turned on**; with it off (the state shipped) the third call is not made.
+
+### What ships
+
+Everything above except the switch: CO4 by construction, D5's tie-break, the D6/D7
+bullets, speaker-named annotations, `candidate_role` in the harness and the 16 cases.
+`corrections.person_corrects_entity` defaults **off** and is not to be switched on until
+`PN9` is understood and closed.

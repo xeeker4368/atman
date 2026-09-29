@@ -414,21 +414,28 @@ def _render_supersession(item, quote_budget: int) -> tuple[str, int]:
     Stated positively for both states, on the rule the gate's *"No tools were used
     this turn"* follows: an absent clause reads as no information, so
     "with no replacement given" is said rather than implied by omission.
+
+    **Every annotation names who made the correction** (stage 3, D8). Until then
+    every link was same-speaker and the speaker went without saying; now a person
+    can correct the entity, and an unattributed "later corrected" would present a
+    person's disagreement as an established fact (D6). The name comes from the
+    message row at render time — it is never part of chunk text.
     """
     locator = _quote(item.superseded_text, SUPERSEDED_QUOTE_CHARS)
     when = (item.superseding_timestamp or "")[:10] or "an unknown date"
+    who = item.superseding_speaker
     if item.replacement == supersession.CONTRADICTED:
-        head = f"Later contradicted, with no replacement given. {locator} was"
+        head = f"Later contradicted by {who}, with no replacement given. {locator} was"
         verb = "contradicted"
     else:
-        head = f"Later corrected. {locator} was"
+        head = f"Later corrected by {who}. {locator} was"
         verb = "superseded"
 
     if quote_budget >= len(item.superseding_text[:SUPERSEDING_QUOTE_CHARS]):
         quote = _quote(item.superseding_text, SUPERSEDING_QUOTE_CHARS)
-        return f"{head} {verb} on {when} by: {quote}", len(quote)
-    # Budget spent. The annotation still says what happened and to which line; only
-    # the correction's wording is withheld.
+        return f"{head} {verb} on {when}: {quote}", len(quote)
+    # Budget spent. The annotation still says what happened, to which line and by
+    # whom; only the correction's wording is withheld.
     return f"{head} {verb} on {when}.", 0
 
 

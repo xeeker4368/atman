@@ -153,6 +153,8 @@ _ENV_MAP: dict[str, tuple[str, str, str]] = {
     "ANAM_API_HOST": ("api", "host", "str"),
     "ANAM_API_PORT": ("api", "port", "int"),
     "ANAM_COMFYUI_ENABLED": ("comfyui", "enabled", "bool"),
+    "ANAM_CORRECTIONS_PERSON_CORRECTS_ENTITY": (
+        "corrections", "person_corrects_entity", "bool"),
     "ANAM_COMFYUI_HOST": ("comfyui", "host", "str"),
     "ANAM_COMFYUI_TIMEOUT_SECONDS": ("comfyui", "timeout_seconds", "float"),
     "ANAM_OLLAMA_HOST": ("ollama", "host", "str"),
@@ -629,6 +631,15 @@ def image_generation_enabled() -> bool:
     ``config/defaults.toml`` about the registry cache.
     """
     return bool(get("comfyui", "enabled", True))
+
+
+def corrections_person_corrects_entity() -> bool:
+    """Whether a turn's third correction call runs (B11 stage 3, D1/D6).
+
+    Bootstrap-only: it is a ship gate on a measured property (D6), not a preference,
+    and a live-editable switch would let it be turned on without the measurement.
+    """
+    return bool(get("corrections", "person_corrects_entity", False))
 
 
 def comfyui_host() -> str:

@@ -61,8 +61,14 @@ from scripts import correction_eval as correction_eval_cli
 #: the trigger is the claim's wording rather than the answer. `N11`–`N17` are other
 #: scope wordings and a contradicts-nothing control, all clean, so a change that
 #: breaks them is visible. `C9-notes-do-mention-it` is a second genuine-correction
-#: control. No existing case changed. 19 → 28 cases.)
-FROZEN_FINGERPRINT = "b27f3843b5df9e19709b3dc8f86c7fb80aadf9192c74a16009b7fa821397e881"
+#: control. No existing case changed. 19 → 28 cases.) →
+#: c7760e49… (2026-09-28, B11 stage 3: a person may correct the entity. A new
+#: fingerprinted field, `candidate_role`, which alone changes every case's canonical
+#: form, and 16 cases: PE1–PE6 should link (PE2b is the same input on the person's
+#: own call, D5's scenario), PN1–PN9 should not. PN5 is D7's opinion case; PN6–PN8
+#: are D6's ship gate; PN9 is the Notes-phrasing check in the new pool, filed as a
+#: documented miss. No existing case's inputs or expectation changed. 28 → 44.)
+FROZEN_FINGERPRINT = "c7760e4931997d39fafa8e137fc765ee08a8a83006ffcf5daf611a4d91540788"
 
 
 @pytest.fixture(scope="module")
@@ -143,6 +149,10 @@ def test_informational_fields_are_not_fingerprinted_but_expectations_are(cases):
 
     renamed_speaker = [dataclasses.replace(cases[0], speaker="Jodie"), *cases[1:]]
     assert correction_eval.fingerprint(renamed_speaker) != correction_eval.fingerprint(cases)
+
+    # Stage 3: whose statements are judged is an input, so it is an expectation too.
+    rerolled = [dataclasses.replace(cases[0], candidate_role="assistant"), *cases[1:]]
+    assert correction_eval.fingerprint(rerolled) != correction_eval.fingerprint(cases)
 
 
 @pytest.mark.parametrize("kind", ["elaboration", "doubt", "restatement", "topic_change"])
@@ -263,7 +273,8 @@ def test_a_positive_case_does_not_always_name_the_first_candidate(cases):
     positions = set()
     for case in cases:
         if case.should_link:
-            shown = [c.message_id for c in case.pool() if c.role == case.speaker_role]
+            judged = case.candidate_role or case.speaker_role
+            shown = [c.message_id for c in case.pool() if c.role == judged]
             positions.add(shown.index(case.target))
     assert positions >= {0, 1, 2}, "every expected target sits in the same position"
 
@@ -338,6 +349,15 @@ def test_a_well_formed_file_loads(tmp_path):
     ("", "no [[case]] entries"),
     ("[[case]\n", "not valid TOML"),
     ('[other]\nx = 1\n', "unknown top-level key"),
+    # Stage 3: candidate_role. The entity is never judged against a person (CO4),
+    # and a target must be one of the statements the call judges.
+    (GOOD.replace('note = "n"', 'note = "n"\ncandidate_role = "nobody"'),
+     "candidate_role must be"),
+    (GOOD.replace('speaker_role = "user"', 'speaker_role = "assistant"')
+         .replace('note = "n"', 'note = "n"\ncandidate_role = "user"'),
+     "never supersedes a person"),
+    (GOOD.replace('note = "n"', 'note = "n"\ncandidate_role = "assistant"'),
+     "not one of the statements this call judges"),
 ])
 def test_a_malformed_case_raises_rather_than_being_skipped(tmp_path, text, message):
     with pytest.raises(correction_eval.CaseFileError, match=message.replace("[", r"\[")):
@@ -708,3 +728,63 @@ def test_an_unusable_reply_is_still_scored_as_production_behaves(monkeypatch):
     assert [r.outcome for r in result.runs] == [correction_eval.MISSED] * 2
     t = correction_eval.tally([result])["overall"]
     assert (t.unavailable, t.unusable_replies, t.link_expected) == (0, 2, 2)
+
+
+# --- stage 3: the person-against-entity call ---------------------------------
+
+
+PERSON_VS_ENTITY = GOOD.replace('note = "n"', 'note = "n"\ncandidate_role = "assistant"') \
+    .replace('[[case.candidate]]\nid = "p1"\nrole = "user"',
+             '[[case.candidate]]\nid = "p1"\nrole = "assistant"')
+
+
+def test_candidate_role_reaches_classify(monkeypatch, tmp_path):
+    [case] = correction_eval.load_cases(write(tmp_path, PERSON_VS_ENTITY))
+    seen = {}
+
+    def spy(new_message, new_id, pool, speaker_role, speaker_label, candidate_role=None):
+        seen.update(speaker_role=speaker_role, candidate_role=candidate_role)
+        return None
+
+    monkeypatch.setattr(correction_eval.corrections, "classify", spy)
+    correction_eval.sample_once(case)
+    assert seen == {"speaker_role": "user", "candidate_role": "assistant"}
+
+
+def test_candidate_role_defaults_to_the_speakers_own(tmp_path):
+    [case] = correction_eval.load_cases(write(tmp_path, GOOD))
+    assert case.candidate_role is None
+
+
+#: D6's ship gate: these must hold at 0 false links over 20 decorrelated runs, or the
+#: third call does not ship enabled (`corrections.person_corrects_entity`).
+D6_GATE = ("PN6-self-overnight", "PN7-self-learning", "PN8-self-vision")
+
+
+def test_the_d6_ship_gate_cases_are_in_the_set_and_expect_no_link(cases):
+    by_id = {c.id: c for c in cases}
+    for case_id in D6_GATE:
+        case = by_id[case_id]
+        assert case.kind == "person_corrects_entity" and not case.should_link
+        assert case.candidate_role == "assistant"
+
+
+def test_the_opinion_case_is_pinned(cases):
+    [case] = [c for c in cases if c.id == "PN5-opinion"]
+    assert not case.should_link and case.candidate_role == "assistant"
+
+
+def test_the_person_against_entity_call_is_covered_both_ways(cases):
+    third = [c for c in cases if c.candidate_role == "assistant"]
+    assert {c.should_link for c in third} == {True, False}
+    assert {c.replacement for c in third if c.should_link} == {"replaced", "contradicted"}
+    assert any(c.speaker == "Jodie" for c in third), "D4: not only under Lyle's name"
+
+
+def test_the_prompt_states_the_self_description_and_opinion_boundaries():
+    """D6(ii) and D7, as landed. Removing either fails here, not only in a
+    re-measurement nobody runs."""
+    text = " ".join(corrections._PROMPT.split())
+    assert "disagreeing with what the system has said about itself" in text
+    assert "even when they flatly say it is wrong or claim to have seen otherwise" in text
+    assert "disagreeing with an opinion, preference or judgment the system gave" in text

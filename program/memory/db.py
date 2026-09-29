@@ -603,6 +603,22 @@ def get_messages_in_chunks(chunk_ids: Sequence[str]) -> list[sqlite3.Row]:
         ).fetchall()
 
 
+def get_messages_by_ids(message_ids: Sequence[str]) -> list[sqlite3.Row]:
+    """Several messages by id, in one query. Read-only; order not guaranteed.
+
+    ``corrections.record()`` reads the two ends of a link here to check who may
+    correct whom before writing it (CO4 as amended at B11 stage 3).
+    """
+    ids = list(dict.fromkeys(message_ids))
+    if not ids:
+        return []
+    placeholders = ",".join("?" for _ in ids)
+    with connection() as conn:
+        return conn.execute(
+            f"SELECT * FROM messages WHERE id IN ({placeholders})", ids,
+        ).fetchall()
+
+
 #: What ``supersedes.replacement`` may hold, matching the column's CHECK. Here as
 #: well as in the schema so a caller can validate before the database refuses —
 #: but the CHECK is the guarantee, since this module is not the only possible
@@ -698,7 +714,8 @@ def get_supersedes_for_chunks(chunk_ids: Sequence[str]) -> list[sqlite3.Row]:
                    sg.id                      AS superseding_id,
                    sg.content                 AS superseding_content,
                    sg.timestamp               AS superseding_timestamp,
-                   sg.role                    AS superseding_role
+                   sg.role                    AS superseding_role,
+                   su.name                    AS superseding_user_name
               FROM chunks c
               JOIN messages f  ON f.id = c.first_message_id
               JOIN messages l  ON l.id = c.last_message_id
@@ -707,6 +724,7 @@ def get_supersedes_for_chunks(chunk_ids: Sequence[str]) -> list[sqlite3.Row]:
                               AND sd.timestamp <= l.timestamp
               JOIN supersedes sup ON sup.superseded_message_id = sd.id
               JOIN messages sg ON sg.id = sup.superseding_message_id
+         LEFT JOIN users su    ON su.id = sg.user_id
              WHERE c.id IN ({placeholders})
              ORDER BY c.id, sd.timestamp, sd.id, sg.timestamp, sg.id
             """,
@@ -734,9 +752,11 @@ def get_supersedes_from(message_ids: Sequence[str]) -> list[sqlite3.Row]:
                    sg.id                     AS superseding_id,
                    sg.content                AS superseding_content,
                    sg.timestamp              AS superseding_timestamp,
-                   sg.role                   AS superseding_role
+                   sg.role                   AS superseding_role,
+                   su.name                   AS superseding_user_name
               FROM supersedes sup
               JOIN messages sg ON sg.id = sup.superseding_message_id
+         LEFT JOIN users su    ON su.id = sg.user_id
              WHERE sup.superseded_message_id IN ({placeholders})
              ORDER BY sg.timestamp, sg.id
             """,

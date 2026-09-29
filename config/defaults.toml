@@ -674,6 +674,28 @@ scrypt_p = 1
 login_max_attempts_per_minute = 5
 
 # ---------------------------------------------------------------------------
+# Correction classifier (B11 stage 3)
+# ---------------------------------------------------------------------------
+#
+# BOOTSTRAP-ONLY, deliberately not settings-backed, like the integrity section.
+[corrections]
+# Whether a person's message is also judged against the ENTITY's statements: the
+# third correction call per turn (CORRECTION_DESIGN CO16, D1).
+#
+# SHIP GATE, not a preference (D6, ruled at review): it may be on only while the
+# self-description frozen cases hold at 0 false links over 20 decorrelated runs,
+# because a false link there marks the entity's true account of itself as
+# corrected by a person's disagreement. Off, the two same-speaker calls run as
+# before and nothing else changes.
+#
+# SECOND HOLD (ruled 2026-09-29): PN9, an OPEN, UNSTABLE false-link path (a person
+# supplying information after the entity said its records hold nothing on it). Its
+# rate reads 0-100% by sampling context and the mechanism is not understood, so it
+# is not a residual. Do not turn this on until it is understood and closed.
+# CORRECTION_DESIGN CO16.
+person_corrects_entity = false
+
+# ---------------------------------------------------------------------------
 # Integrity classifier (fabrication gate; task 3.3's correction classifier later)
 # ---------------------------------------------------------------------------
 #

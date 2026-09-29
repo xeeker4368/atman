@@ -57,6 +57,35 @@ MAX_PER_CHUNK = 3
 REPLACED = "replaced"
 CONTRADICTED = "contradicted"
 
+#: How the entity is named as the author of a correction. The same word chunk text
+#: uses for its lines (``chunking._format_line``), so a record and its annotation
+#: agree. Never a name: the entity has none (CLAUDE.md), and its ``users`` row's
+#: sentinel must never render.
+ENTITY_SPEAKER = "the assistant"
+
+#: Said when a person-role message's user cannot be named. Not expected: every
+#: message has a user row. Here so a missing one degrades rather than printing None.
+UNKNOWN_SPEAKER = "an unnamed person"
+
+
+def speaker_label(message_role: str | None, message_user_name: str | None) -> str:
+    """Who made a correction, for display only (stage 3, D8).
+
+    Since stage 3 a person may correct the entity, so an annotation without a speaker
+    would read a person's disagreement as an unqualified fact (D6). **Rendered at
+    display time from the message row, never written into chunk text**: chunk text
+    reaches FTS5 and the embedding and re-chunking reproduces it, so a label baked in
+    there could never be taken out.
+
+    Both arguments describe the message that MADE the correction, never who is
+    asking: retrieval stays unscoped by actor (decision #20, R8).
+    """
+    if message_role == "assistant":
+        return ENTITY_SPEAKER
+    if not message_user_name or message_user_name == db.ENTITY_USER_NAME:
+        return UNKNOWN_SPEAKER
+    return message_user_name
+
 
 @dataclass(frozen=True)
 class Supersession:
@@ -74,6 +103,8 @@ class Supersession:
     #: current value exists, and it does not: B supplied one and C withdrew it. The
     #: first link's state would answer a question nobody asked.
     replacement: str
+    #: Who made the current statement, for display (D8). See :func:`speaker_label`.
+    superseding_speaker: str = UNKNOWN_SPEAKER
     #: How many links were followed. 1 is the ordinary case.
     depth: int = 1
 
@@ -116,6 +147,7 @@ class _Branch:
     current_timestamp: str
     replacement: str
     depth: int
+    speaker: str = UNKNOWN_SPEAKER
     visited: set[str] = field(default_factory=set)
 
 
@@ -127,6 +159,7 @@ def _tip(branch: _Branch, superseded_text: str) -> Supersession:
         superseding_text=branch.current_content,
         superseding_timestamp=branch.current_timestamp,
         replacement=branch.replacement,
+        superseding_speaker=branch.speaker,
         depth=branch.depth,
     )
 
@@ -137,9 +170,10 @@ def resolve_for_chunks(
     """``({chunk_id: [Supersession, ...]}, report)`` for these chunks.
 
     Takes ids and returns data — no ``RetrievedChunk``, no import of ``retrieval``,
-    no actor (R8). Links exist only within one user's own claims, so annotation
+    no actor (R8). Links exist only within one user's own record, so annotation
     needs no actor to be correct, and decision #20 forbids scoping retrieval by who
-    is asking.
+    is asking. Who *made* each correction is carried for display (D8); who is
+    *asking* is not an input.
     """
     report = SupersessionReport()
     if not chunk_ids:
@@ -180,6 +214,7 @@ def resolve_for_chunks(
             current_timestamp=row["superseding_timestamp"],
             replacement=row["replacement"],
             depth=1,
+            speaker=speaker_label(row["superseding_role"], row["superseding_user_name"]),
             visited={origin, row["superseding_id"]},
         ))
 
@@ -232,6 +267,8 @@ def resolve_for_chunks(
                     current_timestamp=row["superseding_timestamp"],
                     replacement=row["replacement"],
                     depth=branch.depth + 1,
+                    speaker=speaker_label(
+                        row["superseding_role"], row["superseding_user_name"]),
                     visited=branch.visited | {row["superseding_id"]},
                 ))
         frontier = next_frontier
