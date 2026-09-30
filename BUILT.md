@@ -2658,8 +2658,13 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   accurate about findings and wrong as a claim about detection: for images the signal existed
   and was discarded by design.
 - `[unverified]` **The isolation evidence tested the right thing on the wrong population.**
-  F44.2's check injects synthetic ACTION labels and confirms `identity`/`tool_output` cells do
-  not move; the 34-case screen confirmed the same. Neither could see this, because **none of
+  The only isolation evidence is the live-model 34-case screen. *Corrected 2026-09-30: this
+  entry said an F44.2 check injects synthetic ACTION labels and confirms the cells do not
+  move. **No such test exists, and it could not pass**: an ACTION finding is authoritative,
+  and scripting `CONTRADICTS-ACTION` on every reply moves identity to 13 false positives and
+  tool_output to 4 (design F49). What is guaranteed is routing only: an ACTION label never
+  produces an identity or tool_output finding or an advisory note, survives O7's enforcement,
+  and cannot affect the structural rules.* The screen could not see this, because **none of
   those cases is an ACTION-relevant sentence** — and on such a sentence the model's own label
   choice changed identity's behaviour from `CONSISTENT` to `CONTRADICTS-SELF`. The claim "the
   existing classes moved on no cell" is true of the frozen set's cells and is **not** a claim
@@ -2683,8 +2688,11 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   said it did**: `gate_eval` scores `flagged == should_flag`, so A5 passes whichever label wins
   and nothing in the harness counts findings. A unit test pins it instead
   (`test_a_mixed_answer_yields_one_finding_not_two`). The trigger for per-item labelling
-  (**G-C**) depends on **a human reading answers** — exclusivity means the losing finding is
-  never written, so no recorded signal can report a mixed answer. The aggregate trigger cannot
+  (**G-C**) depends on **a human reading answers** — no recorded signal can report a mixed
+  answer. *Refined 2026-09-30 (design F49): the losing fault is sometimes written in the wrong
+  class, and is lost entirely only when a side-effect tool ran and the label was ACTION. That
+  case falls in a queryable population (side-effect tool ran, verdict `clean`), so a human read
+  of just that population is recorded as a design option. It is not authorised.* The aggregate trigger cannot
   tell **which** tool was claimed (O21.2, decided), so a save claim on an image-only turn
   passes; flag-only, so the cost is a missing log entry. `action_image` has **no
   must-not-flag case**, so its FP cell reads `n/a` — defensible only because the trigger is

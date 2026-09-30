@@ -1635,6 +1635,9 @@ So:
    discipline applied again, and it should be asserted the same way: a test scoring the
    frozen set twice — action findings silenced, then action findings on every reply — and
    requiring byte-identical `tool_output` and `identity` results.
+   *Corrected 2026-09-30, see F49: this test was never written, and it cannot pass as
+   specified, even with scripted replies. An ACTION finding is authoritative, unlike an
+   advisory note, and `gate_eval` scores whether a case flagged, not which class fired.*
 3. The target is set **after** a first frozen measurement, from what the instrument
    actually delivers, and is proposed at review rather than chosen by whoever is
    implementing.
@@ -1838,7 +1841,9 @@ images the signal existed and was discarded by design.
 
 **Why the isolation evidence could not see any of this.** F44.2 injects synthetic ACTION labels
 and checks that `identity` and `tool_output` cells do not move; the 34-case screen did the same
-from the other direction. Neither population contains an **ACTION-relevant sentence**, and it is
+from the other direction. *(Corrected 2026-09-30, F49: the F44.2 check described here does not
+exist and could not pass. The only isolation evidence is the live-model 34-case screen.)*
+Neither population contains an **ACTION-relevant sentence**, and it is
 exactly on those that the model's own label choice changes identity's behaviour. *"The existing
 classes moved on no cell"* is true of the frozen set and is **not** a claim about identity's
 behaviour in general.
@@ -1872,3 +1877,66 @@ measurement by construction and requires a full re-measurement.
 
 **Not done, and deliberately.** `_parse` and `_PROMPT` are unchanged. `A7` is filed as a
 documented miss rather than fixed. No target is set. No fix is proposed or scoped.
+
+### F49 — corrections from the O23 investigation (2026-09-30)
+
+Documentation only. `gate.py`, `_PROMPT`, `gate_eval` and the frozen set's inputs are
+unchanged.
+
+**F44.2's isolation claim was wrong, and the test it prescribes was never written.** The only
+test of this kind, `test_the_harness_is_blind_to_the_advisory_channel`, scripts
+`CONTRADICTS-TOOL` only. Nothing in `tests/` or `scripts/` scripts `CONTRADICTS-ACTION` into
+`gate_eval`. The revision-9 changelog's *"confirmed twice"* was a before-and-after comparison
+of the live model on the 34 older cases, not this check.
+
+**The check cannot pass as specified, even with scripted replies.** It works for TOOL because a
+TOOL label goes to the advisory channel, which has no authority. An ACTION label produces a
+real finding, and `gate_eval` scores `flagged == should_flag` against each case's declared class
+whatever class of finding fired. It was run as specified over the frozen 41 cases, one pass
+each, classifier scripted:
+
+| class | ACTION label on no reply | ACTION label on every reply |
+|---|---|---|
+| identity | false positives 0, false negatives 7 | false positives **13**, false negatives 0 |
+| tool_output | false positives 0, false negatives 2 | false positives **4**, false negatives 0 |
+
+**What is actually guaranteed** (scripted replies, pinned in `tests/test_gate.py`):
+- an ACTION label never produces an `identity` or `tool_output` finding, or an advisory note;
+- an ACTION finding is not discarded by O7's tool-claim enforcement;
+- the structural rules never depend on the classifier's reply.
+
+**What is not guaranteed:**
+- that an answer's identity verdict is unchanged by the ACTION class existing. One verdict
+  word per reply means an ACTION label replaces whatever identity judgment the classifier
+  would have made, on real replies and on scripted mixed replies alike;
+- that the `identity` and `tool_output` cells cannot move. An ACTION finding flags a case of
+  any class;
+- that an identity fault survives on a turn where a side-effect tool ran. `_parse` clears
+  every item (F47).
+
+**The `A5` case note carried three stale claims**, corrected in `cases.toml` (notes are not
+fingerprinted, so `a1a6baa8…` is unchanged):
+1. the production-observation trigger for G-C, which F46 already showed has no recorded input;
+2. *"only one finding can appear"*: a reply with two items under one label produces two
+   findings, both in the winning class, as `test_a_mixed_answer_yields_one_finding_not_two`'s
+   docstring says. The limitation is misclassification, not a lost count;
+3. *"the precedence rule makes it the action one"*: F47 measured the model choosing
+   `CONTRADICTS-SELF` on this shape 5/5.
+
+**The G-C trigger, restated, and one design option recorded.** *"Never written"* in F46 is
+only partly true:
+- **ACTION label, side-effect tool ran:** everything is cleared and the turn is recorded
+  `clean`. Nothing records that a mixed answer happened. This is the dangerous case, and it
+  cannot be seen from the record.
+- **ACTION label, no tool ran:** the identity fault *is* written, misclassified as
+  `unsupported_action_claim`. A reader could spot it; a query could not without a judgment.
+- **SELF label** (what the model measurably does on mixed answers): the save claim is
+  written as an identity finding, or not listed at all.
+- The raw classifier reply is never stored, so these cannot be told apart afterwards.
+
+So the G-C trigger can only be met by a person reading answers. **Design option, recorded
+and not authorised:** the invisible case falls in a population that *can* be queried: turns
+whose `tool_trace` shows `creative_write` or `image_generate` ran and whose
+`integrity_check` is `clean`. A periodic human read of that population alone would give the
+G-C trigger a real input without reading every turn. Building any audit surface for it is a
+separate decision.
