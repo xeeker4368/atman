@@ -249,12 +249,14 @@ build from here rather than assuming the plan continues in one sitting.
 | Entity self-flag tool: creates a research candidate tied to `source_conversation_id`/`source_message_id` (decision #3) | 1 | Sonnet |
 | Periodic mining job: scans recent conversations **across all users, including Jodie's** (decision #3, #17), proposes candidates | 1 | Sonnet |
 | Propose-vs-execute authorization: proposing never gates; executing checks `allow_*` **unless** a human is directly driving the action (decision #4) | **2** | Sonnet |
-| Reflection journal (daily cycle) | 1 | Sonnet |
+| Reflection journal (daily cycle). Design of record `docs/REFLECTION_JOURNAL_DESIGN.md`; its provenance, prompt, migration 7 and gate entry point are Tier 3 review items inside it | 1 | Sonnet |
 | Source trace collection + ingestion blocklist for trace files | 1 | Sonnet |
+| Read-only Moltbook tools: browse, search, one post, one agent's profile and recent posts (no posts-by-author endpoint exists). **Moved here from Phase 8 at review 2026-09-30.** Design of record `docs/MOLTBOOK_READ_DESIGN.md`. The personalised feed is left out pending M0 (the account's identity) | 1 | Sonnet |
 
 **Gate:** run one real manual research task end-to-end; confirm a
 self-flagged and a mined candidate both land in the same review surface
-correctly, with correct source attribution.
+correctly, with correct source attribution. Confirm the read-only Moltbook
+tools work live, and that the key appears in no log line, error or trace.
 
 ---
 
@@ -291,11 +293,12 @@ already exist so it has something real to build a toggle for.)*
 
 | Task | Tier | Model |
 |---|---|---|
-| Read-only Moltbook tools (feed, search, profile, posts-by-author, etc.) | 1 | Sonnet |
 | Posting capability behind the enabled/approval-required toggle (decision #12) | 2 | Sonnet |
 | Rate limit enforcement (posts/day hard ceiling, decision #12) | 1 | Sonnet |
 
-**Gate:** confirm read-only path works live; confirm posting stays fully
+*(The read-only tools moved to Phase 5 on 2026-09-30; their live check happens there.)*
+
+**Gate:** confirm posting stays fully
 inert until you explicitly enable it — verify by checking the flag state
 directly, not just by trusting the UI.
 

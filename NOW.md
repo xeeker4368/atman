@@ -327,6 +327,18 @@ receipt task adds it. So B19 depends on that task and is not bundled into it. As
 gate-rule change, it needs its own review and a frozen case (an accurate id quote,
 must-not-flag).
 
+**Corrections do not reach reflection-journal chunks: UNRESOLVED, not accepted** (filed at
+review 2026-09-30, reflection journal design; `docs/REFLECTION_JOURNAL_DESIGN.md` J10).
+Supersession resolves a `supersedes` link to chunks by a message → chunk timestamp-window
+join (`db.get_supersedes_for_chunks`). A journal entry is an artifact, and **artifact chunks
+carry no message ids**, so the join can never reach one. A claim restated in a journal entry
+and later corrected keeps surfacing from the entry **unannotated**, while the original
+message surfaces with its correction. Nothing reports it. The journal is not built yet, so
+this is latent until it is; it applies to any artifact chunk that restates a claim, but the
+journal is the first kind whose purpose is to restate the day's claims. **Not a residual**:
+nothing about it is characterised or bounded. Whether to fix it, and how, is a separate
+future decision, but it must not ship silent.
+
 **Retrieval floor calibration** — floors ship permissive/uncalibrated by
 design (see `BUILD_PLAN.md` Phase 1 notes). Once real conversation history
 exists in meaningful volume, calibrate actual threshold values and verify
