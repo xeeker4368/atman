@@ -230,6 +230,20 @@ mid-turn is severe enough that the read-side check is not optional.
 Authoritative at runtime for any key it holds a row for. TOML and env provide
 the bootstrap default until a row exists. Nothing reads both at request time.
 
+### `artifacts` — migration 2, plus migration 7's verdict column
+Not in `working.sql`: migration 2 creates it (`docs/INGESTION_DESIGN.md`), so a
+fresh store and an existing one reach it by the same path. One row per stored
+file: uploads, generated images, creative writing, and reflection-journal
+entries once they are built. Where the bytes live is a property of the kind
+(`program/artifacts/kinds.py`), not of the row.
+
+**`integrity_check`** (migration 7, `docs/REFLECTION_JOURNAL_DESIGN.md` J7):
+nullable JSON holding the fabrication gate's verdict on the artifact's text,
+written in the same insert as the row. The same semantics as
+`messages.integrity_check` (migration 3): **NULL means no verdict recorded,
+never clean.** Only kinds that run the gate write it; its first writer is the
+reflection journal. Uploads, images and creative writing leave it NULL.
+
 ---
 
 ## Changing the schema

@@ -1,4 +1,4 @@
-# Reflection Journal — Phase 5 design (revision 2, for Tier 3 review)
+# Reflection Journal — Phase 5 design (revision 3, approved with changes 2026-09-30)
 
 Phase 5 task *Reflection journal (daily cycle)*. The build step is Tier 1. This
 document is the Tier 3 part, because three pieces fall under AGENTS.md's
@@ -13,7 +13,7 @@ stop-and-verify list:
 It also adds a second entry point to the fabrication gate (J8). That is a gate
 change, so it is here too.
 
-**Status: proposed. Nothing is built.** Decisions already taken at review
+**Status: approved at review 2026-09-30, with the changes recorded in J7 and J8. Step 1 (migration 7) is built; steps 2 and 3 are not.** Decisions already taken at review
 (2026-09-30) are marked **DECIDED**; everything else is a proposal awaiting
 review.
 
@@ -269,6 +269,35 @@ the same failure as one only in the log:
 - **The J8 measurement script** reads it to check that what was stored equals
   what the gate returned.
 
+**What the operator can do with a flagged entry, at the terminal.** Added at
+review (2026-09-30). The command's closing output says this in words, not only
+the status:
+
+- **Read it.** The output gives the stored file's path, the status, and each
+  finding with the sentence it cites and the classifier's reason, so the entry
+  can be judged without a query.
+- **Judge it, and report a true positive.** If the cited sentence really is a
+  fabrication, that is the revisit trigger below. Reporting it is the whole of
+  the action; nothing in the command records the judgment.
+- **Nothing else, deliberately.** The operator cannot suppress, edit, delete or
+  regenerate a flagged entry through this command. Flag-only means the verdict
+  changes nothing about the entry. Regenerating would be stage 2's
+  block-and-regenerate, which decision #23 says starts from its own design pass.
+  J1's idempotency also refuses a second entry for the same date.
+
+**At stage 1, a flagged entry is indexed and retrieved exactly like a clean
+one.** Same chunks, same ranking, same render label. The verdict is read by no
+code in the entity's path, so a flagged entry can surface later as *"a later
+interpretation"* with nothing marking it as flagged.
+
+**Revisit trigger: the first true-positive flag.** A confirmed fabrication in a
+stored entry means the system is putting something false into its own memory
+under its own interpretive label. At that point, whether flagged entries should
+be indexed, labelled or held back is reopened as its own design decision. Not
+before: at stage 1 there is no evidence the gate's judgments on this text are
+worth acting on. A false positive is not a trigger; it goes into J8's
+measurement record.
+
 **Owed to Phase 6, not built here:** once the scheduler runs this unattended,
 nobody is at the terminal. Phase 6 has to give flagged entries a reader:
 at least a WARNING log line per flagged entry, and whatever its own status
@@ -316,12 +345,27 @@ untouched.
 journal could fall into the same identity-class misfire, and this mode would
 keep them. So before landing:
 
-- a **throwaway dev set** in a script (not the frozen set): accurate
-  recollection of tool use, including saves and images; accurate
-  statelessness statements; fabricated between-run continuity (*"I kept
-  thinking about it overnight"*); `N7`-shaped figures of speech;
-- **20 decorrelated passes** (decision #22), rates with intervals, every flag
-  read by hand;
+- a **throwaway dev set** in a script, not the frozen set. **Required at review
+  (2026-09-30):**
+  - **(a) The cognitive verbs the journal prompt itself elicits**: *"I notice"*,
+    *"I'm unsure"*, *"I was struck by"* and their kin, each in an **accurate**
+    form (said of reading the records now, in this run) and a **confabulated**
+    form (said of the day as lived, or of time since). The J4 block asks the
+    entity to *"say what you notice"*, so this is the vocabulary the gate will
+    actually meet; `N7` showed a single cognitive verb can decide a verdict.
+  - **(b) Real material, not only invented sentences**: recollections built
+    from the soak store's actual conversations, and from **real tool-use
+    turns** (their `tool_trace`s rendered through J3's system-record lines),
+    beside accurate statelessness statements, fabricated between-run
+    continuity (*"I kept thinking about it overnight"*) and `N7`-shaped
+    figures of speech. Read-only access to the soak store; nothing written
+    to it.
+  - **(c) A fresh shuffle of case order on every pass**, as in
+    `scripts/correction_validate_disclaim.py`, not a fixed round-robin, and
+    **at least two seeds** before any figure is read, as that script requires.
+    `PN9` showed a fixed file order hides context dependence.
+- **20 passes** (decision #22), rates **with intervals**, and **every flag read
+  by hand**, with the reading recorded;
 - two arms for the classifier's `situation`: the journal block as written, and
   the block plus one sentence saying the text recounts earlier conversations
   in which tools may have been used. Tool recollection is the part most likely
@@ -372,8 +416,9 @@ is a separate decision.
   both the prompt and the row.
 - Prompt: block passes all five `prompt.py` checks; does not trip `_ELAPSED`;
   contains no person's name; order soul → block → records.
-- Operator output: the command prints the stored verdict's status and each
-  finding's cited sentence, and prints `unavailable` as such, never as clean.
+- Operator output: the command prints the stored file's path, the verdict's
+  status and each finding's cited sentence and reason, prints `unavailable` as
+  such, never as clean, and states what the operator can and cannot do (J7).
 - Storage: kind registered with `journals`; entity attribution; bytes → row →
   chunks; truncation stores nothing; the row's verdict equals what the gate
   returned.

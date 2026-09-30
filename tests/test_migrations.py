@@ -344,3 +344,101 @@ def test_no_migration_uses_executescript():
         and node.func.attr == "executescript"
     ]
     assert calls == []
+
+
+# --- migration 7: artifacts.integrity_check (REFLECTION_JOURNAL_DESIGN J7) ----
+
+
+def _artifact_columns():
+    with db.connection() as conn:
+        return {r["name"]: r for r in conn.execute("PRAGMA table_info(artifacts)")}
+
+
+def test_migration_seven_adds_a_nullable_verdict_column_to_artifacts(store):
+    """Migration 3's semantics on a second table: nullable, no default. A NOT NULL
+    or a default would let a row read as checked when nothing checked it."""
+    column = _artifact_columns()["integrity_check"]
+
+    assert column["type"] == "TEXT"
+    assert column["notnull"] == 0
+    assert column["dflt_value"] is None
+    assert migrations.current_version() >= 7
+
+
+def test_the_artifact_verdict_column_is_not_in_working_sql():
+    """`working.sql` stays the version 1 definition (migration 2's rule), so the
+    migration runs on every fresh store, including every test run."""
+    working = (db.SCHEMA_DIR / "working.sql").read_text(encoding="utf-8")
+    assert "integrity_check" not in working
+
+
+def test_migration_seven_failing_after_its_alter_rolls_back_completely(
+    isolated_data_dir, monkeypatch
+):
+    """The ALTER runs, then the migration fails. The column must be gone again,
+    no version recorded, and a version-6 row untouched: proof the ALTER ran
+    inside the runner's transaction rather than committing on its own."""
+    _store_at(6, monkeypatch)
+    uid = db.create_user("Lyle", role="admin")
+    with db.transaction() as conn:  # a version-6 row, written in version 6's shape
+        conn.execute(
+            "INSERT INTO artifacts (id, user_id, filename, content_type, size_bytes, "
+            "sha256, storage_path, artifact_type, extraction_status, created_at) "
+            "VALUES ('a1', ?, 'f.md', 'text/markdown', 3, 'x', 'a1/a1', "
+            "'creative_writing', 'extracted', ?)", (uid, db.now_iso()))
+    assert "integrity_check" not in _artifact_columns(), "precondition: version 6"
+
+    real = list(migrations.MIGRATIONS)
+    seventh = next(m for m in real if m.version == 7)
+
+    def alter_then_fail(conn):
+        seventh.apply(conn)
+        assert "integrity_check" in {
+            r["name"] for r in conn.execute("PRAGMA table_info(artifacts)")}
+        conn.execute(INJECTED)
+
+    # Restored by assignment, never monkeypatch.undo() (see _inject_before_triggers).
+    monkeypatch.setattr(migrations, "MIGRATIONS", [
+        m if m.version != 7 else migrations.Migration(
+            version=7, name=seventh.name, apply=alter_then_fail)
+        for m in real])
+    with pytest.raises(sqlite3.OperationalError, match="injected_mid_migration_failure"):
+        migrations.run_working_migrations()
+
+    assert migrations.current_version() == 6, "a failed migration recorded a version"
+    assert "integrity_check" not in _artifact_columns(), "the ALTER survived a rollback"
+    assert db.get_artifact("a1")["filename"] == "f.md"
+
+    monkeypatch.setattr(migrations, "MIGRATIONS", real)
+    assert str(db.working_path()).startswith(str(isolated_data_dir)), "left the temp store"
+    migrations.run_working_migrations()
+    assert migrations.current_version() == 7
+    assert db.get_artifact("a1")["integrity_check"] is None, (
+        "an artifact that existed before the gate ran must read 'no verdict', not a value")
+
+
+def test_insert_artifact_writes_the_verdict_in_the_same_row(store):
+    uid = db.create_user("Lyle", role="admin")
+    verdict = '{"status": "flagged", "findings": []}'
+    for aid, value in (("with", verdict), ("without", None)):
+        kwargs = {} if value is None else {"integrity_check": value}
+        db.insert_artifact(
+            artifact_id=aid, user_id=uid, filename="f.md", content_type="text/markdown",
+            size_bytes=1, sha256=aid, storage_path=f"{aid}/{aid}",
+            artifact_type="creative_writing", extraction_status="extracted", **kwargs)
+
+    assert db.get_artifact("with")["integrity_check"] == verdict
+    assert db.get_artifact("without")["integrity_check"] is None
+
+
+def test_an_existing_writer_leaves_the_verdict_null(store, monkeypatch):
+    """Creative writing does not run the gate (fiction is not a truth claim), so
+    its rows must read 'no verdict recorded' rather than anything else."""
+    from program.artifacts import writing
+
+    monkeypatch.setattr(
+        writing.indexing.ollama, "embed", lambda text, *a, **k: [0.1] * 768)
+    uid = db.create_user("Lyle", role="admin")
+    stored = writing.store("A short piece about a kettle.", uid)
+
+    assert db.get_artifact(stored.artifact_id)["integrity_check"] is None

@@ -339,6 +339,17 @@ journal is the first kind whose purpose is to restate the day's claims. **Not a 
 nothing about it is characterised or bounded. Whether to fix it, and how, is a separate
 future decision, but it must not ship silent.
 
+**`messages.integrity_check` has no reader under `program/`** (filed at review 2026-09-30,
+reflection journal design J7). Every turn's fabrication-gate verdict is persisted, and
+nothing in the application reads it: not retrieval, not the prompt, not any route or
+surface. Checked 2026-09-30 by `grep` over `program/` and `scripts/`: the only readers
+are diagnostic scripts (e.g. `scripts/soul_diagnosis_b12.py`) and direct SQL. That is
+intended for what the verdict *does* (stage 1 is flag-only, decision #23), but it means
+**a flagged turn is noticed only if someone goes looking**, and nobody is prompted to.
+The journal gets a reader in its own command's output (J7); turns have none. The
+natural home is Phase 9's admin panel, or the Phase 7 observability work. Recorded so
+the persisted-but-unread state is a known state, not a silent one.
+
 **Retrieval floor calibration** — floors ship permissive/uncalibrated by
 design (see `BUILD_PLAN.md` Phase 1 notes). Once real conversation history
 exists in meaningful volume, calibrate actual threshold values and verify

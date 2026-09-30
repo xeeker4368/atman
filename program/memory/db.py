@@ -990,22 +990,28 @@ def insert_artifact(
     extraction_status: str,
     extracted_text: str | None = None,
     extraction_note: str | None = None,
+    integrity_check: str | None = None,
 ) -> None:
     """Record one ingested file. Working store only — see INGESTION_DESIGN I2.
 
     Keyword-only for the same reason ``insert_chunk`` is: eleven columns, several
     of them strings that would be silently interchangeable positionally.
+
+    ``integrity_check`` is the gate's verdict JSON (migration 7), written **in the
+    same insert** as the row, so a verdict can never be lost between the row and a
+    later update. ``None`` means no verdict recorded — never clean — and is what
+    every writer that does not run the gate passes, by default.
     """
     with transaction() as conn:
         conn.execute(
             """INSERT INTO artifacts
                    (id, user_id, filename, content_type, size_bytes, sha256,
                     storage_path, artifact_type, extraction_status,
-                    extracted_text, extraction_note, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    extracted_text, extraction_note, integrity_check, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (artifact_id, user_id, filename, content_type, size_bytes, sha256,
              storage_path, artifact_type, extraction_status, extracted_text,
-             extraction_note, now_iso()),
+             extraction_note, integrity_check, now_iso()),
         )
 
 

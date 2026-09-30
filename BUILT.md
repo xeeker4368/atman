@@ -3439,6 +3439,21 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   `docs/INGESTION_DESIGN.md`. Columns per I3, plus `chunks.artifact_id` (O2) so a
   retrieved document chunk can say which file it came from; `conversation_id` and
   the message-id columns are NULL for it.
+- `[built]` **Migration 7: `artifacts.integrity_check`** (2026-09-30, reflection
+  journal step 1, Tier 3; `docs/REFLECTION_JOURNAL_DESIGN.md` J7). Nullable JSON, no
+  default, with `messages.integrity_check`'s semantics: **NULL means no verdict
+  recorded, never clean.** `db.insert_artifact` takes an optional `integrity_check`
+  and writes it **in the same insert** as the row, so a verdict cannot be lost between
+  the row and a later update. Every existing writer passes nothing and leaves it NULL
+  (tested on `writing.store`). Not in `working.sql`.
+  - **Rollback proven, not assumed:** a forced failure *after* the `ALTER` runs, inside
+    the same migration, leaves the column absent, the version at 6 and a version-6 row
+    untouched; a retry then applies cleanly and the old row reads NULL.
+  - **Proven to bite, three mutations:** migration 7 committing on its own fails the
+    rollback test; removing migration 7 fails 4 tests; `insert_artifact` dropping the
+    value fails the same-row test.
+  - **No writer yet.** The journal (steps 2 and 3) is its first; nothing reads it in
+    the entity's path, by design (stage 1 is flag-only).
 - `[built]` **Not added to `working.sql`.** That file stays the version 1
   definition: a change in both places would apply twice on a fresh store, and
   `ALTER TABLE ADD COLUMN` is not idempotent. `init_databases()` runs
@@ -3848,7 +3863,7 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   no state and asserts about state — has ~20 `db.init_databases()` call sites in
   `tests/` worth a deliberate pass. Not done.*
 
-- `[built]` **Test suite** — 1,350 tests passing plus 2 skipped (2026-09-30, after the O23 receipt; 1,323 after B18; 1,268 before B11 stage 3) (`pytest`), `ruff check`
+- `[built]` **Test suite** — 1,354 tests passing plus 2 skipped and **1 failing for an environmental reason** (2026-09-30, after migration 7; 1,350 after the O23 receipt; 1,323 after B18; 1,268 before B11 stage 3). The failure is `test_config_local_toml_is_covered_by_the_rule_even_though_it_does_not_exist`: `config/local.toml` now exists on this machine (it holds the Moltbook key), which the test was written to notice. Its rewrite ships with the Moltbook read tools (`pytest`), `ruff check`
   clean (2026-09-27, after B10 and its follow-up; 1,234 on 2026-09-24, 1,140 on 2026-09-18). The backup race test is no longer
   flaky (B14). *Two standing failures, both known and neither from this work:
   `test_a_missing_session_secret_stops_the_server_from_starting`, caused by an

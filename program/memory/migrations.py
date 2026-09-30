@@ -390,12 +390,44 @@ def _v6_supersedes_replacement(conn: sqlite3.Connection) -> None:
     """)
 
 
+def _v7_artifact_integrity_check(conn: sqlite3.Connection) -> None:
+    """Version 7 — the fabrication gate's verdict on an artifact.
+
+    Design of record: ``docs/REFLECTION_JOURNAL_DESIGN.md`` J7. Its first writer is
+    the reflection journal, whose entries are the most confabulation-prone text
+    this system produces: the entity looking back on a day is the exact question
+    the prior build confabulated on. A log-only verdict there would be the
+    unmounted-gate shape, so it is persisted.
+
+    **Migration 3's semantics, unchanged.** Nullable JSON, and **NULL means no
+    verdict recorded, never clean**: every existing artifact, and every kind that
+    does not run the gate, stays NULL. The gate writes an explicit
+    ``unavailable`` when its classifier cannot run, which is what keeps NULL from
+    ever standing in for "checked and fine".
+
+    **On ``artifacts``, under the same name as on ``messages``**, so "flagged
+    journal entries" and "flagged turns" are the same query shape. Generic rather
+    than journal-specific: which other kinds should ever write it is a separate
+    decision, and creative writing should not (fiction is not a truth claim,
+    ``kinds.py``).
+
+    **No advisory column beside it.** The journal's identity-only gate mode (J8)
+    produces no advisory notes; that channel exists for tool claims.
+
+    One statement, inside the runner's transaction like every migration. SQLite's
+    ``ALTER TABLE`` is transactional, so a failure later in the same run removes
+    the column again; the forced-failure test asserts exactly that.
+    """
+    conn.execute("ALTER TABLE artifacts ADD COLUMN integrity_check TEXT")
+
+
 MIGRATIONS: list[Migration] = [
     Migration(version=2, name="artifacts_and_chunk_link", apply=_v2_artifacts),
     Migration(version=3, name="message_integrity_check", apply=_v3_integrity_check),
     Migration(version=4, name="message_integrity_advisory", apply=_v4_integrity_advisory),
     Migration(version=5, name="supersedes_by_message", apply=_v5_supersedes_by_message),
     Migration(version=6, name="supersedes_replacement", apply=_v6_supersedes_replacement),
+    Migration(version=7, name="artifact_integrity_check", apply=_v7_artifact_integrity_check),
 ]
 
 
