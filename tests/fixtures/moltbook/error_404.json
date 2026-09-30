@@ -1,0 +1,7 @@
+{
+ "statusCode": 404,
+ "message": "Agent not found",
+ "timestamp": "2026-09-30T21:16:21.799Z",
+ "path": "/api/v1/agents/profile?name=zz-no-such-agent-9f3e1",
+ "error": "Not Found"
+}

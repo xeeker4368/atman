@@ -1,4 +1,4 @@
-# Moltbook read-only tools — design (revision 2, for review)
+# Moltbook read-only tools — design (revision 3, built 2026-09-30)
 
 Task *Read-only Moltbook tools*, moved from Phase 8 to Phase 5 at review on
 2026-09-30. The build is Tier 1. This document exists because it records a
@@ -6,8 +6,10 @@ provenance decision (M6, design-only), and because the live measurement found
 a question about the account itself (M0). It is resolved for reading and open
 for posting.
 
-**Status: proposed. Nothing is built.** Decisions already taken at review are
-marked **DECIDED**.
+**Status: approved at review 2026-09-30 and built the same day** (`program/tools/moltbook.py`).
+Decisions taken at review are marked **DECIDED**. Where the build departed from
+revision 2, the section says so under **Built:**. The live Phase 5 gate call waits
+for Lyle to confirm the key has been regenerated.
 
 Source of the API shape: `https://www.moltbook.com/skill.md`, used as a spec to
 build from. **Its text is not relayed to the entity**, including its
@@ -62,7 +64,7 @@ answered by this read-only task.
 | tool | endpoint | parameters |
 |---|---|---|
 | `moltbook_browse` | `GET /posts` | `sort` (`hot`/`new`/`top`/`rising`, default `hot`), optional `submolt` |
-| `moltbook_search` | `GET /search` | `query` (≤ 500 chars), optional `type` (`posts` default, `comments`, `agents`, `all`) |
+| `moltbook_search` | `GET /search` | `query` (≤ 500 chars), optional `type` (`posts` default, `comments`, `all`) |
 | `moltbook_read_post` | `GET /posts/{id}` + `GET /posts/{id}/comments` | `post_id` |
 | `moltbook_read_agent` | `GET /agents/profile?name=` | `name` |
 
@@ -86,9 +88,21 @@ Its description says so, and that older history is not reachable.
 `top_k`: a tuned internal the model could use to spend a turn's context.
 
 **Validation in the handler**, as `web_search` does: an empty query or name, an
-unknown `sort`/`type`, a query over 500 characters. These are raised as
-`ValueError` → `INVALID_ARGUMENTS`. The 500-character check is client-side
-because **the live server accepted a 501-character query** (M2).
+unknown `sort`/`type`, a query over 500 characters, a post id that is not a
+UUID (it becomes a path segment). All are checked **before any request**. The
+500-character check is client-side because **the live server accepted a
+501-character query** (M2).
+
+**Built — correction to revision 2:** these reach the model as **`TOOL_ERROR`**,
+not `INVALID_ARGUMENTS`. The registry produces `INVALID_ARGUMENTS` only from its
+own schema check; a `ValueError` raised by a handler is `TOOL_ERROR`, with the
+message saying what was wrong. That is `web_search`'s behaviour for an empty
+query as well.
+
+**Built — `type` has no `agents` value.** The published spec lists `posts`,
+`comments` and `all`; agents appeared only inside `all`. An `agents` value was
+never observed to work, so it is not offered. Agents are reached through `all`,
+or by name through `moltbook_read_agent`.
 
 **Not side-effect tools.** None declares `takes_attribution`, so none is in
 `side_effect_tools()`, and ACTION and receipts do not apply. Reading has no
@@ -99,6 +113,57 @@ effect to receipt.
 the prompt (decision #12's first axis, the `image_generate` pattern). No
 separate read flag: nothing would read it except this predicate. The Phase 9
 toggles are for posting.
+
+**Built — what that predicate now means.** The reads send no key (M5), so the key
+is not *needed* for reading. The predicate is kept as the single "Moltbook is set
+up on this machine" switch, as approved. It no longer describes anything a read
+uses. If a separate read switch is wanted, it would be a `moltbook.read_enabled`
+flag read by this same predicate. **Not added without a request.**
+
+### Schema cost, measured (requested at review)
+
+Tool schemas are sent on every tool-bearing call and **no budget counts them**:
+not `history.plan_budget`, not `prompt.assemble_turn`, and not B6a's derivation
+of `chat.max_message_chars`. Measured 2026-09-30 against `gemma4:26b`'s own
+tokenizer, as the difference in `prompt_eval_count` with and without `tools`,
+stable across two calls each:
+
+| offered | JSON chars | estimated (4.0 c/t) | **real tokens** |
+|---|---|---|---|
+| 5 tools (before) | 3,049 | 763 | **657** |
+| 9 tools (with Moltbook) | 4,854 | 1,214 | **1,052** |
+
+Moltbook adds **395 real tokens** to every tool-bearing call. The estimator
+over-counts JSON here (4.61 real characters per token), so it errs in the safe
+direction on these schemas.
+
+**Against B6a's derivation** (`tests/test_turn.py`,
+`test_the_configured_limit_fits_the_context_window_by_its_own_derivation`):
+
+- it reserves 18,464 estimated tokens: output 2,048, safety 512, overhead 4,
+  `soul.md` 1,500, situation 150, and retrieved records 14,250 (B17's 51,000
+  characters plus the 6,000-character annotation bound);
+- that leaves 14,304 tokens, i.e. 57,216 characters, for the message;
+- the cap is 50,000 characters, 12,500 estimated tokens, leaving **1,804
+  tokens of headroom**. None of it is reserved for schemas.
+
+**A maximal message still fits with 9 tools:** 1,804 − 1,052 = **752 tokens to
+spare**, before the 512-token safety margin is touched. With 5 tools it was
+1,147. So the headroom falls by about a third. The fit holds, but only because
+the cap was rounded down from 57,216, not because anything accounts for
+schemas.
+
+**Recorded, not fixed here:** a tool-schema term belongs in `plan_budget` and in
+B6a's derivation. As it stands, each new tool silently spends the headroom
+until a maximal turn overflows. That is a change to history windowing and the
+chat cap's derivation, its own task.
+
+**Adjacent, found while checking this, not reproduced:** tool *results* are also
+outside the derivation. After a tool round the newest message is a tool result,
+and `select_history` always keeps only the newest message. So a near-maximal
+user message followed by several large tool results could have **the user's own
+message** windowed out. This is independent of Moltbook. Found by reading
+`history.select_history`; filed with the item above.
 
 ## M2 — What the live API actually returns (measured 2026-09-30)
 
@@ -123,7 +188,8 @@ five places:**
    characters returned 200 with the full query echoed back.
 5. **No redirect was observed on the bare host.** `https://moltbook.com/api/v1/posts`
    answered 200 directly, and **without authentication**: `/posts` is public.
-   The pinning in M5 does not rely on either observation.
+   The pinning in M5 does not rely on either observation. *A later check (M5)
+   found every read endpoint the tools use is public.*
 
 Also:
 
@@ -200,11 +266,20 @@ rather than assuming it.
 
 ## M5 — The key and the connection
 
-- **`config.moltbook_api_key()`** raises `ConfigError` when absent or blank,
-  **at call time, not at startup**: a missing key disables Moltbook, not the
-  server. **`config.moltbook_configured()`** is the non-raising predicate for
-  `enabled`. Verified 2026-09-30: `config.get("moltbook", "api_key")` resolves a
-  non-empty value from `config/local.toml` (gitignored).
+- **Built — no read request sends the key** (the review's optional item, taken in
+  full). Measured 2026-09-30 **without the key**: `/posts`, `/posts/{id}`,
+  `/posts/{id}/comments` and `/search` answered 200, and an unknown agent's
+  profile answered a plain 404, not an authentication error. So the module sends
+  no `Authorization` header and **never reads the key** (a test walks its AST,
+  docstrings excluded, and finds no route to it). The key stays on this machine
+  until posting.
+- **`config.moltbook_configured()`** is the non-raising predicate for `enabled`.
+  It never returns the value. **The raising `moltbook_api_key()` accessor was
+  not built**: with no caller it would be dead code. Posting adds it. Verified
+  2026-09-30: `config.get("moltbook", "api_key")` resolves a non-empty value from
+  `config/local.toml` (gitignored).
+- **Rate limits for unauthenticated reads** returned the same bucket sizes in the
+  headers. Whether they are counted per IP rather than per key is not documented.
 - `ANAM_MOLTBOOK_API_KEY` is added to `_ENV_MAP`. A commented `[moltbook]`
   example is added to `local.example.toml`.
 - **Bootstrap-only**, like `auth.session_secret`. Decision #9's admin panel
@@ -214,22 +289,28 @@ rather than assuming it.
   accessor **raises unless the scheme is `https` and the host is exactly
   `www.moltbook.com`**. A config typo must not send the key to another host.
 - **`session.trust_env = False`.** `web_fetch`'s layer 0 and B10's C4 proved an
-  `HTTP_PROXY` variable otherwise redirects the request, and here it would
-  carry the bearer token to the proxy.
+  `HTTP_PROXY` variable otherwise redirects the request. With no key sent, what
+  it protects is the request's integrity, and later posting's key. *Proven on the
+  session actually used, not by B10's subprocess-and-fake-proxy method: the host
+  is pinned to `www.moltbook.com`, so a local fake target is not reachable
+  without disabling the pin under test.*
 - **`allow_redirects=False`.** A 3xx becomes an error naming the `Location`
   host and is never followed.
 - **The key never appears** in an error, a log line, the trace or rendered
-  output. Any quoted response text is passed through a redaction of the key
-  first. It was never observed echoed, but the cost of the check is nothing.
-  Headers are never logged.
-- Only the four tools send the key. There is no generic Moltbook fetch.
+  output, **by construction**: the module never has it. The planned redaction
+  step was therefore not built, since there is nothing to redact. Headers are
+  never logged.
+- There is no generic Moltbook fetch; `fetch()` is used only by the four
+  handlers.
 
-**Tests never reach the network with the real key.** The suite's
-`isolated_data_dir` does not repoint `config/`, so `local.toml`'s key is
-readable in tests. The fixture therefore also sets `ANAM_MOLTBOOK_API_KEY` to a
-fake value, so an accidental live call carries a fake key and gets a 401.
-**Two live tests** read the real key deliberately, skip when it is absent or
-the host is unreachable, and make pure GETs.
+**Tests never reach the network, and the real key never enters a test.**
+Built: the autouse `isolated_data_dir` sets `ANAM_MOLTBOOK_API_KEY` to **empty**,
+which turns Moltbook **off** for every test. The real key is never loaded, and
+the tools are never offered, so no unrelated test (a live-model one especially)
+can have the model call the real service. Moltbook's own tests turn it on with a
+fake key and a fake session. **Two live tests are opt-in** (`ANAM_MOLTBOOK_LIVE=1`),
+send no key, and **have not been run**: the live Phase 5 gate call waits for the
+key to be confirmed regenerated.
 
 ## M6 — Provenance — **DECIDED 2026-09-30: design document only**
 

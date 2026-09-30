@@ -93,7 +93,9 @@ def test_the_catalogue_is_exactly_the_tools_that_have_been_built():
     registry.reset_default_registry()
     assert tuple(tool.name for tool in catalog.TOOLS) == (
         "memory_search", "web_search", "web_fetch", "image_generate", "creative_write",
+        "moltbook_browse", "moltbook_search", "moltbook_read_post", "moltbook_read_agent",
     )
+    # Moltbook is switched off for every test (conftest), so it is not offered here.
     assert registry.default_registry().names == (
         "creative_write", "image_generate", "memory_search", "web_fetch", "web_search",
     )
@@ -110,7 +112,8 @@ def test_the_catalogue_is_reachable_from_every_import_direction():
     expected = ("('creative_write', 'image_generate', 'memory_search', "
                 "'web_fetch', 'web_search')")
     for first in ("program.tools.memory_search", "program.tools.web_search",
-                  "program.tools.web_fetch", "program.tools.registry",
+                  "program.tools.web_fetch", "program.tools.moltbook",
+                  "program.tools.registry",
                   "program.tools.catalog"):
         proc = subprocess.run(
             [sys.executable, "-c",

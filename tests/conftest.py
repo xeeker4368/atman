@@ -346,6 +346,12 @@ def isolated_data_dir(tmp_path, monkeypatch):
     # workspace resolves from its own key too, so isolating the data directory left
     # generated images writing into the repository.
     monkeypatch.setenv("ANAM_WORKSPACE_DIR", str(tmp_path / "workspace"))
+    # Moltbook is switched OFF for every test: the real key in config/local.toml
+    # never enters a test process, and the Moltbook tools are never offered, so no
+    # unrelated test (a live-model one especially) can have the model call the real
+    # service. Tests of those tools switch it on with a fake key. An empty value
+    # overrides local.toml because the environment layer wins.
+    monkeypatch.setenv("ANAM_MOLTBOOK_API_KEY", "")
     config.reload()
     # Stores are cached per resolved path, so clearing here means this test gets
     # its own vector store rather than one another test built for another path.
@@ -355,5 +361,6 @@ def isolated_data_dir(tmp_path, monkeypatch):
     monkeypatch.delenv("ANAM_BACKUP_DIR", raising=False)
     monkeypatch.delenv("ANAM_ARTIFACT_DIR", raising=False)
     monkeypatch.delenv("ANAM_WORKSPACE_DIR", raising=False)
+    monkeypatch.delenv("ANAM_MOLTBOOK_API_KEY", raising=False)
     config.reload()
     vectors.reset_vector_store()

@@ -222,21 +222,29 @@ def test_a_file_added_to_a_blocked_directory_is_covered_without_a_code_change(
 # --- config/local.toml, which holds the signing secret -----------------------
 
 
-def test_config_local_toml_is_covered_by_the_rule_even_though_it_does_not_exist():
-    """`config/local.toml` holds `auth.session_secret` when it exists — on this
-    machine it does not, and the secret comes from the environment instead.
+def test_config_local_toml_is_covered_by_the_rule_whether_or_not_it_exists():
+    """`config/local.toml` holds secrets when it exists: `auth.session_secret` on
+    some machines, and on this one since 2026-09-30 the Moltbook API key.
 
-    That absence is exactly why the rule is a directory and not a filename list:
-    the path is covered *now*, so the file is blocked from the moment anyone
-    creates it, with no code change and nobody having to remember.
+    This test used to assert the file did NOT exist, so that it would fail the
+    moment one appeared and make someone recheck its premise. It did exactly that
+    when the Moltbook key was added, and the premise is now stronger: the file is
+    real and holds a live credential. So both halves are asserted:
+
+    * the **path** is blocked, whether or not the file exists, because the rule
+      is a directory and not a filename list (it covers the file from creation);
+    * when the file exists, its **actual bytes** are refused by content, whatever
+      it would be renamed to.
+
+    The file is read, never printed, and nothing from it reaches an assertion
+    message.
     """
     local = config.PROJECT_ROOT / "config" / "local.toml"
 
-    assert not local.exists(), (
-        "local.toml now exists; the content test below covers it, but check "
-        "that this test still asserts something meaningful"
-    )
     assert blocklist.is_blocked_path(local)
+    if local.exists():
+        with pytest.raises(blocklist.GovernanceFileError):
+            blocklist.check(local.read_bytes())
 
 
 def test_a_real_config_file_is_refused_by_content(client):

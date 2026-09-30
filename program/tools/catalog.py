@@ -28,6 +28,12 @@ from __future__ import annotations
 from program.tools.creative_write import CREATIVE_WRITE
 from program.tools.image_generate import IMAGE_GENERATE
 from program.tools.memory_search import MEMORY_SEARCH
+from program.tools.moltbook import (
+    MOLTBOOK_BROWSE,
+    MOLTBOOK_READ_AGENT,
+    MOLTBOOK_READ_POST,
+    MOLTBOOK_SEARCH,
+)
 from program.tools.registry import Tool
 from program.tools.web_fetch import WEB_FETCH
 from program.tools.web_search import WEB_SEARCH
@@ -43,4 +49,5 @@ from program.tools.web_search import WEB_SEARCH
 #: the catalogue stays greppable while config decides what the model is offered.
 TOOLS: tuple[Tool, ...] = (
     MEMORY_SEARCH, WEB_SEARCH, WEB_FETCH, IMAGE_GENERATE, CREATIVE_WRITE,
+    MOLTBOOK_BROWSE, MOLTBOOK_SEARCH, MOLTBOOK_READ_POST, MOLTBOOK_READ_AGENT,
 )

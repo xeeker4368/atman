@@ -84,6 +84,14 @@ _FALLBACK: dict[str, Any] = {
         "timeout_seconds": 10.0,
         "max_results": 6,
     },
+    "moltbook": {
+        # No api_key here on purpose: it is a secret with no default, set only in
+        # config/local.toml or ANAM_MOLTBOOK_API_KEY. The read tools never send it.
+        "base_url": "https://www.moltbook.com/api/v1",
+        "timeout_seconds": 10.0,
+        "read_post_deadline_seconds": 20.0,
+        "max_results": 5,
+    },
     "ingestion": {
         "max_upload_bytes": 10_000_000,
         "max_extracted_chars": 1_000_000,
@@ -173,6 +181,13 @@ _ENV_MAP: dict[str, tuple[str, str, str]] = {
     "ANAM_SEARXNG_URL": ("searxng", "url", "str"),
     "ANAM_SEARXNG_TIMEOUT_SECONDS": ("searxng", "timeout_seconds", "float"),
     "ANAM_SEARXNG_MAX_RESULTS": ("searxng", "max_results", "int"),
+    "ANAM_MOLTBOOK_API_KEY": ("moltbook", "api_key", "str"),
+    "ANAM_MOLTBOOK_BASE_URL": ("moltbook", "base_url", "str"),
+    "ANAM_MOLTBOOK_TIMEOUT_SECONDS": ("moltbook", "timeout_seconds", "float"),
+    "ANAM_MOLTBOOK_READ_POST_DEADLINE_SECONDS": (
+        "moltbook", "read_post_deadline_seconds", "float",
+    ),
+    "ANAM_MOLTBOOK_MAX_RESULTS": ("moltbook", "max_results", "int"),
     "ANAM_WEB_FETCH_TOTAL_TIMEOUT_SECONDS": (
         "web_fetch", "total_timeout_seconds", "float",
     ),
@@ -753,6 +768,81 @@ def searxng_max_results() -> int:
             f"searxng.max_results is {value}; it must be at least 1. Zero would "
             f"make every search report nothing found, which is not the same "
             f"thing as disabling the tool."
+        )
+    return value
+
+
+# --- Moltbook, read-only (Phase 5; docs/MOLTBOOK_READ_DESIGN.md) ------------
+#
+# Every key here is BOOTSTRAP-ONLY. `moltbook.api_key` is a secret, read the way
+# `auth.session_secret` is; the rest describe an external service, not tuning.
+
+#: The one host the Moltbook client may talk to (M5). A config typo must not point
+#: the client, and later the posting key, at another host.
+MOLTBOOK_HOST = "www.moltbook.com"
+
+
+def moltbook_configured() -> bool:
+    """Whether Moltbook is set up on this machine: a non-empty ``moltbook.api_key``.
+
+    The read tools' ``enabled`` predicate (M1), so with nothing configured their
+    schemas never enter the prompt. **The read tools do not send the key**:
+    measured 2026-09-30, every read endpoint answers without it, so it stays on
+    this machine until posting (Phase 8) needs it. This is therefore the "Moltbook
+    is set up here" switch, not a statement that reading uses the key. Never
+    raises, and never returns the value.
+    """
+    value = get("moltbook", "api_key")
+    return value is not None and bool(str(value).strip())
+
+
+def moltbook_base_url() -> str:
+    """The API root. **Raises unless it is https on exactly ``MOLTBOOK_HOST``.**"""
+    raw = str(get("moltbook", "base_url", "https://www.moltbook.com/api/v1")).rstrip("/")
+    parsed = urllib.parse.urlsplit(raw)
+    if parsed.scheme != "https" or parsed.hostname != MOLTBOOK_HOST or parsed.port:
+        raise ConfigError(
+            f"moltbook.base_url is {raw!r}; it must be https://{MOLTBOOK_HOST}/... "
+            f"with no port. The bare moltbook.com host and plain http are refused, "
+            f"and so is any other host: nothing Moltbook-bound may go elsewhere."
+        )
+    return raw
+
+
+def moltbook_timeout_seconds() -> float:
+    """How long one HTTP request to Moltbook may take. JUDGMENT VALUE (M3)."""
+    value = float(get("moltbook", "timeout_seconds", 10.0))
+    if value <= 0:
+        raise ConfigError(
+            f"moltbook.timeout_seconds is {value}; it must be positive. A request "
+            f"with no timeout makes the turn unbounded."
+        )
+    return value
+
+
+def moltbook_read_post_deadline_seconds() -> float:
+    """One deadline shared by ``moltbook_read_post``'s two requests. JUDGMENT (M3).
+
+    The comments request gets what the post request left, never a fresh
+    ``timeout_seconds`` (item 18's lesson from the ComfyUI fetch).
+    """
+    value = float(get("moltbook", "read_post_deadline_seconds", 20.0))
+    if value < moltbook_timeout_seconds():
+        raise ConfigError(
+            f"moltbook.read_post_deadline_seconds is {value}; it must be at least "
+            f"moltbook.timeout_seconds ({moltbook_timeout_seconds():g}), or the post "
+            f"request itself could never use its full timeout."
+        )
+    return value
+
+
+def moltbook_max_results() -> int:
+    """How many list or search items are rendered. Derived from the 4,000-char cap."""
+    value = int(get("moltbook", "max_results", 5))
+    if value < 1:
+        raise ConfigError(
+            f"moltbook.max_results is {value}; it must be at least 1. Zero would "
+            f"report nothing found for every request."
         )
     return value
 

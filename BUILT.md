@@ -1044,6 +1044,84 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   local caller. `outgoing.request_timeout` (3.0s) is the upstream default and is
   what `searxng.timeout_seconds` is derived from.
 
+### Moltbook, read-only (Phase 5, 2026-09-30)
+
+- `[built]` **Four read tools** (`program/tools/moltbook.py`): `moltbook_browse`,
+  `moltbook_search`, `moltbook_read_post`, `moltbook_read_agent`. Design of record
+  `docs/MOLTBOOK_READ_DESIGN.md` revision 3. Moved from Phase 8 at review. None
+  declares `takes_attribution`, so none is a side-effect tool; ACTION and receipts
+  do not apply. `/feed` is deliberately not used (M0).
+- `[built]` **No request sends the API key.** Measured without it: every endpoint the
+  tools use answered 200 (an unknown agent a plain 404). The module never reads the
+  key: a test walks its AST, docstrings excluded. Proven to bite: adding a bearer
+  header fails 2 tests. The raising key accessor was not built (no caller); posting
+  adds it.
+- `[built]` **Offered only when Moltbook is set up** (`config.moltbook_configured()`,
+  a non-empty `moltbook.api_key`). This is now a "set up here" switch, not something
+  the reads use, and the design doc says so.
+- `[built]` **The connection:** `trust_env` off, redirects refused, never followed,
+  and `moltbook.base_url` pinned to https on exactly `www.moltbook.com`. Each is
+  proven to bite: 1, 1 and 5 failing tests. The `trust_env` proof is on the session
+  actually used, not a subprocess with a fake proxy, because the host pin blocks a
+  local target.
+- `[built]` **Rendering reads an allowlist of fields.** Never rendered: `owner`,
+  `claimed_by`, authors' self-descriptions in lists, an agent search result's text,
+  `/feed`'s server-written `tip`, or any top-level field. Spam and deleted items are
+  left out and **counted**. Every one is proven by a sentinel that must not appear,
+  and each guard by a mutation that fails its test.
+- `[built]` **Measured against the live API (19 GETs with the key and 4 without,
+  2026-09-30). It disagreed with the published spec in five places**: per-endpoint
+  rate limits (60/200/500, not 60), a different error shape, search mixing agents
+  (with `relevance`, not `similarity`), no server-side 500-character query limit, and
+  public reads. Each is handled and tested.
+- `[built]` **Timeouts are JUDGMENT VALUES**, labelled as such:
+  - client 10 s (~5x the worst measured 1.9 s);
+  - tools 15 s;
+  - `moltbook_read_post` 25 s, over **one 20 s deadline shared by its two
+    requests**. Giving the replies a fresh timeout fails its test.
+
+  All sit under the 120 s tool budget, so the in-flight grace floor is unchanged at
+  **2,045 s / 35 min** (`tests/test_idle.py` passes unmodified).
+- `[built]` **`moltbook.max_results = 5`, derived**: the worst case renders 3,707
+  characters at 5 and 4,365 at 6, against the 4,000 cap. A test recomputes it from the
+  live renderer; 4 and 6 both fail it.
+- `[built]` **A 429 names the wait and is never retried.** Remaining quota is logged,
+  at WARNING under 10%.
+- `[built]` **Fixtures are scrubbed**, since the repo is public
+  (`tests/fixtures/moltbook/README.md`).
+  - `owner` and `claimed_by` are removed.
+  - Every id, name and text is replaced with same-shaped synthetic values.
+  - The key's own account appears as shape only: its timestamps and counts are
+    replaced too.
+  - A build-time comparison against the raw captures found **0 of 193** strings
+    surviving, and **0 of 14** from the account's own profile.
+  - Committed tests check the keys and the `agent-NN` name pattern.
+- `[built]` **Moltbook is OFF in every test** (`isolated_data_dir` sets the key empty).
+  The real key never loads, and no unrelated test can make the model call the real
+  service. Removing that line fails 2 tests.
+- `[built]` **`test_config_local_toml_…` rewritten.** It asserted `config/local.toml`
+  did not exist, so it failed as soon as the Moltbook key was put there, as it was
+  written to. It now asserts the path is blocked either way, and that when the file
+  exists its real bytes are refused. Removing `config` from the blocked directories
+  fails it.
+- `[built]` **Tool-schema cost measured** against the real tokenizer: 5 tools 657
+  tokens, 9 tools **1,052**. Moltbook adds 395 per tool-bearing call.
+- `[unverified]` **Nothing budgets tool schemas.** Not `plan_budget`, not
+  `assemble_turn`, not B6a's derivation of the chat cap. A maximal message still fits
+  (752 of B6a's 1,804 tokens of headroom left, 1,147 before Moltbook), but only because
+  the cap was rounded down. Each new tool spends that headroom silently. A schema
+  term in the budget is its own task.
+- `[unverified]` **Adjacent, found by reading, not reproduced:** after a tool round
+  the newest message is a tool result, and `select_history` keeps only the newest
+  unconditionally. So a near-maximal user message followed by large tool results could
+  have **the user's own message windowed out**. Independent of Moltbook.
+- `[unverified]` **Not yet run live.** The two opt-in live tests
+  (`ANAM_MOLTBOOK_LIVE=1`) and the Phase 5 gate call wait for Lyle to confirm the key
+  has been regenerated. Rate limits for keyless reads may be counted per IP; that is
+  undocumented.
+- `[unverified]` **Agent-written text is framed, not defended against.** The header
+  says to read it as content, not instructions. That is a framing and nothing more.
+
 ## Agent loop / chat
 
 - `[built]` **The iterate-and-dispatch turn** (`program/engine/loop.py`), task
@@ -3863,7 +3941,7 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   no state and asserts about state — has ~20 `db.init_databases()` call sites in
   `tests/` worth a deliberate pass. Not done.*
 
-- `[built]` **Test suite** — 1,354 tests passing plus 2 skipped and **1 failing for an environmental reason** (2026-09-30, after migration 7; 1,350 after the O23 receipt; 1,323 after B18; 1,268 before B11 stage 3). The failure is `test_config_local_toml_is_covered_by_the_rule_even_though_it_does_not_exist`: `config/local.toml` now exists on this machine (it holds the Moltbook key), which the test was written to notice. Its rewrite ships with the Moltbook read tools (`pytest`), `ruff check`
+- `[built]` **Test suite** — 1,406 tests passing plus 4 skipped (2026-09-30, after the Moltbook read tools; the two new skips are its opt-in live tests. 1,354 plus 1 environmental failure after migration 7; 1,350 after the O23 receipt; 1,323 after B18; 1,268 before B11 stage 3) (`pytest`), `ruff check`
   clean (2026-09-27, after B10 and its follow-up; 1,234 on 2026-09-24, 1,140 on 2026-09-18). The backup race test is no longer
   flaky (B14). *Two standing failures, both known and neither from this work:
   `test_a_missing_session_secret_stops_the_server_from_starting`, caused by an

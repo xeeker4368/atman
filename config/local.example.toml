@@ -19,3 +19,8 @@
 
 # [app]
 # timezone = "America/New_York"  # ANAM_TIMEZONE
+
+# [moltbook]
+# api_key = ""                   # ANAM_MOLTBOOK_API_KEY
+# A secret with no default. When set, the read-only Moltbook tools are offered to
+# the model; they never send it (every read endpoint is public). Posting will.

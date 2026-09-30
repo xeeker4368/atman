@@ -399,6 +399,59 @@ timeout_seconds = 10.0
 # than choosing the cap deliberately.
 max_results = 6
 
+[moltbook]
+# The read-only Moltbook tools (Phase 5). Design: docs/MOLTBOOK_READ_DESIGN.md.
+#
+# `api_key` is NOT set here and has no default. It is a secret, set only in
+# config/local.toml or ANAM_MOLTBOOK_API_KEY, the way auth.session_secret is. Its
+# presence is the "Moltbook is set up on this machine" switch that decides whether
+# the tools are offered at all. THE READ TOOLS NEVER SEND IT: measured 2026-09-30,
+# every read endpoint answers without authentication, so the key stays on this
+# machine until posting (Phase 8) needs it.
+#
+# Every key here is bootstrap-only.
+
+# The API root. The accessor RAISES unless it is https on exactly
+# www.moltbook.com: a typo must not point the client, and later the posting key,
+# at another host.
+base_url = "https://www.moltbook.com/api/v1"
+
+# How long one HTTP request may take.
+#
+# JUDGMENT VALUE, not a derivation. Moltbook documents no latency and enforces no
+# ceiling a client can see (web_fetch's situation, not web_search's). The rate
+# limits cannot supply one either: they bound how many requests are made, not how
+# long one takes.
+#
+# MEASURED 2026-09-30, 19 requests from this machine in one session:
+#   list, profile, single post    0.087 - 0.276 s
+#   search                        0.506 - 0.943 s
+#   search, 501-character query   1.896 s   (the worst)
+# 10 s is ~5x the worst and ~10x a typical search. The multiple is the judgment.
+# The tools' own timeouts (15 s, and 25 s for moltbook_read_post) sit above this,
+# so a stall reports "Moltbook did not respond within 10s" rather than TIMEOUT.
+timeout_seconds = 10.0
+
+# One deadline shared by moltbook_read_post's two requests (the post, then its
+# replies). The replies get what the post left, never a fresh timeout_seconds:
+# item 18's lesson from the ComfyUI fetch, where a second request given the full
+# timeout broke the chain it sat in. JUDGMENT VALUE: two requests' worth.
+# Must be >= timeout_seconds (the accessor raises otherwise).
+read_post_deadline_seconds = 20.0
+
+# How many posts or search results are rendered.
+#
+# DERIVED, as searxng.max_results is: the largest N whose worst case fits under
+# agent.max_tool_result_chars (4000). MEASURED 2026-09-30 by rendering maximal
+# items (title, names and preview all past their caps, no external link):
+#   one item      657 chars
+#   N=5  with header, heading and skipped-items note   3707   fits
+#   N=6                                                4365   does not
+# An external link is never truncated (a cut URL does not resolve), so a
+# pathological link can still push a render over; that is what the loop's cap is
+# for.
+max_results = 5
+
 [ingestion]
 # File/artifact ingestion (task 2.6). Design: docs/INGESTION_DESIGN.md.
 #
