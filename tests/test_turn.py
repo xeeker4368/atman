@@ -464,9 +464,11 @@ def test_the_configured_limit_fits_the_context_window_by_its_own_derivation():
     soul = history.estimate_tokens_from_chars(prompt.SOUL_MAX_CHARS)
     situation = history.estimate_tokens_from_chars(600)  # judgment allowance; 206 measured
     retrieved_chars = (
-        config.retrieval_top_k() * config.embedding_max_input_chars()
+        # The records cap itself (B17), not a copy of its arithmetic: top_k x
+        # max_input_chars + 1,000 of headers. Before B17 this line assumed that bound
+        # and nothing enforced it; siblings could add ~150,000 more characters.
+        prompt.retrieved_records_max_chars()
         + 6000  # annotation bound asserted by test_the_worst_case_render_is_bounded
-        + 1000  # record headers
     )
     reserved = (
         config.history_output_reserve_tokens()

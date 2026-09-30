@@ -1201,15 +1201,31 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   recomputes the derivation from live config and fails if the cap exceeds it. **Proven
   to bite**: removing the check fails the turn and route refusal tests; a 60,000 cap
   fails the derivation test (*"exceeds the 57216 characters that fit"*).
-- `[unverified]` **The retrieved-records block has no cap — tracked as queue item B17**
-  (found while deriving B6a, 2026-09-24). Ranked hits are bounded (10 × at most 5,000
-  chars), but split-sibling attachment adds up to `max_siblings_per_hit` (3) more pieces
-  per hit, and nothing limits the rendered block: at the extreme 10 × 4 × 5,000 =
-  200,000 chars ≈ 50,000 tokens, past the whole window on retrieval alone. Reachable only
-  where many long messages have been split, which the 50,000-char cap makes rarer but not
-  impossible (a capped message can still split into ~10 pieces). History already reports
-  `overflowed` and logs a warning when this happens; nothing prevents it. B6a's cap is
-  derived against ranked hits only and says so.
+- `[built]` **The retrieved-records block is capped** (B17, 2026-09-30, Tier 3). It had
+  no cap: ranked hits were bounded, but split-sibling attachment added up to
+  `max_siblings_per_hit` (3) more pieces per hit, and at the extreme the block reached
+  about 200,000 characters, past the whole window on retrieval alone.
+  - **The cap:** `prompt.retrieved_records_max_chars()` =
+    `top_k x embedding.max_input_chars + 1,000` characters of records (header plus text),
+    **51,000** from live config. That is exactly the figure B6a's derivation of the chat
+    message cap assumed, so the derivation is now true rather than assumed. B6a's test
+    uses the function, and the "NOT covered" note in `defaults.toml` is replaced. The
+    1,000-character header allowance is B6a's own estimate, carried over.
+  - **What is dropped:** ranked hits never; they all fit by construction. Continuation
+    pieces go first: in their parent's rank order, whole pieces only, and within one hit
+    they stop at the first that does not fit, so a later piece never appears without the
+    one before it. Whatever is left out is **counted** in a closing line. Correction
+    annotations keep their own RO4 bound, separately.
+  - **Measured on the pathological case** (10 x 4 x 5,000): **201,922 characters with the
+    pre-B17 renderer, 50,617 now**.
+  - **An ordinary result renders byte-identically, checked on a case WITH siblings
+    attached.** The pinned expected string was produced by the pre-B17 renderer, loaded
+    from `3884c08`, and checked equal, so the test can catch a layout regression.
+  - **Proven to bite:**
+    - disabling the cap fails 4 tests;
+    - changing the sibling marker fails 2, including the byte-identical one;
+    - letting a smaller later piece skip ahead of the first fails the test written for
+      it, which was added after that mutation first passed unnoticed.
 - `[built]` **Ownership is enforced; a capability is not registered.** A user may
   only speak into their own conversation, and an unknown conversation is refused
   **identically** to an unowned one so the difference cannot enumerate ids.
@@ -3751,7 +3767,7 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   no state and asserts about state — has ~20 `db.init_databases()` call sites in
   `tests/` worth a deliberate pass. Not done.*
 
-- `[built]` **Test suite** — 1,310 tests passing plus 2 skipped (2026-09-30, after B16; 1,268 before B11 stage 3) (`pytest`), `ruff check`
+- `[built]` **Test suite** — 1,318 tests passing plus 2 skipped (2026-09-30, after B17; 1,268 before B11 stage 3) (`pytest`), `ruff check`
   clean (2026-09-27, after B10 and its follow-up; 1,234 on 2026-09-24, 1,140 on 2026-09-18). The backup race test is no longer
   flaky (B14). *Two standing failures, both known and neither from this work:
   `test_a_missing_session_secret_stops_the_server_from_starting`, caused by an

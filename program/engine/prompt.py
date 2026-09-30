@@ -55,6 +55,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from program import config
 from program.engine import history
 from program.engine.history import BudgetBreakdown, HistoryWindow
 from program.memory import supersession
@@ -498,25 +499,93 @@ def _render_chunk(chunk: RetrievedChunk, marker: str) -> str:
     return f"[{' · '.join(parts)}]\n{chunk.text}"
 
 
+#: Characters of record headers (`[record N, continued M · kind · timestamp]`) allowed
+#: beside the record text. **B6a's own figure** (`config/defaults.toml`, the
+#: `chat.max_message_chars` derivation), reused rather than re-estimated so the cap and
+#: that derivation stay one set of numbers. The one estimate carried over.
+RECORD_HEADER_ALLOWANCE_CHARS = 1000
+
+
+def retrieved_records_max_chars() -> int:
+    """The most characters the rendered records (header plus text) may take (B17).
+
+    ``top_k x embedding.max_input_chars + RECORD_HEADER_ALLOWANCE_CHARS``, from live
+    config: 51,000 today. It is exactly what B6a's derivation of the chat message cap
+    already assumed retrieval uses. Before B17 that assumption was false: split-sibling
+    attachment could add up to ``max_siblings_per_hit`` more pieces per hit, about
+    200,000 characters at the extreme, past the whole window. The cap makes the
+    derivation true instead of assumed. Correction annotations keep their own bound
+    (RO4), separately.
+    """
+    return (config.retrieval_top_k() * config.embedding_max_input_chars()
+            + RECORD_HEADER_ALLOWANCE_CHARS)
+
+
+def _record_cost(block: str) -> int:
+    return len(block) + 2  # the "\n\n" separator the block is joined with
+
+
+def _siblings_within_cap(
+    result: RetrievalResult, ranked: list[str], cap: int,
+) -> tuple[dict[int, list[str]], int]:
+    """Which continuation pieces fit, as ``({position: [rendered]}, withheld)``.
+
+    **Ranked hits are never dropped; continuation pieces go first** (approved at
+    review). Every ranked hit is at most ``embedding.max_input_chars`` of text, so all
+    ``top_k`` of them fit the cap by construction; a hit is only ever dropped by
+    ranking, never by size. What room is left goes to siblings in their parent's rank
+    order, whole pieces only. Within one hit they are taken in order and stop at the
+    first that does not fit, so a later piece never appears without the one before it.
+    A smaller piece belonging to a lower-ranked hit may still fit afterwards.
+    """
+    room = cap - sum(_record_cost(block) for block in ranked)
+    kept: dict[int, list[str]] = {}
+    withheld = 0
+    for position, chunk in enumerate(result.results, start=1):
+        pieces: list[str] = []
+        for offset, sibling in enumerate(chunk.siblings, start=1):
+            block = _render_chunk(sibling, f"record {position}, continued {offset}")
+            if _record_cost(block) > room:
+                withheld += len(chunk.siblings) - offset + 1
+                break
+            pieces.append(block)
+            room -= _record_cost(block)
+        kept[position] = pieces
+    return kept, withheld
+
+
 def render_retrieved(result: RetrievalResult | None) -> str:
-    """Retrieved chunks as text, siblings attached under their parent (S7/D7)."""
+    """Retrieved chunks as text, siblings attached under their parent (S7/D7).
+
+    The records are bounded by :func:`retrieved_records_max_chars` (B17): continuation
+    pieces that do not fit are left out and **counted** in a closing line, never
+    silently dropped, the same pattern as the correction annotations' withheld count.
+    """
     if result is None or not result.results:
         return ""
+
+    ranked = [_render_chunk(chunk, f"record {position}")
+              for position, chunk in enumerate(result.results, start=1)]
+    kept, withheld = _siblings_within_cap(result, ranked, retrieved_records_max_chars())
 
     budget = _AnnotationBudget()
     blocks = [_RETRIEVED_HEADER]
     if not result.supersession.resolved:
         blocks.append(_SUPERSESSION_UNRESOLVED)
     for position, chunk in enumerate(result.results, start=1):
-        blocks.append(_render_chunk(chunk, f"record {position}"))
+        blocks.append(ranked[position - 1])
         blocks.extend(budget.render(chunk))
-        for offset, sibling in enumerate(chunk.siblings, start=1):
+        for sibling, block in zip(chunk.siblings, kept[position]):
             # Continuations of the same split message, not independent matches.
-            blocks.append(
-                _render_chunk(sibling, f"record {position}, continued {offset}")
-            )
+            blocks.append(block)
             blocks.extend(budget.render(sibling))
     blocks.extend(budget.closing())
+    if withheld:
+        blocks.append(
+            f"[{withheld} further continuation piece{'s' if withheld > 1 else ''} of "
+            f"long records {'were' if withheld > 1 else 'was'} left out to keep these "
+            f"records within their size limit.]"
+        )
     return "\n\n".join(blocks)
 
 

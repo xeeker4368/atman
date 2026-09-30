@@ -151,9 +151,12 @@ in_flight_grace_minutes = 41
 # tokens of earlier history beside a maximal message. tests/test_turn.py recomputes
 # the chain from live config and fails if this exceeds it.
 #
-# NOT covered: split-sibling attachment (up to max_siblings_per_hit per hit) can
-# grow the retrieved block past its ranked size, and nothing caps that block. A
-# turn can still overflow on retrieval alone; history reports it as `overflowed`.
+# Split-sibling attachment is covered since B17 (2026-09-30): the rendered records are
+# capped at exactly this figure (top_k x max_input_chars + 1,000 of headers =
+# 51,000), continuation pieces left out first and counted. Before B17 it was NOT
+# covered: siblings could add ~150,000 characters and a turn could overflow on
+# retrieval alone. `prompt.retrieved_records_max_chars()` is the cap; the test below
+# uses it, so the two cannot drift.
 max_message_chars = 50000
 
 [agent]
