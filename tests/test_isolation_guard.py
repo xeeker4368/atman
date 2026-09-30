@@ -14,6 +14,7 @@ re-report is what makes a violation swallowed by ``except BaseException`` still 
 
 from __future__ import annotations
 
+import re
 import sqlite3
 
 import pytest
@@ -145,3 +146,113 @@ def test_the_decoy_is_not_the_temporary_store_the_test_runs_on(decoy_root):
     directory, so a pass cannot come from the isolation fixture instead."""
     assert not str(decoy_root).startswith(str(config.data_dir()))
     assert not str(config.data_dir()).startswith(str(decoy_root))
+
+
+# --- plain file opens (B16) -----------------------------------------------------
+#
+# B15 guarded how a STORE is opened. A test that lost its isolation could still read a
+# real file directly, an uploaded artifact or a workspace piece, and pass without
+# testing anything. These lose isolation on purpose, resolve the path the way the code
+# would (through `config`), and assert the guard stops the read at the open, not in
+# an end-of-run comparison, which cannot see a read at all.
+
+
+def _real_workspace_file(monkeypatch):
+    """A file that really exists under the real workspace, found through `config`
+    after isolation is lost, which is exactly how a leaking test would reach it."""
+    _lose_isolation(monkeypatch)
+    path = next(config.workspace_dir().glob("*/.gitkeep"))
+    assert str(path).startswith(conftest.REAL_WORKSPACE_DIR)
+    return path
+
+
+def test_a_bare_open_of_a_real_file_is_stopped_at_the_open(monkeypatch, consume_violations):
+    path = _real_workspace_file(monkeypatch)
+    before = len(conftest._OPEN_VIOLATIONS)
+
+    with pytest.raises(conftest.StoreIsolationViolation, match=r"^open opened"):
+        open(path, "rb")
+
+    assert len(conftest._OPEN_VIOLATIONS) == before + 1
+
+
+def test_pathlib_reads_are_stopped_at_the_open(monkeypatch, consume_violations):
+    """`pathlib` calls `io.open`, not `builtins.open`, so this is the case a
+    `builtins`-only wrapper would miss."""
+    path = _real_workspace_file(monkeypatch)
+
+    with pytest.raises(conftest.StoreIsolationViolation, match=r"^io\.open opened"):
+        path.read_bytes()
+    with pytest.raises(conftest.StoreIsolationViolation, match=r"^io\.open opened"):
+        path.read_text()
+
+
+def test_os_open_is_stopped(monkeypatch, consume_violations):
+    import os
+
+    path = _real_workspace_file(monkeypatch)
+    with pytest.raises(conftest.StoreIsolationViolation, match=r"^os\.open opened"):
+        os.open(path, os.O_RDONLY)
+
+
+def test_a_real_database_file_opened_as_a_file_is_stopped(monkeypatch, consume_violations):
+    """The file layer covers the store too, whether or not a real `working.db` exists:
+    the check is on the path, before anything is opened."""
+    _lose_isolation(monkeypatch)
+    with pytest.raises(conftest.StoreIsolationViolation):
+        open(db.working_path(), "rb")
+
+
+def test_a_swallowed_file_violation_is_still_recorded(monkeypatch, consume_violations):
+    path = _real_workspace_file(monkeypatch)
+    before = len(conftest._OPEN_VIOLATIONS)
+
+    try:
+        path.read_bytes()
+    except BaseException:  # noqa: BLE001 - the swallowing shape, on purpose
+        pass
+
+    assert len(conftest._OPEN_VIOLATIONS) == before + 1
+
+
+def test_ordinary_reads_are_untouched(tmp_path):
+    """The guard is scoped to the real runtime directories: package files, config and
+    a test's own temporary files still open normally, by every route."""
+    import os
+
+    from program.engine import prompt
+
+    assert prompt.SOUL_PATH.read_text(encoding="utf-8")
+    scratch = tmp_path / "scratch.txt"
+    scratch.write_text("x")
+    with open(scratch) as handle:
+        assert handle.read() == "x"
+    os.close(os.open(scratch, os.O_RDONLY))
+
+
+@pytest.mark.parametrize("route", ["open", "io.open", "os.open"])
+def test_each_file_wrapper_fires_on_a_decoy_real_directory(decoy_root, route):
+    """The mutation proof, without risking real data: with any one wrapper removed,
+    its case here fails with DID NOT RAISE. The file is created through the saved
+    real `open`, since the decoy is already 'real' to the guard."""
+    import io
+    import os
+
+    target = decoy_root / "piece.txt"
+    with conftest._real_builtin_open(target, "w") as handle:
+        handle.write("real bytes")
+
+    call = {
+        "open": lambda: open(target, "rb"),
+        "io.open": lambda: io.open(target, "rb"),
+        "os.open": lambda: os.open(target, os.O_RDONLY),
+    }[route]
+    with pytest.raises(conftest.StoreIsolationViolation, match="^" + re.escape(route) + " opened"):
+        call()
+
+
+def test_a_write_into_a_decoy_real_directory_is_refused_before_the_file_exists(decoy_root):
+    target = decoy_root / "new.txt"
+    with pytest.raises(conftest.StoreIsolationViolation):
+        target.write_text("should not land")
+    assert not target.exists()

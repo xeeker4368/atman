@@ -39,12 +39,20 @@ then, read or write. Each violation is also recorded and re-reported at session 
 so one raised inside code that catches ``BaseException`` still fails the run. The
 fingerprint stays as the backstop for writes that go around both entry points.
 
+**Plain file opens too** (B16, 2026-09-30). ``builtins.open``, ``io.open`` (which
+``pathlib`` calls, so ``Path.read_bytes`` and friends are covered) and ``os.open`` go
+through the same check, so a test reading an uploaded artifact or a workspace piece
+directly is stopped at the open as well. The routes NOT covered are listed beside the
+wrappers and in ``BUILT.md``.
+
 **Known limit, stated rather than implied:** the comparison cannot tell the suite's
 writes from another process's. Running the suite while anything else is using the
 real store will fail the session, and that is the right direction — a foreign write
 is indistinguishable from a leak, and reporting it is safer than filtering it out.
 """
 
+import builtins
+import io
 import os
 import sqlite3
 from pathlib import Path
@@ -214,6 +222,57 @@ if _chromadb is not None:
         return _real_persistent_client(path, *args, **kwargs)
 
     _chromadb.PersistentClient = _guarded_persistent_client
+
+
+# --- plain file opens (B16) ---------------------------------------------------
+#
+# B15 guarded the two ways a *store* is opened. A test that lost its isolation could
+# still read a real file directly (an uploaded artifact, a workspace piece) and pass
+# without testing anything. Three entry points, because on Python 3.14
+# `builtins.open is io.open` but the NAMES are looked up separately: bare `open()`
+# resolves through `builtins`, while `pathlib`'s `Path.open`, `read_bytes`,
+# `read_text` and `write_*` call `io.open`. Patching one name alone would leave every
+# `Path` read unguarded. `os.open` is the low-level route beneath both.
+#
+# NOT covered, deliberately (recorded in BUILT.md as the scope limit): `io.FileIO`
+# constructed directly; files opened by C extensions (SQLite and Chroma are guarded at
+# their own entry points above); `mmap`; subprocesses; and `os.open` with `dir_fd`,
+# whose path is relative to a directory descriptor this cannot resolve portably.
+
+
+def _path_of(file: object) -> object:
+    """The path an open call names, or ``None`` for a file descriptor."""
+    if isinstance(file, int):
+        return None
+    if isinstance(file, bytes):
+        return os.fsdecode(file)
+    return file
+
+
+_real_builtin_open = builtins.open
+_real_io_open = io.open
+_real_os_open = os.open
+
+
+def _guarded_builtin_open(file, *args, **kwargs):
+    _refuse("open", _path_of(file))
+    return _real_builtin_open(file, *args, **kwargs)
+
+
+def _guarded_io_open(file, *args, **kwargs):
+    _refuse("io.open", _path_of(file))
+    return _real_io_open(file, *args, **kwargs)
+
+
+def _guarded_os_open(path, flags, mode=0o777, *, dir_fd=None):
+    if dir_fd is None:
+        _refuse("os.open", _path_of(path))
+    return _real_os_open(path, flags, mode, dir_fd=dir_fd)
+
+
+builtins.open = _guarded_builtin_open
+io.open = _guarded_io_open
+os.open = _guarded_os_open
 
 
 @pytest.fixture(scope="session", autouse=True)

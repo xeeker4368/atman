@@ -3751,7 +3751,7 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   no state and asserts about state — has ~20 `db.init_databases()` call sites in
   `tests/` worth a deliberate pass. Not done.*
 
-- `[built]` **Test suite** — 1,300 tests passing plus 2 skipped (2026-09-29, after B11 stage 3; 1,268 before) (`pytest`), `ruff check`
+- `[built]` **Test suite** — 1,310 tests passing plus 2 skipped (2026-09-30, after B16; 1,268 before B11 stage 3) (`pytest`), `ruff check`
   clean (2026-09-27, after B10 and its follow-up; 1,234 on 2026-09-24, 1,140 on 2026-09-18). The backup race test is no longer
   flaky (B14). *Two standing failures, both known and neither from this work:
   `test_a_missing_session_secret_stops_the_server_from_starting`, caused by an
@@ -3848,12 +3848,37 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   test with *"DID NOT RAISE"*; removing only the `sqlite3` wrapper fails the SQLite one.
   Both mutation runs deselected the real-path test, and the real `chromadb/` mtime is
   unchanged.
-- `[unverified]` **Plain file reads are not intercepted — tracked as queue item B16**
-  (low priority, raised at review 2026-09-24). The same class of gap as B15 itself: a test
-  that reads a file under `workspace/` or `data/artifacts/` with `open()` or
-  `Path.read_bytes()` is not caught at open time; only SQLite and Chroma are, and the
-  end-of-run fingerprint sees only writes. Mitigated but not closed by autouse isolation,
-  since a test would first have to remove its own isolation.
+- `[built]` **Plain file opens are intercepted too** (B16, 2026-09-30). `builtins.open`,
+  `io.open` and `os.open` are wrapped for the session, through the same `_refuse()`
+  check and violation record as B15. So a test that lost its isolation and read an
+  uploaded artifact or a workspace piece directly is stopped at the open, where the
+  end-of-run fingerprint, which sees only changes, never could.
+  - **Three names, not one:** on Python 3.14 `builtins.open is io.open`, but `pathlib`
+    (`Path.open`, `read_bytes`, `read_text`, `write_*`) looks it up as `io.open`, so a
+    `builtins`-only wrapper would have left every `Path` read unguarded. Checked on this
+    interpreter, not assumed.
+  - **Scope is B15's:** the five real runtime directories only. Package files, config
+    and a test's own temporary files open normally, and a test pins that.
+  - **Proven to bite, per wrapper:**
+    - removing `builtins.open` fails 3 tests;
+    - removing `io.open` fails 4;
+    - removing `os.open` fails 2.
+  - Each wrapper also has a decoy-directory case, so the proof does not depend on real
+    data. The full suite passed unchanged with all three installed, so no existing test
+    was reading the real directories.
+- `[unverified]` **KNOWN SCOPE LIMIT of the file-open layer (B16), stated so it is not
+  mistaken for full coverage.** These routes are NOT intercepted:
+  - `io.FileIO` constructed directly;
+  - files opened by C extensions (SQLite and Chroma are guarded at their own Python
+    entry points, `sqlite3.connect` and `chromadb.PersistentClient`, not at the file
+    level);
+  - `mmap`;
+  - subprocesses, which do not inherit the patched functions;
+  - `os.open` called with `dir_fd`, whose path is relative to a directory descriptor
+    the guard cannot resolve portably. `shutil.rmtree` uses this form.
+
+  The end-of-run fingerprint remains the backstop for any of these that *write*. A
+  *read* through one of them is still invisible, as every read was before B16.
 - `[unverified]` **The guard cannot tell the suite's writes from another process's.**
   Extending it from creation to modification widens that: running the suite while
   anything else uses the real store now fails the session. That is the right direction —
