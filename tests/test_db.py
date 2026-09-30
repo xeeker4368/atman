@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+from pathlib import Path
 
 import pytest
 
@@ -212,6 +213,59 @@ def test_invalid_role_is_rejected_before_any_write(store, user):
     with pytest.raises(ValueError):
         db.save_message(cid, user, "system", "nope")
     assert db.count_messages() == (0, 0)
+
+
+def _user_rows(conn_name):
+    with db.connection() as conn:
+        table = "archive.users" if conn_name == "archive" else "users"
+        return conn.execute(f"SELECT count(*) FROM {table}").fetchone()[0]
+
+
+def test_an_over_long_name_is_refused_before_any_write(store):
+    """B18. Login refuses a name over the cap, so a user created with one could never
+    log in. Refused in `create_user`, with nothing written to either store."""
+    before = (_user_rows("working"), _user_rows("archive"))
+
+    with pytest.raises(ValueError, match="at most 128 characters"):
+        db.create_user("n" * (db.USER_NAME_MAX_CHARS + 1))
+
+    assert (_user_rows("working"), _user_rows("archive")) == before
+
+
+def test_a_name_exactly_at_the_limit_is_accepted(store):
+    uid = db.create_user("n" * db.USER_NAME_MAX_CHARS)
+    assert len(db.get_user(uid)["name"]) == db.USER_NAME_MAX_CHARS
+
+
+def test_creation_and_login_share_one_name_limit():
+    """One constant, not two that happen to agree today.
+
+    Checked by changing `db`'s value before `auth` is imported and seeing `auth` follow
+    it, in a fresh interpreter. An identity check (`is`) cannot catch a separate copy:
+    Python caches small integers, so two independent `128` literals are the same object.
+    That is how the first version of this test passed with the copy in place.
+    """
+    import subprocess
+    import sys
+
+    from program import auth
+
+    probe = ("import program.memory.db as db; db.USER_NAME_MAX_CHARS = 7; "
+             "import program.auth as auth; print(auth.MAX_NAME_CHARS)")
+    out = subprocess.run([sys.executable, "-c", probe], capture_output=True, text=True,
+                         check=True, cwd=str(Path(__file__).resolve().parent.parent))
+    assert out.stdout.strip() == "7", "auth has its own copy of the name limit"
+    assert auth.within_bounds("n" * db.USER_NAME_MAX_CHARS, "p")
+    assert not auth.within_bounds("n" * (db.USER_NAME_MAX_CHARS + 1), "p")
+
+
+@pytest.mark.parametrize("name", ["", "   "])
+def test_empty_and_blank_names_are_out_of_scope_and_still_accepted(store, name):
+    """Recorded, not silently ignored (B18, approved at review). B18 closes only the
+    length mismatch with login. An empty or whitespace-only name is still accepted.
+    If that is ever refused, this test fails and points here: change it on purpose."""
+    uid = db.create_user(name)
+    assert db.get_user(uid)["name"] == name
 
 
 def test_role_check_constraint_holds_at_the_schema_level(store, user):

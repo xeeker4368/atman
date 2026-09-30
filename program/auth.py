@@ -250,8 +250,10 @@ def verify_token(token: str | None, *, now: float | None = None) -> str | None:
 #: throttle's dict as a key and into the log line on every throttled attempt, and
 #: a password went into the KDF, all before anyone had authenticated.
 #: ``scripts/set_password.py`` refuses a password over the cap, so one that could
-#: never be used to log in cannot be set.
-MAX_NAME_CHARS = 128
+#: never be used to log in cannot be set. The name limit is ``db``'s, and
+#: ``db.create_user`` enforces it too (B18), so a user cannot be created with a name
+#: that login would refuse.
+MAX_NAME_CHARS = db.USER_NAME_MAX_CHARS
 MAX_PASSWORD_CHARS = 1024
 
 

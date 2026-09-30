@@ -270,11 +270,30 @@ def init_databases() -> None:
 # ---------------------------------------------------------------------------
 
 
+#: Longest user name, in characters. **Owned here and imported by ``auth``** as
+#: ``auth.MAX_NAME_CHARS``, because ``auth`` imports ``db`` and not the reverse, so one
+#: constant serves both creation and login (B18). Before B18 only login enforced it,
+#: so a user could be created with a name that could never log in. A judgment value
+#: sized far above any real name; see ``auth.py``.
+USER_NAME_MAX_CHARS = 128
+
+
 @retry_on_locked
 def create_user(name: str, role: str = "user", user_id: str | None = None) -> str:
-    """Create a user in both stores atomically. Returns the user id."""
+    """Create a user in both stores atomically. Returns the user id.
+
+    Refuses a name longer than :data:`USER_NAME_MAX_CHARS` before anything is written.
+    Enforced in code rather than by a ``CHECK`` constraint, which would need a
+    table-recreating migration, on the same terms as the role being fixed at creation.
+    **Empty or whitespace-only names are out of scope and not refused here**: B18 is
+    only the length mismatch with login, and that gap is recorded, not closed.
+    """
     if role not in ("admin", "user"):
         raise ValueError(f"unknown role: {role!r}")
+    if len(name) > USER_NAME_MAX_CHARS:
+        raise ValueError(
+            f"a user name may be at most {USER_NAME_MAX_CHARS} characters, the same "
+            f"limit login applies (got {len(name)}); a longer name could never log in")
 
     uid = user_id or new_id()
     created = now_iso()

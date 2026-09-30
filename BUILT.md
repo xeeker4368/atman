@@ -3706,11 +3706,23 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   fails its own test.
 - `[unverified]` **Still in-process and still name-keyed.** The throttle resets on restart
   and cannot slow guessing spread across names (A8's stated scope, unchanged); the sweep
-  bounds its memory to names that failed in the last minute, not to a fixed size. A user
-  created with a name over 128 characters could not log in — `create_user` does not
-  enforce the bound, and every real name is far shorter. **Tracked as queue item B18** (low priority, raised
-  at review 2026-09-24): enforce the same bound where users are created, so the two cannot
-  disagree.
+  bounds its memory to names that failed in the last minute, not to a fixed size.
+- `[built]` **A user cannot be created with a name login would refuse** (B18,
+  2026-09-30).
+  - `db.create_user` refuses a name over `db.USER_NAME_MAX_CHARS` (128) with
+    `ValueError`, before anything is written to either store.
+  - `auth.MAX_NAME_CHARS` *is* that constant, not a copy. It lives in `db` because
+    `auth` imports `db`.
+  - It is enforced in code, not by a `CHECK` constraint, which would need a
+    table-recreating migration. The same precedent as the role being fixed at creation.
+  - **Proven to bite:** removing the check fails the refusal test. Giving `auth` its own
+    literal `128` fails the shared-constant test, which works by changing `db`'s value in
+    a fresh interpreter and seeing `auth` follow. Its first version compared the two with
+    `is` and passed with the copy in place, because Python caches small integers.
+- `[unverified]` **Empty and whitespace-only user names are still accepted**, deliberately
+  out of B18's scope (approved at review). B18 closes only the length mismatch with
+  login. A test pins that both are accepted today, so the gap is recorded rather than
+  silently ignored, and refusing them later has to change that test on purpose.
 - `[built]` **`require_actor` has a production consumer as of 2026-09-08**:
   `POST /api/chat` (task 2.2) is the first authenticated route in the
   application, and the `Actor` it produces is the one attributed on every
@@ -3767,7 +3779,7 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   no state and asserts about state — has ~20 `db.init_databases()` call sites in
   `tests/` worth a deliberate pass. Not done.*
 
-- `[built]` **Test suite** — 1,318 tests passing plus 2 skipped (2026-09-30, after B17; 1,268 before B11 stage 3) (`pytest`), `ruff check`
+- `[built]` **Test suite** — 1,323 tests passing plus 2 skipped (2026-09-30, after B18; 1,268 before B11 stage 3) (`pytest`), `ruff check`
   clean (2026-09-27, after B10 and its follow-up; 1,234 on 2026-09-24, 1,140 on 2026-09-18). The backup race test is no longer
   flaky (B14). *Two standing failures, both known and neither from this work:
   `test_a_missing_session_secret_stops_the_server_from_starting`, caused by an
