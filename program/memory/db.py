@@ -37,7 +37,7 @@ import random
 import sqlite3
 import time
 import uuid
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -1014,6 +1014,25 @@ def get_artifact(artifact_id: str) -> sqlite3.Row | None:
         return conn.execute(
             "SELECT * FROM artifacts WHERE id = ?", (artifact_id,)
         ).fetchone()
+
+
+def get_artifacts_by_ids(artifact_ids: Iterable[str]) -> dict[str, sqlite3.Row]:
+    """The ``artifacts`` rows that exist for these ids, keyed by id. One query.
+
+    What a receipt reads to say "saved" (O23, F50): the row, the primary record,
+    rather than the trace's say-so. An id with no row is simply absent from the
+    result. No ids means no connection at all.
+    """
+    ids = sorted(set(artifact_ids))
+    if not ids:
+        return {}
+    marks = ", ".join("?" for _ in ids)
+    with connection() as conn:
+        rows = conn.execute(
+            f"SELECT id, artifact_type, created_at FROM artifacts WHERE id IN ({marks})",
+            ids,
+        ).fetchall()
+    return {row["id"]: row for row in rows}
 
 
 def get_artifact_by_hash(sha256: str, user_id: str) -> sqlite3.Row | None:

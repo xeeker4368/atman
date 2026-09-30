@@ -160,7 +160,8 @@ def store(text: str, user_id: str, title: str | None = None) -> StoredWriting:
         extraction_note=f"title: {resolved_title}",
     )
 
-    written, chunk_ids = indexing.index_text(artifact_id, user_id, body, ARTIFACT_TYPE)
+    # The row is committed: a failure from here on is a partial write, and says so.
+    written, chunk_ids = indexing.index_after_row(artifact_id, user_id, body, ARTIFACT_TYPE)
 
     logger.info(
         "stored creative writing %s (%d chars, %d chunk(s)) at %s",

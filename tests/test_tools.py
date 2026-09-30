@@ -331,8 +331,10 @@ def test_the_trace_entry_is_structured_not_a_string(bench):
     assert isinstance(entry, dict)
     assert set(entry) == {
         "call_id", "tool", "arguments", "outcome", "ran", "value", "error",
-        "duration_seconds", "timeout_seconds",
+        "duration_seconds", "timeout_seconds", "artifact_ids",
     }
+    # O23: on every entry, and empty for a tool that writes nothing.
+    assert entry["artifact_ids"] == []
     assert entry["tool"] == "scaffold_echo"
     assert entry["outcome"] == "ok"
     assert entry["ran"] is True

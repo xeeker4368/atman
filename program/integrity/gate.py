@@ -618,23 +618,10 @@ def _render_trace(trace: Sequence[dict[str, Any]]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def side_effect_tools() -> tuple[str, ...]:
-    """Registered tools whose call *makes or stores something* (revision 9).
-
-    Derived from ``Tool.takes_attribution`` rather than from a second list, and
-    that is a deliberate coupling with a stated reason. A tool declares
-    ``takes_attribution`` precisely because it writes a record that has to be
-    attributed to somebody — so "needs attribution" and "has a side effect" are
-    the same set, and keeping one source of truth is worth more here than a
-    dedicated flag that could drift out of step with it.
-
-    **What would break it:** a future tool that takes attribution without writing
-    anything, or one that writes without needing attribution. Either would make
-    this predicate wrong, and neither exists today. The standing new-tool process
-    is where that should be caught.
-    """
-    reg = tool_registry.default_registry()
-    return tuple(name for name in reg.names if reg.get(name).takes_attribution)
+#: Moved to the registry for O23 (F50) so receipts can share it without importing
+#: the gate; the reasoning and its failure conditions are documented there. Kept
+#: under this name because it is the gate's vocabulary too.
+side_effect_tools = tool_registry.side_effect_tools
 
 
 def a_side_effect_tool_ran(trace: Sequence[dict[str, Any]]) -> bool:

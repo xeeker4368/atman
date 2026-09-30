@@ -29,6 +29,41 @@ from program.memory import db, splitting, vectors
 logger = logging.getLogger(__name__)
 
 
+class StoredButNotIndexed(Exception):
+    """The file and the ``artifacts`` row were written, and indexing then failed.
+
+    Storage's own vocabulary for a partial write (O23, F50). Measured 2026-09-30:
+    with the embedder down, ``creative_write`` came back ``tool_error`` while one
+    row and one file existed, so "it failed" was false about the thing that
+    mattered. This carries the id out, so the layer above can say what was kept.
+
+    Deliberately not a tools-layer type: storage does not import the tools layer.
+    """
+
+    def __init__(self, artifact_id: str, cause: BaseException) -> None:
+        super().__init__(
+            f"artifact {artifact_id} was stored but could not be indexed: "
+            f"{type(cause).__name__}: {cause}"
+        )
+        self.artifact_id = artifact_id
+        self.cause = cause
+
+
+def index_after_row(
+    artifact_id: str, user_id: str, text: str, artifact_type: str
+) -> tuple[int, list[str]]:
+    """:func:`index_text` for a caller whose row is **already committed**.
+
+    Any failure becomes :class:`StoredButNotIndexed`, so the caller's own error
+    can never be read as "nothing was stored". Only ``Exception``: an interrupt or
+    the test suite's isolation violation must propagate untouched.
+    """
+    try:
+        return index_text(artifact_id, user_id, text, artifact_type)
+    except Exception as exc:  # noqa: BLE001 - re-raised with the id attached
+        raise StoredButNotIndexed(artifact_id, exc) from exc
+
+
 def pack(pieces: list[str], target: int) -> list[str]:
     """Greedily pack split pieces up to ``target`` characters.
 

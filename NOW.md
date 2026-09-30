@@ -96,6 +96,10 @@ it rather than deciding silently.
     initiate sharing, and **the entity may refuse to share a piece if it
     wants to.** This is a real, low-stakes first instance of the
     entity-can-decline principle in `PROJECT.md`.
+    *Clarified 2026-09-30 (`docs/FABRICATION_GATE_DESIGN.md` F50): this discretion
+    governs the **content** of the work (the piece, its title, an image's prompt), not
+    the mechanical fact that a write occurred. A system receipt showing only kind,
+    outcome, id and time is not a disclosure and does not narrow this decision.*
 11. **File upload extraction scope** — text files and PDFs get full content
     extraction and indexing. Office documents, OCR, image, audio, video
     stay metadata-only / deferred, as in the prior implementation.
@@ -310,6 +314,18 @@ rejected; a better wording is a separate, later task, validated on the full set 
 least two shuffles. **Coupling to watch:** the D6/D7 prompt bullets fix `C7` and `N10` with
 no current theory of why; re-check both if the bullets are ever touched. See
 `docs/CORRECTION_DESIGN.md` CO16. The Notes check above now applies to PN9's family too.
+
+**B19 — `invented_id` flags genuine artifact ids** (filed 2026-09-30, Tier 3, gate-rule
+change; found during the O23 receipt design). Artifact ids are `uuid4().hex`, the same
+32-hex shape rule S1 (`gate._ID_SHAPE`) treats as a call id. `creative_write` and
+`image_generate` give the entity its artifact id in their result text, so an entity quoting it
+**accurately** gets a deterministic `invented_id` finding. Confirmed against the code: a real
+id from the call's own result is flagged. **Latent, not observed**: 0 of the 12 side-effect
+turns in the store quote an id (read-only query, 2026-09-30). **The fix:** S1 accepts ids that
+this turn's own calls actually produced, read from the trace's `artifact_ids` key once the
+receipt task adds it. So B19 depends on that task and is not bundled into it. As a
+gate-rule change, it needs its own review and a frozen case (an accurate id quote,
+must-not-flag).
 
 **Retrieval floor calibration** — floors ship permissive/uncalibrated by
 design (see `BUILD_PLAN.md` Phase 1 notes). Once real conversation history

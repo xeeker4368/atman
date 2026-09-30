@@ -154,6 +154,37 @@ class DuplicateToolError(ToolError):
 
 
 @dataclass(frozen=True)
+class ToolOutput:
+    """A handler's result when it also wrote artifact rows (O23 receipts, F50).
+
+    ``text`` is what the model sees, stored in ``ToolResult.value`` exactly as a
+    plain string return is. ``artifact_ids`` names the rows **this call** wrote,
+    and reaches the trace as ``artifact_ids``, which is what a receipt reads.
+
+    A handler that writes nothing keeps returning a plain string. Only a tool
+    declaring ``takes_attribution`` may report ids; see :func:`side_effect_tools`.
+    """
+
+    text: str
+    artifact_ids: tuple[str, ...] = ()
+
+
+class ArtifactWriteError(Exception):
+    """A write failed **after** one or more artifact rows were committed.
+
+    The only way ids reach the trace on the failure path, because a handler that
+    raises has no return value to carry them. Without it, a ``TOOL_ERROR`` whose
+    row exists (measured 2026-09-30: indexing failed, row and file kept) would
+    read as "nothing was saved", which is false. The message is what the model is
+    told, so it must say what was kept.
+    """
+
+    def __init__(self, message: str, artifact_ids: Iterable[str]) -> None:
+        super().__init__(message)
+        self.artifact_ids = tuple(artifact_ids)
+
+
+@dataclass(frozen=True)
 class Tool:
     """One callable the entity can invoke.
 
@@ -285,6 +316,10 @@ class ToolResult:
     #: The bound that was in force for this call, in seconds. Recorded so the
     #: trace answers "how long was it given" as well as "how long did it take".
     timeout_seconds: float | None = None
+    #: Artifact rows this call wrote (O23 receipts). Empty for every tool that
+    #: writes nothing, and on a timeout, where the handler's result was lost and
+    #: whether it wrote anything is unknown.
+    artifact_ids: tuple[str, ...] = ()
 
     @property
     def ok(self) -> bool:
@@ -325,6 +360,9 @@ class ToolResult:
             "error": self.error,
             "duration_seconds": round(self.duration_seconds, 6),
             "timeout_seconds": self.timeout_seconds,
+            # On every entry, empty when nothing was written, so a reader never has
+            # to interpret an absent key. A stored trace WITHOUT it predates the key.
+            "artifact_ids": list(self.artifact_ids),
         }
 
 
@@ -601,6 +639,10 @@ class ToolRegistry:
                 # KeyboardInterrupt, SystemExit, StoreIsolationViolation.
                 raise exc
             logger.warning("tool %s raised: %s: %s", name, type(exc).__name__, exc)
+            # A failure after a row was committed still names the row, so a
+            # TOOL_ERROR is never read as "nothing was saved" when something was.
+            written = exc.artifact_ids if isinstance(exc, ArtifactWriteError) else ()
+            _check_reported_ids(tool, written)
             return ToolResult(
                 call_id=call_id,
                 tool_name=name,
@@ -609,8 +651,14 @@ class ToolRegistry:
                 error=f"{type(exc).__name__}: {exc}",
                 duration_seconds=elapsed,
                 timeout_seconds=limit,
+                artifact_ids=written,
             )
 
+        written = ()
+        if isinstance(value, ToolOutput):
+            written = value.artifact_ids
+            value = value.text
+        _check_reported_ids(tool, written)
         return ToolResult(
             call_id=call_id,
             tool_name=name,
@@ -619,7 +667,50 @@ class ToolRegistry:
             value=value,
             duration_seconds=elapsed,
             timeout_seconds=limit,
+            artifact_ids=written,
         )
+
+
+def _check_reported_ids(tool: Tool, artifact_ids: tuple[str, ...]) -> None:
+    """Only a tool that writes records may say it wrote one.
+
+    "Which tools write" is defined once, by ``takes_attribution`` (see
+    :func:`side_effect_tools`). A tool reporting ids without declaring it would
+    make receipts and the gate disagree about what a side effect is, so it
+    raises as the wiring bug it is, the same class as a duplicate registration.
+    """
+    if artifact_ids and not tool.takes_attribution:
+        raise ToolError(
+            f"tool {tool.name!r} reported artifact ids but does not declare "
+            f"takes_attribution. Only a tool that writes a record may report one."
+        )
+
+
+def side_effect_tools() -> tuple[str, ...]:
+    """Tools whose call *makes or stores something*. Revision 9, moved here for O23.
+
+    Derived from ``Tool.takes_attribution`` rather than from a second list, and
+    that is a deliberate coupling with a stated reason. A tool declares
+    ``takes_attribution`` precisely because it writes a record that has to be
+    attributed to somebody, so "needs attribution" and "has a side effect" are
+    the same set, and keeping one source of truth is worth more here than a
+    dedicated flag that could drift out of step with it.
+
+    **Read from the full catalogue, not the enabled registry**, because a receipt
+    is also built from a *stored* trace, which may name a tool that has since
+    been disabled. For the gate this is behaviour-identical: a disabled tool is
+    not registered, so it can never appear in a live trace as having run.
+
+    Lives here rather than in the gate so receipts never import the gate: the two
+    are independent by design (F50).
+
+    **What would break it:** a future tool that takes attribution without writing
+    anything, or one that writes without needing attribution. Either would make
+    this predicate wrong, and neither exists today.
+    """
+    from program.tools.catalog import TOOLS
+
+    return tuple(sorted(tool.name for tool in TOOLS if tool.takes_attribution))
 
 
 _default: ToolRegistry | None = None

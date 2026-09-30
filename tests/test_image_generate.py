@@ -197,10 +197,13 @@ def test_there_is_no_approval_required_axis():
 
 
 def test_the_result_carries_the_path_and_the_id(store, no_comfyui):
-    result = image_generate.generate_image(
+    output = image_generate.generate_image(
         "a copper kettle", AttributionContext(user_id=store))
+    result = output.text
 
     row = db.list_artifacts(store)[0]
+    # O23: named structurally for the receipt, as well as in the text.
+    assert output.artifact_ids == (row["id"],)
     assert row["id"] in result
     assert row["storage_path"] in result
     assert "1024x1024" in result and "4,104 bytes" in result
@@ -212,7 +215,7 @@ def test_the_result_says_nothing_has_seen_the_image(store, no_comfyui):
     integrity gate exists to catch. Cheaper to make the tool truthful than to catch
     the consequence downstream."""
     result = image_generate.generate_image(
-        "a copper kettle", AttributionContext(user_id=store))
+        "a copper kettle", AttributionContext(user_id=store)).text
 
     assert "has seen this image" in result
     assert "fabrication" in result
@@ -389,7 +392,11 @@ def test_the_provenance_comes_from_the_registry_not_the_caller(store, monkeypatc
 def test_an_unreachable_embedder_leaves_the_image_stored_but_unindexed(store, monkeypatch):
     """Embedding precedes every chunk write, so a failure leaves no half-indexed
     artifact. The file and row survive — they are the record; chunks are derived and
-    rebuildable by re-indexing."""
+    rebuildable by re-indexing.
+
+    Since O23 the failure says so: it is ``StoredButNotIndexed``, naming the row that
+    was kept and carrying the real cause, so no layer above can read it as "nothing
+    was stored"."""
     from program.artifacts import indexing
     from program.engine import ollama as ollama_module
 
@@ -398,10 +405,12 @@ def test_an_unreachable_embedder_leaves_the_image_stored_but_unindexed(store, mo
 
     monkeypatch.setattr(indexing.ollama, "embed", unreachable)
 
-    with pytest.raises(ollama_module.OllamaUnreachable):
+    with pytest.raises(indexing.StoredButNotIndexed) as raised:
         generated.store(fake_image(), store)
 
     [row] = db.list_artifacts(store)
+    assert raised.value.artifact_id == row["id"]
+    assert isinstance(raised.value.cause, ollama_module.OllamaUnreachable)
     assert row["artifact_type"] == "generated_image"
     assert db.get_artifact_chunks(row["id"]) == [], "no half-indexed artifact"
 

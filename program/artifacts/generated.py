@@ -143,7 +143,8 @@ def store(image: GeneratedImage, user_id: str) -> StoredImage:
     # After the row, as `ingest()` does: the row is the record, the chunks are
     # derived from it and rebuildable by re-indexing. Indexing first would risk
     # chunks pointing at an artifact_id no row claims.
-    written, chunk_ids = indexing.index_text(
+    # The row is committed: a failure from here on is a partial write, and says so.
+    written, chunk_ids = indexing.index_after_row(
         artifact_id, user_id, image.prompt, ARTIFACT_TYPE
     )
 

@@ -2700,6 +2700,67 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   **declined explicitly** (O21.3): an unmentioned action is silence, which decision #10's
   *private by default* covers. **Stage 1 is unaffected** (O21.4).
 
+- `[unverified]` **KNOWN LATENT DEFECT, filed as B19: `invented_id` flags a genuine artifact
+  id.** Artifact ids share the 32-hex shape S1 checks against `call_id`s, and the side-effect
+  tools give the entity its id in their result text, so quoting it accurately is a
+  deterministic false positive. Confirmed against the code; not yet observed in the store
+  (0 of 12 side-effect turns quote an id). The fix is a Tier 3 gate-rule change, in
+  `NOW.md`'s backlog.
+
+#### O23 decided: wording iteration abandoned, receipt pending (2026-09-30)
+
+- `[built]` **Decided at review (design F50): no further wording work on the ACTION
+  trigger.** It stays as it is, flag-only and best-effort, and `A7` stays a documented miss.
+  The person-facing safety property is to become **a system-written receipt whenever a
+  side-effect tool actually ran**. **Design pending; nothing built.**
+- `[built]` **The deciding factor was the kind of failure, not a rate.** A
+  proposition-judged rewording caught **9/13** new fabrication phrasings against the current
+  **2/13**, with 0/200 false positives on controls for both. It was rejected because it
+  **newly missed `A2` (*"I have saved that piece."*) 0/20** and a save claim after
+  inline-written text 0/20, both caught 20/20 today. It gave up silent misses on the plainest
+  form of the claim in exchange for catches on indirect ones. Further drafts would have been
+  tuned on the same small phrasing set.
+- `[built]` **Receipts, backend half** (2026-09-30, design F50). `POST /api/chat` returns a
+  `receipts` field beside `content`, **never inside it**, built by
+  `program/tools/receipts.py`'s `for_trace()` from the turn's trace. One receipt per
+  artifact a side-effect call wrote, or one per call if it wrote none. Each carries only
+  tool, outcome, artifact id, the row's `artifact_type` and `created_at`: no title, no
+  prompt, no content (decision #10 as clarified in F50).
+  - **`saved` is read off the `artifacts` row, not the outcome label.** Outcomes are
+    `saved` / `not_saved` / `unknown`, with timeout, an id whose row is gone, `ok` with
+    no ids, a pre-O23 trace and a failed row lookup all `unknown`, never `not_saved`.
+    **A failed lookup never returns an empty list**: empty means only "no side-effect
+    tool was called".
+  - **The trace now carries `artifact_ids` on every entry** (`[]` for tools that write
+    nothing). Handlers return `registry.ToolOutput(text, artifact_ids)`. A write that
+    fails **after** its row is committed raises storage's `StoredButNotIndexed`, which
+    the handler turns into `registry.ArtifactWriteError` carrying the id, so a
+    `tool_error` whose row exists still reads `saved`. Dispatch refuses ids from a tool
+    that does not declare `takes_attribution`.
+  - **Bundled fix: the entity is no longer told a kept piece failed.** On a
+    kept-but-unindexed write the model gets *"The piece was kept (artifact id …), but it
+    could not be indexed into memory, so it will not come up in searches: …"* rather
+    than the bare exception. No re-indexing is promised, because none exists.
+  - `side_effect_tools()` moved to the registry, read from the full catalogue. The gate
+    uses it under the same name, behaviour-identical, so receipts never import the gate.
+  - **The gate is untouched, proven:** every frozen case under four scripted replies
+    gives byte-identical verdicts, advisory notes and classifier prompt with and without
+    the key. Proven to bite on both a prompt change and a verdict change.
+  - **Proven to bite:** 11 mutations, each failing its own test (dispatch dropping
+    failure ids, trusting the trace over the row, keying on the label, a silent failed
+    lookup, timeout read as not saved, the receipt leaking into content, and others).
+  - **Verified live** (`gemma4:26b`, throwaway store): a real save came back `saved` with
+    the row's id. With the embedder forced down the trace said `tool_error`, the receipt
+    said `saved`, the row existed, and the model received the kept-but-unindexed text.
+- `[unverified]` **No person sees a receipt yet.** There is no frontend. Phase 9's chat
+  interface owes the rendering (`BUILD_PLAN.md`), and `creative_write`'s *"Nothing shows it
+  to anyone"* text stays until then, because it is still true (timing (a), decided at
+  review).
+- `[unverified]` **The current trigger's coverage is narrower than F48 recorded.** On 13 new
+  phrasings it catches only a first-person making verb paired with one of the prompt's four
+  listed nouns (picture, poem, story, written piece). Measured on invented phrasings, so this
+  describes those phrasings, not a production rate.
+
 #### Post-O16 measurement (2026-09-18) — superseded by revision 9 above
 
 - `[built]` **Every target met, identity clean.** 34 cases, 5 decorrelated
@@ -3787,7 +3848,7 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   no state and asserts about state — has ~20 `db.init_databases()` call sites in
   `tests/` worth a deliberate pass. Not done.*
 
-- `[built]` **Test suite** — 1,323 tests passing plus 2 skipped (2026-09-30, after B18; 1,268 before B11 stage 3) (`pytest`), `ruff check`
+- `[built]` **Test suite** — 1,350 tests passing plus 2 skipped (2026-09-30, after the O23 receipt; 1,323 after B18; 1,268 before B11 stage 3) (`pytest`), `ruff check`
   clean (2026-09-27, after B10 and its follow-up; 1,234 on 2026-09-24, 1,140 on 2026-09-18). The backup race test is no longer
   flaky (B14). *Two standing failures, both known and neither from this work:
   `test_a_missing_session_secret_stops_the_server_from_starting`, caused by an

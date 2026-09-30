@@ -132,12 +132,15 @@ def test_it_declares_attribution_and_the_model_cannot_supply_it():
 
 
 def test_the_result_says_it_is_kept_not_published(store):
-    result = creative_write.write_creatively(STORY, context(store), title="The Kettle")
+    output = creative_write.write_creatively(STORY, context(store), title="The Kettle")
+    result = output.text
 
     assert "Saved." in result and "The Kettle" in result
     assert "kept, not published" in result
     row = db.list_artifacts(store)[0]
     assert row["id"] in result and row["storage_path"] in result
+    # O23: the row this call wrote is also named structurally, for the receipt.
+    assert output.artifact_ids == (row["id"],)
 
 
 # --- storage -----------------------------------------------------------------

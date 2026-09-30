@@ -39,9 +39,9 @@ from __future__ import annotations
 
 import logging
 
-from program.artifacts import writing
+from program.artifacts import indexing, writing
 from program.attribution import AttributionContext
-from program.tools.registry import Tool
+from program.tools.registry import ArtifactWriteError, Tool, ToolOutput
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +59,7 @@ TIMEOUT_SECONDS = 30.0
 
 def write_creatively(
     text: str, attribution: AttributionContext, title: str | None = None
-) -> str:
+) -> ToolOutput:
     """Keep a piece the entity has written. Returns where it went.
 
     Exceptions propagate to ``registry.dispatch``, which turns them into
@@ -67,13 +67,29 @@ def write_creatively(
     and the text is still in the answer the entity just produced, so nothing is lost
     that the person cannot see.
     """
-    stored = writing.store(text, attribution.user_id, title=title)
+    try:
+        stored = writing.store(text, attribution.user_id, title=title)
+    except indexing.StoredButNotIndexed as exc:
+        # The piece IS kept. Telling the entity only "RuntimeError: …" would give it
+        # a false account of its own action (O23, F50). No re-indexing is promised:
+        # no artifact re-index command exists.
+        raise ArtifactWriteError(
+            f"The piece was kept (artifact id {exc.artifact_id}), but it could not be "
+            f"indexed into memory, so it will not come up in searches: "
+            f"{type(exc.cause).__name__}: {exc.cause}",
+            (exc.artifact_id,),
+        ) from exc
 
     logger.info(
         "creative_write kept %s (%d chars) for user %s",
         stored.artifact_id[:8], stored.characters, attribution.user_id[:8],
     )
-    return (
+    # MUST CHANGE WHEN PHASE 9 RENDERS RECEIPTS (F50, timing (a) decided at review):
+    # once a person is shown that something was kept, the last line below becomes
+    # false and is replaced with an accurate one, e.g. that the person sees something
+    # was kept, with no content, and that sharing the piece stays the entity's call.
+    # Until then it is true, because nothing yet renders the receipt to anyone.
+    return ToolOutput(text=(
         f"Saved.\n"
         f"  title: {stored.title!r}\n"
         f"  artifact id: {stored.artifact_id}\n"
@@ -81,7 +97,7 @@ def write_creatively(
         f"  indexed into memory as {stored.chunks_written} record(s), so it can be "
         f"found again later.\n"
         f"\nIt is kept, not published. Nothing shows it to anyone unless it comes up."
-    )
+    ), artifact_ids=(stored.artifact_id,))
 
 
 CREATIVE_WRITE = Tool(

@@ -44,10 +44,10 @@ from __future__ import annotations
 import logging
 
 from program import config
-from program.artifacts import generated
+from program.artifacts import generated, indexing
 from program.attribution import AttributionContext
 from program.media import comfyui
-from program.tools.registry import Tool
+from program.tools.registry import ArtifactWriteError, Tool, ToolOutput
 
 logger = logging.getLogger(__name__)
 
@@ -78,7 +78,7 @@ _NOT_SEEN = (
 )
 
 
-def generate_image(prompt: str, attribution: AttributionContext) -> str:
+def generate_image(prompt: str, attribution: AttributionContext) -> ToolOutput:
     """Generate one image, store it, and describe where it went.
 
     ``attribution`` arrives from the caller, never from the model (P0): it says whose
@@ -91,13 +91,22 @@ def generate_image(prompt: str, attribution: AttributionContext) -> str:
     failure this can raise is already named and specific.
     """
     image = comfyui.generate(prompt)
-    stored = generated.store(image, attribution.user_id)
+    try:
+        stored = generated.store(image, attribution.user_id)
+    except indexing.StoredButNotIndexed as exc:
+        # The image IS kept; see creative_write for why this is said plainly.
+        raise ArtifactWriteError(
+            f"The image was generated and kept (artifact id {exc.artifact_id}), but "
+            f"its prompt could not be indexed into memory, so it will not come up in "
+            f"searches: {type(exc.cause).__name__}: {exc.cause}",
+            (exc.artifact_id,),
+        ) from exc
 
     logger.info(
         "image_generate produced %s for user %s in %.1fs",
         stored.artifact_id[:8], attribution.user_id[:8], image.duration_seconds,
     )
-    return _render(prompt, image, stored)
+    return ToolOutput(_render(prompt, image, stored), (stored.artifact_id,))
 
 
 def _render(prompt: str, image: comfyui.GeneratedImage, stored: generated.StoredImage) -> str:
