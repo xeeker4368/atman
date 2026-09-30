@@ -263,6 +263,28 @@ what a correction does to the record — or whether a correctly-flagged inaccura
 system working as intended and needs no change. Either answer is fine; it should be a
 decision rather than a drift. Touching `soul.md` is Tier 3, which is why this is a backlog
 item and not a fix.
+*Resolved 2026-09-30 by B12 (D3): `soul.md` now carries a clause saying the earlier
+statement is never overwritten, that a correction is recorded as a link if at all, and
+that the entity must not claim the record changed or that the link has been made.
+Measured live: 0/120 changed-record claims against control's 2/120, and 0/120 link claims.
+`docs/SOUL_AND_PROMPT_DESIGN.md` revision 4, S21–S26.*
+
+**D3's "superseded" wording, in answers about what happened to an old statement** (raised
+at review 2026-09-30, B12). Not blocking: D3 is a clear improvement regardless. But in
+28 of 40 measured "what happened to it?" replies, D3 said the old statement *"is
+superseded by this newer one"*. Control said so 4/40.
+- In ordinary English that is true.
+- It is also the mechanism's own word, so it can read as a claim that the `supersedes`
+  link exists, which the entity cannot see. That is a softer form of the claims-a-link
+  risk B12 removed.
+- **The B12 harness could not check it.** Its describe scenarios seed the correction as
+  one message, so the old statement never exists as its own record.
+
+**What a real look needs:** a scenario where the old statement *is* its own message,
+the correction runs through the real turn, and each "superseded" claim is compared with
+whether the link was actually written. CO10.3 got the same treatment when it was first
+noticed: measured and decided, not left to drift. Touching `soul.md` again would be a
+fifth change, and Tier 3.
 
 **Notes must be tested against CO10.2 before it ships** (raised at review 2026-09-28,
 B11 stage 2). CO10.2 is a documented residual: the correction classifier false-links the

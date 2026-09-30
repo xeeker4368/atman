@@ -32,7 +32,7 @@ def write_soul(tmp_path, text):
 
 
 def test_soul_md_char_count_matches_the_design_document():
-    """The design claims 4,392 characters. Drift means a transcription error.
+    """The design claims 4,849 characters. Drift means a transcription error.
 
     Asserted rather than eyeballed once, because the approved artefact is the
     design document and the file is supposed to be that text.
@@ -40,19 +40,21 @@ def test_soul_md_char_count_matches_the_design_document():
     Was 3,401 until the cross-user disclosure paragraph replaced S7's original
     single sentence (2026-09-02), then 3,963 until Phase 4's creative-work refusal
     clause was added after the general-discretion paragraph (2026-09-21, design
-    revision 3). The design document was updated in the same change each time, so this
-    still compares the file against the approved text.
+    revision 3), then 4,392 until B12's correction-description clause was added after
+    the "You do not fabricate" paragraph (2026-09-30, design revision 4, D3). The design
+    document was updated in the same change each time, so this still compares the file
+    against the approved text.
 
-    **Characters, not bytes.** The file holds 8 em-dashes (U+2014, 3 bytes each in
-    UTF-8), so it is 4,392 characters and 4,408 bytes — `wc -c` reports the second.
+    **Characters, not bytes.** The file holds 9 em-dashes (U+2014, 3 bytes each in
+    UTF-8), so it is 4,849 characters and 4,867 bytes — `wc -c` reports the second.
     This assertion and `SOUL_MAX_CHARS` both measure the first.
     """
-    assert len(REAL_SOUL) == 4392
+    assert len(REAL_SOUL) == 4849
 
 
 def test_soul_md_token_estimate_stays_within_its_stated_share_of_the_window():
     tokens = history.estimate_tokens(REAL_SOUL)
-    assert tokens == pytest.approx(1098, abs=5)
+    assert tokens == pytest.approx(1213, abs=5)
     # ~3.0% of the window. The ceiling that actually governs growth is
     # SOUL_MAX_CHARS; this bound only catches an order-of-magnitude mistake.
     assert tokens / 32768 < 0.04
@@ -75,9 +77,14 @@ def test_soul_md_is_well_under_the_ceiling_with_headroom_for_later_phases():
     So the threshold drops to 1500 rather than being removed: the check exists to stop
     `soul.md` creeping toward a ceiling that silently shrinks every future turn's
     history, and it still fails if another ~100 characters arrive unreviewed.
+
+    Then B12's clause landed on 2026-09-30 (design revision 4, D3), a reviewed
+    addition of 457 characters, approved with its remaining headroom (1,152) stated. So
+    this dropped again, to 1000, on the same reasoning. It still fails if about 150 more
+    characters arrive unreviewed, and a fifth addition of any size will meet it.
     """
     assert len(REAL_SOUL) < prompt.SOUL_MAX_CHARS
-    assert prompt.SOUL_MAX_CHARS - len(REAL_SOUL) > 1500
+    assert prompt.SOUL_MAX_CHARS - len(REAL_SOUL) > 1000
 
 
 # --- S9: required markers ----------------------------------------------------

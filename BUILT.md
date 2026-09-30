@@ -98,15 +98,43 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
 
 ## Prompt assembly
 
-- `[built]` **`soul.md`** at `program/integrity/soul.md` — **4,392 characters**
-  (4,408 bytes; the file holds 8 em-dashes and `wc -c` reports bytes), ~1,098 tokens,
-  3.4% of the 32,768 window, 1,608 characters of headroom under the 6,000 ceiling.
+- `[built]` **`soul.md`** at `program/integrity/soul.md` — **4,849 characters**
+  (4,867 bytes; the file holds 9 em-dashes and `wc -c` reports bytes), ~1,213 tokens,
+  3.7% of the 32,768 window, 1,152 characters of headroom under the 6,000 ceiling.
   *Was 3,963 until Phase 4's creative-work refusal clause landed (2026-09-21, design
-  revision 3, S13–S17).* Design of record:
+  revision 3, S13–S17), then 4,392 until B12's correction-description clause landed
+  (2026-09-30, design revision 4, S21–S26).* Design of record:
   `docs/SOUL_AND_PROMPT_DESIGN.md` (revision 2), S1–S12. The stored file was
   verified word-for-word (618 words) against the approved design's quoted text
   rather than retyped, and a test asserts the exact character count so later
   drift fails the suite.
+- `[built]` **B12: `soul.md` says what a correction does to the record** (2026-09-30,
+  design revision 4, D3, placed after ¶5). The entity's earlier statement is never
+  overwritten; a correction is recorded as a link, if at all; the entity must not say it
+  updated the record or changed its memory, and must not say the link has been made,
+  because the link is written after the reply, if at all, and the entity cannot see
+  whether it was. **The fourth `soul.md` change, and unplanned** (BUILD_PLAN counted three).
+  - **Measured live** (`scripts/soul_diagnosis_b12.py`): real turns through
+    `turn.handle_user_message()` on a throwaway store, 20 interleaved passes per arm,
+    every flagged reply hand-read.
+  - **Control arm in the same run:** 0/120 changed-record claims against control's
+    2/120; 0/120 link claims; the self-correction link written 80/80, the same as control.
+  - **What was measured and not landed:**
+    - *A*, the first approved draft, told the entity to say the statement "has been
+      linked as superseded". It claimed a link 106/120 times, 18 of them with no link
+      written. It also caused false links: 19/40, against control's 3/40.
+    - *B*, *D1* and *D2* carried the phrase *"still stands as its own entry,
+      unchanged"*. The model repeated it on 56–60 of 80 plain corrections, whether or
+      not the instruction was scoped. In the same run as control it **cut the
+      self-correction link to 68/80**: a terse reply ending with that phrase reads to
+      the classifier as endorsing the old value.
+  - The restatement instruction was dropped: control already restates the corrected
+    value 80/80.
+- `[unverified]` **D3's replies call the old statement "superseded" in 28/40 "what
+  happened to it?" answers** (control 4/40). That is true in ordinary English, and it
+  could read as a claim that the link exists, which the entity cannot see. The harness
+  could not check it: its scenarios never stored the old statement as its own message.
+  Filed in `NOW.md`'s backlog.
 - `[built]` **The entity has no name, and it is mechanically enforced.**
   `soul.md` states namelessness as settled rather than pending, and closes the
   self-naming route: a name the entity coined would be adopted by users, enter
