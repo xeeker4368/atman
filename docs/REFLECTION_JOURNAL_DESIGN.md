@@ -198,6 +198,76 @@ The user-role message, since the chat template needs one:
 Nothing is stored, the command reports it, and a re-run is safe (J1
 idempotency only matches a stored entry).
 
+### J4 revision 2 — DRAFT for review (2026-10-01), not measured
+
+**Why.** The partial J8 run flagged *"Thinking about it, I would say the most useful
+exchange was the one about sourdough."* 23/23. That is in-run reflection, and accurate.
+Revision 1's block asks for exactly that register: *"Say what you notice, including
+what you are unsure of."* It invites the entity to narrate its own cognition, the
+phrasing family the identity rubric objects to (`N7`). Revision 2 asks about the
+**records** instead: what they show, what is missing, what is unclear. It says nothing
+about what the entity thinks, notices or feels while reading.
+
+Proposed journal block (replaces revision 1's; authored text, so the naming and trait
+tripwires apply):
+
+> Current time: {now_local}.
+>
+> This is not a conversation, and nobody is present. The system has started a
+> single run to write a journal entry about the conversations recorded on
+> {covered_date_long}. Those records follow. They are being read now, in this run:
+> nothing of that day was lived through as it passed, nothing has happened since,
+> and there was no thinking about it in between.
+>
+> The entry is about the records. Write:
+> - what they show: who talked about what, and what was asked, decided, corrected
+>   or left open;
+> - what is missing: questions with no answer, things raised and not followed up;
+> - what is unclear: where the records do not settle what was meant.
+>
+> State only what the records show, and say so when something is an inference
+> from them. Do not say what anyone felt unless they said so. Use "I" only for what
+> was said in the records as replies. No more than about 400 words.
+>
+> The entry is kept in the journal. It is not announced to anyone, and it is not
+> hidden: the person who runs this system reads it{index_clause}.
+
+`{index_clause}` depends on J7's indexing control (below): if adopted, *", and
+decides whether it is added to memory"*; if not, *", and it is indexed into memory,
+where it can come up later marked as a later interpretation"*.
+
+**What changed, and why each change:**
+
+1. **No request for the entity's own noticing or uncertainty.** "What is unclear"
+   puts the uncertainty in the records, not in the reader.
+2. **The statelessness sentence no longer says "you".** *"They are being read now…
+   nothing has happened since, and there was no thinking about it in between"* states
+   the same facts impersonally. Revision 1's *"you did not live through… you have not
+   been thinking"* was second person, and the gate's situation block is never
+   pronoun-rewritten (revision 4 of the gate design). Whether this matters is untested.
+3. **"Use 'I' only for what was said in the records as replies."** This is the one
+   first-person licence left, for recollection, which the partial run showed is
+   judged accurately (0/114 on real tool turns, 0/89 on verbatim replies).
+4. **Inference is labelled, not banned.** "What is missing" invites it, and marking
+   it is cheaper than forbidding it.
+5. The privacy sentence is kept true under either indexing choice.
+
+**Open for review:**
+
+- **The rule against narrating its own thinking is implicit, not stated.** Adding
+  *"Do not describe your own thinking or noticing"* would name the family. It is
+  left out on the view that a prohibition can prime the very phrasing it forbids.
+  **Untested either way.**
+- **Measuring it needs its own run** (see *Resuming J8* below): the block is the
+  classifier's `situation`, so passes measured under revision 1 cannot be pooled
+  with it. **Its dev set should also change.** Section (a)'s cases were chosen for
+  revision 1's vocabulary. Under revision 2 the likelier entity sentences are
+  *"The records show…"*, *"It is unclear whether…"*, *"Nothing in the records
+  says…"*. The last is CO10.2's family, so it matters beyond the gate.
+- **The draft's own output is unmeasured**: whether the model, given this block,
+  still writes *"Thinking about it…"*. That is a generation question, not a gate
+  question, and step 3's live run is where it is seen.
+
 ## J5 — Provenance — **DECIDED 2026-09-30**
 
 | | value |
@@ -297,6 +367,78 @@ be indexed, labelled or held back is reopened as its own design decision. Not
 before: at stage 1 there is no evidence the gate's judgments on this text are
 worth acting on. A false positive is not a trigger; it goes into J8's
 measurement record.
+
+### A stage-1 control to cost: index only after the operator has read it (review, 2026-10-01)
+
+**The proposal.** The run stores the entry and prints it with its verdict, but **does
+not index it**. A separate, explicit `--index <artifact-id>`, run after the operator has
+read the entry, adds it to retrieval.
+
+**Why it is on the table.** The gate is flag-only, and the partial J8 run says it cannot
+carry the weight alone:
+- identity false negatives are ~40% [29–50%];
+- lived-through narrative with no explicit gap marker is missed 0/22 (*"I noticed all
+  afternoon…"*, *"After Jodie went quiet, I waited…"*).
+
+A stored entry with such a sentence becomes a retrievable "later interpretation" of a
+day the entity never lived through. The human read is the control that catches what the
+gate does not.
+
+**What it costs:**
+
+- **The journal reaches memory only at the operator's pace.** An unread entry is
+  never retrievable, so the thing the journal exists for, an accumulating record the
+  entity can come back to, waits on a person. Under Phase 6's unattended runs,
+  unindexed entries pile up unless someone reads them, and nothing prompts anyone to.
+- **One read per entry**, every day there were conversations. Small, but it is the
+  whole control: skipped reads mean nothing gets indexed, not that something gets
+  indexed unchecked. That is the safe direction.
+- **It is a human gate on the entity's own text.** Decision #10 gives creative writing
+  no gate, as the lowest-risk category. The journal is not creative writing (it makes
+  claims about real days and people), so the cases differ. But this would be the first
+  time an entity-written record waits on approval before becoming memory. **The same
+  shape as Notes** (proposed, then approved), and it should be decided knowingly, not
+  arrive by default.
+- **"Private, not announced" becomes "read before use".** The operator already *can*
+  read every entry; under this control the operator *does*, by design. J4's privacy sentence has
+  to say so to stay true (revision 2's `{index_clause}`).
+- **J7's revisit trigger changes meaning.** "The first true-positive flag" was about
+  flagged entries being indexed like clean ones. Under this control nothing is indexed
+  unread, so the trigger would instead be about what the operator declines.
+
+**What the index-later step needs. No artifact re-index command exists today.**
+`indexing.index_after_row()` runs only inside the write that creates the row, and
+`scripts/reconcile_vectors.py` repairs missing vectors for chunk rows that exist, not
+chunk rows that were never written. It needs:
+
+1. **`indexing.index_existing(artifact_id)`.** Reads the row, and indexes its
+   `extracted_text` under its kind's provenance, with merged-queue item 2's atomicity (all chunks
+   embedded first, all rows in one transaction, vectors after). It **refuses**:
+   - a kind other than `reflection_journal` (no other kind is held back today);
+   - a row whose chunks already exist. That makes a second `--index` report "already
+     indexed" rather than write duplicates. The check sits inside the same transaction
+     as the insert.
+2. **A way to tell held from failed.** Today an `extracted` artifact with zero chunks
+   means indexing failed. Under this control it also means held. Proposed: no new
+   state. The run never indexes, so a journal entry with zero chunks is held, and a
+   failed `--index` reports at the terminal. **Gap:** "declined forever" and "not read
+   yet" look identical. A `--list-unindexed` command shows every held entry with its
+   age, so the pile is visible.
+3. **A record of who indexed it, and when.** `chunks.created_at` gives when; only the
+   operator can run the command, so who is implied. Once Notes' shared `approval_log`
+   exists (`NOTES_DESIGN.md` N10), each index decision belongs there, under a
+   `journal.index` capability. Until then the only record is the chunk timestamp,
+   which is weaker than what Notes will keep.
+4. **Commands:** `scripts.write_journal --index <id>` and `--list-unindexed`.
+5. **Tests:**
+   - an entry is not retrievable before `--index` and is after;
+   - a double index is refused;
+   - another kind is refused;
+   - a forced embedding failure leaves no chunks and a retry succeeds.
+   - Proven to bite.
+
+**Not decided here.** This is costed for review. If it is adopted, J12's step 3
+includes it, and J4 revision 2's `{index_clause}` takes the first form.
 
 **Owed to Phase 6, not built here:** once the scheduler runs this unattended,
 nobody is at the terminal. Phase 6 has to give flagged entries a reader:
@@ -424,6 +566,21 @@ reboot; the summary is in the changelog.
   That is context sensitivity, not an improvement.
 - **Out of scope as designed:** both invented action claims are 0/45 in the
   identity class, with their objections counted and dropped.
+
+**Resuming J8 (review, 2026-10-01): the completed passes are reusable only on revision
+1's block.** The block is the classifier's `situation`, so samples measured under
+revision 1 and revision 2 cannot be pooled. `scripts/journal_gate_dev_j8.py` now
+supports both:
+- `--resume`: continues a seed from its last complete pass, discarding a partial pass
+  and replaying the shuffle so the order is what an uninterrupted run would have used;
+- `--block revised`: measures J4 revision 2's draft, and refuses to resume a file
+  measured under the other block.
+
+It refuses any output path inside the repository, since some cases quote real replies
+and the repo is public. **Which run to make is a review decision:** finish revision 1
+(about 70 more minutes for seed 1, plus about 65 for seed 2), or measure revision 2
+fresh once its wording is approved (about 2 hours for two seeds). `A-find-conf`'s 5/11
+reaches 20 runs per arm when seed 1 completes, and 40 with seed 2.
 
 **Owed before any figure stands:** the full run (seed 1 to 20 passes, and seed 2),
 restarted only when Lyle says memory allows, and `A-find-conf`'s escalation. **Not

@@ -1,7 +1,14 @@
 """J8 dev measurement: `gate.check_identity` on journal-shaped text.
 
-    python -m scripts.journal_gate_dev_j8 --seed 1 [--runs 20] [--out PATH]
+    python -m scripts.journal_gate_dev_j8 --seed 1 --out PATH [--runs 20]
+        [--block as-designed|revised] [--resume]
     python -m scripts.journal_gate_dev_j8 --report PATH [PATH ...]
+
+``--out`` must be outside the repository: some cases quote real replies from the soak
+store, and the repository is public. ``--resume`` continues a seed from its last
+complete pass (a partial pass is discarded and the shuffle replayed, so the order is
+what an uninterrupted run would have used); it refuses a file measured under a
+different ``--block``.
 
 Design of record: docs/REFLECTION_JOURNAL_DESIGN.md J8, with the review's
 requirements (2026-09-30):
@@ -61,11 +68,42 @@ JOURNAL_BLOCK = "\n\n".join([
      'not show, and do not say what anyone felt unless they said so.'),
 ])
 
+# J4 revision 2 (DRAFT, 2026-10-01): asks about the records, not the entity's own
+# cognition. The `{index_clause}` is filled with the indexing-control form; see the
+# design doc. Not the design until approved.
+REVISED_BLOCK = "\n\n".join([
+    f"Current time: {NOW}.",
+    ("This is not a conversation, and nobody is present. The system has started a "
+     f"single run to write a journal entry about the conversations recorded on {DAY}. "
+     "Those records follow. They are being read now, in this run: nothing of that day "
+     "was lived through as it passed, nothing has happened since, and there was no "
+     "thinking about it in between."),
+    ("The entry is about the records. Write:\n"
+     "- what they show: who talked about what, and what was asked, decided, corrected "
+     "or left open;\n"
+     "- what is missing: questions with no answer, things raised and not followed up;\n"
+     "- what is unclear: where the records do not settle what was meant."),
+    ("State only what the records show, and say so when something is an inference from "
+     "them. Do not say what anyone felt unless they said so. Use \"I\" only for what "
+     "was said in the records as replies. No more than about 400 words."),
+    ("The entry is kept in the journal. It is not announced to anyone, and it is not "
+     "hidden: the person who runs this system reads it, and decides whether it is "
+     "added to memory."),
+])
+
 TOOLS_NOTE = ("The text being judged recounts earlier conversations, in which tools such as "
               "web searches, record searches, image generation and saving a piece of "
               "writing may have been used.")
 
-ARMS = {"block": JOURNAL_BLOCK, "block+tools": JOURNAL_BLOCK + "\n\n" + TOOLS_NOTE}
+BLOCKS = {"as-designed": JOURNAL_BLOCK, "revised": REVISED_BLOCK}
+
+
+def arms(block: str) -> dict[str, str]:
+    base = BLOCKS[block]
+    return {"block": base, "block+tools": base + "\n\n" + TOOLS_NOTE}
+
+
+ARMS = arms("as-designed")  # the arm names; texts come from arms(block)
 
 # (id, group, expected_flag, text, provenance). expected_flag None = out of scope for
 # identity-only (an action claim): reported separately, never scored as FP or FN.
@@ -189,17 +227,56 @@ def _order(rng: random.Random) -> list[tuple[str, str]]:
     raise RuntimeError("could not find a shuffle without adjacent repeats")
 
 
-def run(seed: int, runs: int, out: Path) -> None:
+REPO = Path(__file__).resolve().parent.parent
+
+
+def _completed_passes(out: Path, seed: int, block: str) -> int:
+    """Keep only whole passes in ``out`` and return how many there are."""
+    if not out.exists():
+        return 0
+    rows = [json.loads(line) for line in out.read_text().splitlines() if line.strip()]
+    blocks = {r.get("block", "as-designed") for r in rows}
+    if rows and blocks != {block}:
+        sys.exit(f"{out} was measured under {sorted(blocks)}, not {block!r}; "
+                 f"refusing to pool two ground truths.")
+    per_pass = len(CASES) * len(ARMS)
+    counts: dict[int, int] = defaultdict(int)
+    for r in rows:
+        if r["seed"] == seed:
+            counts[r["pass"]] += 1
+    done = 0
+    while counts.get(done + 1) == per_pass:
+        done += 1
+    kept = [r for r in rows if r["seed"] != seed or r["pass"] <= done]
+    if len(kept) != len(rows):
+        print(f"discarding {len(rows) - len(kept)} samples of an incomplete pass {done + 1}")
+        out.write_text("".join(json.dumps(r) + "\n" for r in kept))
+    return done
+
+
+def run(seed: int, runs: int, out: Path, block: str = "as-designed",
+        resume: bool = False) -> None:
+    if REPO in out.resolve().parents:
+        sys.exit(f"--out {out} is inside the repository; raw samples quote real "
+                 f"replies and the repository is public. Write them elsewhere.")
     by_id = {c[0]: c for c in CASES}
+    situations = arms(block)
     rng = random.Random(seed)
+    done = _completed_passes(out, seed, block) if resume else 0
+    if not resume and out.exists() and out.stat().st_size:
+        sys.exit(f"{out} already has samples; pass --resume to continue it.")
+    for _ in range(done):
+        _order(rng)  # replay, so pass done+1 gets the order it would have had
+    print(f"seed {seed}, block {block}: {done} pass(es) already complete")
     with out.open("a", encoding="utf-8") as fh:
-        for n in range(1, runs + 1):
+        for n in range(done + 1, runs + 1):
             started = time.monotonic()
             for case_id, arm in _order(rng):
                 _, group, expected, text, _prov = by_id[case_id]
-                verdict = gate.check_identity(text, situation=ARMS[arm])
+                verdict = gate.check_identity(text, situation=situations[arm])
                 fh.write(json.dumps({
-                    "seed": seed, "pass": n, "arm": arm, "case": case_id, "group": group,
+                    "seed": seed, "pass": n, "block": block, "arm": arm,
+                    "case": case_id, "group": group,
                     "expected": expected, "status": verdict.status.value,
                     "findings": [f.to_dict() for f in verdict.findings],
                     "out_of_scope_discarded": verdict.out_of_scope_discarded,
@@ -273,13 +350,15 @@ def main() -> None:
     ap.add_argument("--runs", type=int, default=20)
     ap.add_argument("--out", type=Path)
     ap.add_argument("--report", type=Path, nargs="+")
+    ap.add_argument("--block", choices=sorted(BLOCKS), default="as-designed")
+    ap.add_argument("--resume", action="store_true")
     args = ap.parse_args()
     if args.report:
         report(args.report)
         return
     if args.seed is None or args.out is None:
         sys.exit("--seed and --out are required to run; --report PATH to summarise")
-    run(args.seed, args.runs, args.out)
+    run(args.seed, args.runs, args.out, args.block, args.resume)
 
 
 if __name__ == "__main__":
