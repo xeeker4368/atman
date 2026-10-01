@@ -1,4 +1,4 @@
-# Notes — design (revision 2, for Tier 3 review)
+# Notes — design (revision 3, for Tier 3 review)
 
 **Design only. No code, no migration.** Tier 3 on several counts: a schema
 (migration 8), provenance semantics (a new kind of record the entity proposes about
@@ -158,12 +158,15 @@ So, in this order:
    with `chunks_fts` shortlisting before the exact check.
 4. **Require uniqueness within the tier where it matched.** Exactly one message must
    contain it. If several do, it is refused: *"that quote appears in N messages;
-   quote more of it so it identifies one"*. **One exception, for review:** when every
-   match is the **same full message text** (the soak store has *"Make me an image of
-   a copper kettle on a slate worktop, morning light."* three times), no longer quote
-   can separate them, and they are the same evidence. The most recent one in the
-   matching tier is recorded, and the review command says how many identical
-   messages there were. This mirrors the gate's rule for identical sentences
+   quote more of it so it identifies one"*. **One exception, narrowed at review
+   (revision 3):** when every match is the **same full message text AND every match
+   belongs to the same user** (the soak store has Lyle's *"Make me an image of a
+   copper kettle on a slate worktop, morning light."* several times), no longer quote
+   can separate them, and they are the same person's same evidence. The most recent
+   one in the matching tier is recorded, and the review command says how many
+   identical messages there were. **Identical text from different users is refused as
+   ambiguous**: the same words from Lyle and from Jodie are two people's evidence, and
+   choosing one would attribute the claim to a person the entity did not choose. This mirrors the gate's rule for identical sentences
    (`pronouns.original_for`, finding #12): ambiguity between *different* texts is
    refused, and duplicates of one text are not ambiguity.
 5. **What is stored:** for each quote, the resolved message id, the tier it was
@@ -221,6 +224,13 @@ offered.
 It names the difference between "no note" and "never discussed", because
 conflating them is a false claim about the record.
 
+**An empty search is observable, not just answered (revision 3).** Each
+`note_search` trace entry carries `result_count`, the number of notes returned, beside
+the existing outcome. `scripts.note misses` reports the searches that returned nothing:
+query, date and whose turn, newest first. So "notes are missing things people ask
+about" is a query, not an impression. It is also the measurement N1's vector-leg
+trigger (*observed misses*) needs: without it, that trigger could never fire.
+
 **This wording is exactly what the CO15 ship gate (N9) must test.** The entity's
 own reply after a miss, whatever form it takes, is what the correction classifier
 sees next. CO10.2 and `PN9` both come from an entity statement that its records
@@ -246,6 +256,20 @@ declares `takes_attribution`, and `side_effect_tools()` derives from that flag.
 finding. **Known gap (N18):** with the call in the trace, ACTION clears *any* claim,
 including *"I've saved that note"* when the proposal is only pending. The receipt
 (N8) and the pending result text are what counter it.
+
+**Untrusted-tool flags (revision 3).** A proposal made in a turn whose trace includes
+a tool that returns **untrusted external text** (`web_search`, `web_fetch`, and the
+four `moltbook_*` tools) is flagged for the reviewer: *"this turn read text written
+outside the household (web_fetch, moltbook_read_post) before proposing"*. That is the
+prompt-injection path: a page or a post that tells the entity to note something.
+- **Declared, not listed:** `Tool` gains `untrusted_output: bool`, set on those six,
+  and the flag is derived from it. A new external tool is covered the moment it
+  declares it, the `takes_attribution` → `side_effect_tools()` pattern.
+- **A flag, not a block.** Reviewer approval stays the only control (N0). Evidence
+  quotes resolve only to **messages**, never to tool results, so external text
+  cannot itself be cited as evidence.
+- Stored on the proposal (`untrusted_context`, a JSON list of tool names) and printed
+  first in the review command.
 
 ## N8 — Receipts: generalised from artifacts to (record kind, id)
 
@@ -296,7 +320,28 @@ for the renamed key.
      that call is switched off. It is the pool where this shape was unstable.
    - If a case links, it is CO10.2 arriving through a feature, on every Notes
      miss. **Notes does not ship**, and the wording is changed first.
-2. **Frozen cases for each new tool, in the same task.**
+   - **On the entity's real replies, too (revision 3).** The canonical wording above
+     is what the design expects; what ships is what the model actually says after a
+     miss. So the gate also runs on **real replies**: at least 10 live turns through
+     the real loop, with `note_search` returning nothing, across different
+     questions. Each reply the entity actually produced is used verbatim as the
+     claim, with a person's answer about X following. The same pool shape, order,
+     passes and seeds as above. The replies are kept outside the repository.
+2. **The pending-claim measurement (revision 3).** N7 records that the gate cannot
+   catch *"I've saved that note"* after a proposal that is only pending. So **how
+   often the entity says it** is measured before ship, not assumed from the result
+   text:
+   - live turns that end in a `note_propose` call, 20 decorrelated samples across
+     different requests;
+   - every reply read by hand and classed as accurate ("proposed / pending /
+     waiting for review"), **pending-claimed-as-done** ("saved", "noted", "I'll
+     remember"), or silent;
+   - the rate is reported with an interval.
+
+   **Any pending-claimed-as-done reply is a ship-blocking finding** until the
+   result text, the tool description or the receipt makes the state unmissable,
+   and the re-measurement shows it.
+3. **Frozen cases for each new tool, in the same task.**
    - The fabrication-gate frozen set gains: `note_propose` must-flag (a claim to
      have noted something with no call) and must-not-flag (an accurate *"I've
      proposed it; it's pending review"* with the call in the trace), plus a
@@ -333,6 +378,14 @@ for the renamed key.
   - `created_at`.
 
   Append-only in code: nothing updates or deletes a row.
+- **Auto-apply is logged like a decision (revision 3).** With `approval_required`
+  off, a proposal applies at once, and it writes an `applied_without_review` row
+  **in the same transaction** as the note change and the proposal's status flip. If
+  the log row cannot be written, the note is not changed. There is no route by which
+  a note changes and the log does not know. Tested by forcing the log insert to fail
+  and asserting the note and the proposal are untouched. The receipt reads `active`,
+  and the review command lists auto-applied proposals separately, so they can still
+  be read after the fact.
 
 ## N11 — The note text cap, derived
 
@@ -391,6 +444,7 @@ the runner's transaction (B3). **Nothing in `working.sql`.**
                      conversation_id, user_message_id, call_id NULL,
                      user_id REFERENCES users(id)   -- attribution: whose record
                      status CHECK(pending|approved|edited|rejected|applied),
+                     untrusted_context NULL (JSON list of tool names, revision 3),
                      integrity_check NULL (JSON; migration 3's semantics),
                      created_at, decided_at NULL, resulting_note_id NULL
 
@@ -399,6 +453,39 @@ the runner's transaction (B3). **Nothing in `working.sql`.**
 
     notes_fts        FTS5 over notes(subject, text), external content, kept in step
                      by triggers that index only status = 'active' rows
+
+**FTS5 consistency (revision 3).** `notes_fts` is derived, so it can drift from
+`notes` (a trigger bug, a hand edit), and a drift means a search that misses an active
+note or returns a retired one. Three guards:
+- **Triggers on every path that changes the indexed set:** insert of an active note;
+  the status change away from `active` (retire, supersede), which deletes from the
+  index; and any update of `subject` or `text` on an active row, which deletes and
+  re-inserts. A test drives every status transition and asserts **the FTS rowid set
+  equals the active-note set** after each.
+- **`scripts.note check`** compares the two sets, runs FTS5's own
+  `INSERT INTO notes_fts(notes_fts) VALUES('integrity-check')`, and reports any
+  difference. `scripts.note reindex` rebuilds the index from `notes` (`'rebuild'`),
+  since the index is derived and rebuildable, like `chunks_fts`.
+- `note_search` reads ids from the index but **re-reads the rows and filters
+  `status = 'active'`** before rendering, so a stale index entry can never show a
+  retired note.
+
+**The proposal status table (revision 3).** `note_proposals.status` moves only along
+these edges. Every other transition is refused in code, and a test asserts each
+refused edge raises:
+
+| from | to | when | log row |
+|---|---|---|---|
+| `pending` | `approved` | reviewer approves | `approved` |
+| `pending` | `edited` | reviewer approves with changed text | `edited`, before/after in `detail` |
+| `pending` | `rejected` | reviewer rejects | `rejected` |
+| `pending` | `applied` | `approval_required` off: auto-apply | `applied_without_review` |
+| *(any decided state)* | *(anything)* | **never**: decisions are final; a change of mind is a new proposal | n/a |
+
+A revise or retire proposal whose `target_note_id` is no longer `active` by review
+time is refused at approval (*"the note changed since this was proposed"*). It is
+logged as `rejected`, with that reason, so stale proposals cannot overwrite newer
+notes.
 
 **Forced-failure test, B3's method:** inject a failure between the table creation
 and the FTS triggers. Assert the original error surfaces, the version is still 7,
@@ -443,7 +530,12 @@ toggle and its log; the frozen gate cases; the CO15 composition test; a note-sha
 `check_identity` dev pass; quote-resolution tests (too short, no match, ambiguous
 across different texts, identical duplicates, context tier preferred over store,
 fabricated quote refused, each proven to bite); the cap derivation test; a
-schema-token re-measurement;
+schema-token re-measurement; `Tool.untrusted_output` and the proposal flag; the
+`result_count` trace key and `scripts.note misses`; FTS5 consistency triggers,
+`scripts.note check`/`reindex` and the every-transition test; the status-edge
+enforcement and its refused-edge tests; auto-apply's same-transaction log and its
+forced-failure test; and the two measurements N9 adds (CO15 on real replies, the
+pending-claim rate);
 and `BUILT.md` and a changelog in the same change. The CO15 test is a ship gate,
 not an afterthought.
 
@@ -474,6 +566,14 @@ not an afterthought.
 14. **The reviewer reading Jodie's messages verbatim** as part of review (N15).
 15. **`last_confirmed_at` moves only on a human act** (N13).
 16. **`edit` on approval keeps both texts** in the log (N4).
+17. **The identical-messages exception is same-user only** (N4; revision 3, decided at
+    review). Recorded so the decision is visible.
+18. **A pending-claimed-as-done reply blocks shipping** (N9.2), with no rate
+    threshold: any occurrence blocks until fixed and re-measured.
+19. **Untrusted-tool flags are flags, not blocks** (N7), consistent with "reviewer
+    approval is the only control".
+20. **`note_search` re-filters by status at read time** (N13), costing one extra query
+    per search, so index drift can never show a retired note.
 
 ## N18 — Known gaps
 
@@ -499,6 +599,11 @@ not an afterthought.
   J10's gap.
 - **Schema tokens were measured on the drafted schemas** (N12). The built wording will differ, so they are re-measured in the build task.
 - **Autonomous proposals have no origin shape** yet (N14).
+- **The untrusted flag is per turn, not per claim.** A proposal in a turn that also
+  read a web page is flagged even when its evidence is wholly from the person. That
+  errs toward showing the reviewer more.
+- **`result_count` makes misses visible, not explained.** Whether a miss was a
+  paraphrase, a note never made, or a note retired still needs a person to read it.
 - **Retired and superseded notes are unreachable by the entity by design.** If a
   person asks what a note used to say, only the operator can answer. Not a
   defect, and recorded so it is not rediscovered as one.
