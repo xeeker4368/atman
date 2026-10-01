@@ -10,10 +10,13 @@ The retrieved-records block is stood in for by a situation block of the same siz
 window's budget reads only the system prompt's size, so this changes nothing about the
 windowing while avoiding building a synthetic retrieval result.
 
-Measured 2026-09-30 (see NOW.md B21): a 50,000-char message beside maximal records is
-dropped after one round of 3 calls, and at the records cap three calls per round drop
-a ~9,400-char message within 4 rounds. No warning is logged, because the newest
-message (a tool result) fits.
+**Before the B21 fix** (2026-09-30, see NOW.md B21): a 50,000-char message beside
+maximal records was dropped after one round of 3 calls, and at the records cap three
+calls per round dropped a ~9,400-char message within 4 rounds, with no warning logged.
+
+**After the fix** the user's message is present on every call, and whatever was given
+up instead is a ``window_event`` in the trace. ``tests/test_history_window_b21.py``
+runs these same scenarios as the regression test.
 """
 
 from __future__ import annotations
@@ -24,11 +27,9 @@ import os
 import tempfile
 from contextlib import redirect_stdout
 
-os.environ["ANAM_DATA_DIR"] = tempfile.mkdtemp(prefix="b21-")
-
-from program import config  # noqa: E402
-from program.engine import loop  # noqa: E402
-from program.tools.registry import Tool, ToolRegistry  # noqa: E402
+from program import config
+from program.engine import loop
+from program.tools.registry import Tool, ToolRegistry
 
 MARK = "USER-MESSAGE-MARKER"
 
@@ -41,8 +42,12 @@ BIG = Tool(
 
 
 def scenario(label: str, message_chars: int, records_chars: int, rounds: int,
-             calls_per_round: int) -> list[bool]:
-    """Run one turn; print and return, per model call, whether the user message was sent."""
+             calls_per_round: int) -> tuple[list[bool], loop.TurnResult]:
+    """Run one turn. Prints, and returns, per model call, whether the user message was
+    sent, together with the turn's result (its trace carries any window events).
+
+    ``ollama.chat`` is restored afterwards, so a test can call this safely.
+    """
     sent: list[list[dict]] = []
 
     def fake_chat(messages, model=None, options=None, tools=None):
@@ -54,11 +59,14 @@ def scenario(label: str, message_chars: int, records_chars: int, rounds: int,
         return {"message": {"role": "assistant", "content": "Answered."},
                 "done_reason": "stop"}
 
-    loop.ollama.chat = fake_chat
+    real_chat, loop.ollama.chat = loop.ollama.chat, fake_chat
     user = MARK + " " + ("word " * (message_chars // 5))[: message_chars - len(MARK) - 1]
     situation = ("Record filler text. " * (records_chars // 20 + 1))[:records_chars]
-    loop.run_turn([{"role": "user", "content": user}], situation=situation,
-                  registry=ToolRegistry([BIG]))
+    try:
+        result = loop.run_turn([{"role": "user", "content": user}], situation=situation,
+                               registry=ToolRegistry([BIG]))
+    finally:
+        loop.ollama.chat = real_chat
 
     print(f"\n== {label}: message {len(user):,} chars, records stand-in "
           f"{records_chars:,}, {rounds} round(s) x {calls_per_round} call(s)")
@@ -72,14 +80,16 @@ def scenario(label: str, message_chars: int, records_chars: int, rounds: int,
         print(f"  call {i}: {len(msgs)} messages, "
               f"{[m['role'] for m in msgs].count('tool')} tool results, "
               f"user message present: {has_user}, ~{chars:,} chars")
-    return present
+    for event in (e for e in result.trace if "window_event" in e):
+        print(f"  window event: {event}")
+    return present, result
 
 
 def smallest_dropped(records_chars: int, rounds: int, calls: int) -> int | None:
     """Binary search for the smallest message that is dropped, or None up to the cap."""
     def dropped(n: int) -> bool:
         with redirect_stdout(io.StringIO()):
-            return not all(scenario("", n, records_chars, rounds, calls))
+            return not all(scenario("", n, records_chars, rounds, calls)[0])
 
     lo, hi = 1_000, config.chat_max_message_chars()
     if not dropped(hi):
@@ -91,6 +101,7 @@ def smallest_dropped(records_chars: int, rounds: int, calls: int) -> int | None:
 
 
 def main() -> None:
+    os.environ["ANAM_DATA_DIR"] = tempfile.mkdtemp(prefix="b21-")
     config.reload()
     records = 57_000  # B17's 51,000-char records cap + the 6,000-char annotation bound
     scenario("maximal message + maximal records, 1 round x 2 calls", 50_000, records, 1, 2)

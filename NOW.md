@@ -351,7 +351,9 @@ natural home is Phase 9's admin panel, or the Phase 7 observability work. Record
 the persisted-but-unread state is a known state, not a silent one.
 
 **B20: tool-schema tokens are not a budget term** (filed at review 2026-09-30, Moltbook
-revision 3; Tier 3 when built, since it changes prompt-assembly accounting). Every
+revision 3; Tier 3). **BUILT 2026-10-01 with B21, stopped for review**: see BUILT.md and
+`changelog/2026-10-01-b20-b21-turn-budget.md`. The derived cap fell from 57,216 to 52,360
+characters; the configured 50,000 still fits, with ~590 tokens of headroom left. Every
 tool-bearing call sends the offered tools' JSON schemas, and nothing counts them: not
 `history.plan_budget`, not `prompt.assemble_turn`, and not B6a's derivation of
 `chat.max_message_chars` (`tests/test_turn.py`). **Measured against `gemma4:26b`'s
@@ -373,6 +375,10 @@ most of the rest, with nothing failing when they do.
 
 **B21: a long user message is silently dropped after tool rounds: REPRODUCED**
 (2026-09-30, found by reading while measuring B20; Tier 3, history windowing).
+**BUILT 2026-10-01 with B20, stopped for review**, to the order approved at review: older
+history, then the records (continuation pieces first, then hits from the lowest rank), then
+the oldest whole tool rounds, then a final call without tools as the last resort. Every step
+past older history is logged and marked in the trace.
 - **Mechanism.** After a tool round, the loop re-plans the window over the user's message
   plus the round's tool messages. `history.select_history` walks newest-first, always keeps
   only the newest (now a tool result), and stops at the first message that does not fit,

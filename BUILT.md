@@ -1118,11 +1118,16 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   fails it.
 - `[built]` **Tool-schema cost measured** against the real tokenizer: 5 tools 657
   tokens, 9 tools **1,052**. Moltbook adds 395 per tool-bearing call.
-- `[unverified]` **Nothing budgets tool schemas: filed as B20** (`NOW.md`, fix designed,
-  not built). Not `plan_budget`, not `assemble_turn`, not B6a's derivation of the chat
-  cap. A maximal message still fits (752 of B6a's 1,804 tokens of headroom left, 1,147
-  before Moltbook), but only because the cap was rounded down. Each new tool spends that
-  headroom silently.
+- `[built]` **B20: tool schemas are priced in the window** (2026-10-01, Tier 3, stopped for
+  review). `plan_budget(tool_schema_chars=…)` reserves them as `tool_schema_tokens`, and
+  the loop passes the size of the `tools` JSON it sends (0 on the final call). B6a's
+  derivation gains the term over the **full catalogue**, enabled or not.
+  - **The derived cap falls from 57,216 to 52,360 characters.** The configured 50,000
+    still fits, with ~590 tokens of headroom left (1,804 before). **Nothing changes for a
+    user today.**
+  - A second test fails, naming both numbers, when the catalogue outgrows the headroom.
+  - Proven to bite: a 3,000-char schema fails both tests, and a 52,500 cap fails the
+    derivation.
 - `[built]` **B21 REPRODUCED: the user's own message can be silently windowed out after
   tool rounds** (`scripts/history_window_diagnosis_b21.py`; the real loop, prompt assembly
   and windowing, with only `ollama.chat` faked). After a tool round, `select_history` keeps
@@ -1132,7 +1137,36 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   - At the records cap, 3 calls per round drop a ~9,400-char message within 4 rounds.
   - At 25,000 chars of records it takes ~41,600 chars and 3 calls/round.
   - With no records: never, up to the cap.
-  - Independent of Moltbook. Fix proposed in `NOW.md` (Tier 3), **not applied**.
+  - Independent of Moltbook.
+- `[built]` **B21 fixed: this turn's user message is pinned** (2026-10-01, Tier 3, stopped for
+  review). `assemble_turn(current_turn_start=…)` never drops it. Over budget, it gives
+  up, in order:
+  1. older history (decision #6's normal path, not marked);
+  2. the retrieved records: continuation pieces first by a smaller cap, then hits from
+     the lowest rank, with a counted closing line in the prompt;
+  3. the oldest whole tool rounds;
+  4. a final call without tools, as the last resort.
+
+  Each step past older history is a `window_event` written into the trace with its
+  iteration and logged at WARNING. `loop.call_entries()` strips the markers for anything
+  that reasons over calls: the gate (`turn.py`), `called_tools`, and receipts (which
+  already skip entries with no tool). **`gate.py` is untouched.**
+  - **Regression test** `tests/test_history_window_b21.py`, 15 tests. It runs the
+    diagnosis script's scenarios (each dropped the question before) and real retrieval
+    results, asserting the order: records shrink 8 → 4 → 0 hits over the iterations
+    before a round goes.
+  - **Proven to bite, seven mutations:** no pinning fails 12; rounds before records 3;
+    hits before pieces 1; events not traced 7; the last resort ignored 1;
+    `called_tools` counting markers 1; the gate given the raw trace 1.
+  - Two existing tests changed deliberately: the loop's windowing test asserted the
+    newest *tool result* survives, which was the B21 rule itself, and the budget spy
+    gained the new argument.
+- `[unverified]` **After a dropped round the model may call the same tool again.** Its
+  earlier call is no longer in the prompt. Bounded by `max_iterations`; the trace shows
+  it.
+- `[unverified]` **Older-history windowing is still not marked**, deliberately: it is
+  decision #6's normal path on every long conversation, what falls out stays
+  retrievable, and marking it would make `tool_trace` non-null on most turns.
 - `[unverified]` **The Phase 5 gate call has not been made**: a real turn in which the
   model chooses a Moltbook tool. Anonymous rate limits are probably counted per IP,
   shared with anything else on this connection; that is undocumented.
@@ -3984,7 +4018,7 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   no state and asserts about state — has ~20 `db.init_databases()` call sites in
   `tests/` worth a deliberate pass. Not done.*
 
-- `[built]` **Test suite** — 1,419 tests passing plus 4 skipped (2026-09-30, after journal step 2; 1,411 after Moltbook revision 4; the 4 skips include the two opt-in live Moltbook tests, which pass when run. 1,406 after the Moltbook read tools; 1,354 plus 1 environmental failure after migration 7; 1,350 after the O23 receipt; 1,323 after B18; 1,268 before B11 stage 3) (`pytest`), `ruff check`
+- `[built]` **Test suite** — 1,436 tests passing plus 4 skipped (2026-10-01, after B20/B21; 1,419 after journal step 2; 1,411 after Moltbook revision 4; the 4 skips include the two opt-in live Moltbook tests, which pass when run. 1,406 after the Moltbook read tools; 1,354 plus 1 environmental failure after migration 7; 1,350 after the O23 receipt; 1,323 after B18; 1,268 before B11 stage 3) (`pytest`), `ruff check`
   clean (2026-09-27, after B10 and its follow-up; 1,234 on 2026-09-24, 1,140 on 2026-09-18). The backup race test is no longer
   flaky (B14). *Two standing failures, both known and neither from this work:
   `test_a_missing_session_secret_stops_the_server_from_starting`, caused by an

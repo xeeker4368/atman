@@ -166,6 +166,10 @@ class BudgetBreakdown:
     output_tokens: int
     safety_tokens: int
     history_tokens: int
+    #: The offered tools' JSON schemas (B20). Sent on every tool-bearing call and
+    #: priced nowhere before B20, so each new tool silently spent the headroom
+    #: beside a maximal message. Zero on the final, tool-free call.
+    tool_schema_tokens: int = 0
 
     @property
     def reserved_tokens(self) -> int:
@@ -174,6 +178,7 @@ class BudgetBreakdown:
             + self.retrieved_tokens
             + self.output_tokens
             + self.safety_tokens
+            + self.tool_schema_tokens
         )
 
     @property
@@ -210,6 +215,7 @@ def plan_budget(
     system_prompt_chars: int = 0,
     retrieved_chars: int = 0,
     context_tokens: int | None = None,
+    tool_schema_chars: int = 0,
 ) -> BudgetBreakdown:
     """Divide the context window, returning what is left for history.
 
@@ -218,16 +224,21 @@ def plan_budget(
     task 1.5 owns retrieval; both are Tier 3 and neither exists yet. Taking
     their sizes as inputs means this module is complete and testable now, and
     does not have to be revisited when they land.
+
+    ``tool_schema_chars`` is the length of the JSON the call sends as ``tools``
+    (B20). Priced with the same estimator: measured on these schemas it over-counts
+    (4.61 real characters per token against the 4.0 divisor), the safe direction.
     """
     ctx = context_tokens if context_tokens is not None else int(
         config.model_options().get("num_ctx", 32768)
     )
     system_tokens = estimate_tokens_from_chars(system_prompt_chars)
     retrieved = estimate_tokens_from_chars(retrieved_chars)
+    schemas = estimate_tokens_from_chars(tool_schema_chars)
     output = config.history_output_reserve_tokens()
     safety = config.history_safety_margin_tokens()
 
-    remaining = ctx - (system_tokens + retrieved + output + safety)
+    remaining = ctx - (system_tokens + retrieved + output + safety + schemas)
     return BudgetBreakdown(
         context_tokens=ctx,
         system_prompt_tokens=system_tokens,
@@ -235,6 +246,7 @@ def plan_budget(
         output_tokens=output,
         safety_tokens=safety,
         history_tokens=max(0, remaining),
+        tool_schema_tokens=schemas,
     )
 
 
@@ -296,6 +308,11 @@ def select_history(
         budget=budget,
         overflowed=overflowed or budget.over_committed,
     )
+
+
+def normalise_message(message: Mapping[str, Any]) -> dict[str, Any]:
+    """Public name for :func:`_normalise`: what one message looks like sent to the model."""
+    return _normalise(message)
 
 
 def _normalise(message: Mapping[str, Any]) -> dict[str, Any]:

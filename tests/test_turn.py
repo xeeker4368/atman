@@ -455,10 +455,23 @@ def test_the_limit_is_measured_after_stripping_like_the_stored_message(
     assert turn.handle_user_message(store["lyle"], "   " + "x" * 10 + "\n\n").content
 
 
-def test_the_configured_limit_fits_the_context_window_by_its_own_derivation():
-    """`defaults.toml` derives the cap; this recomputes that chain from LIVE config,
-    so a smaller num_ctx, a larger output reserve or a larger top_k fails here rather
-    than quietly letting a maximal message overflow the window."""
+def _full_catalogue_schema_tokens() -> int:
+    """B20: every tool's schema, enabled or not, priced as the window prices it.
+
+    The **full catalogue**, so switching a tool on can never break the derivation
+    silently: a tool's schema counts from the moment it exists.
+    """
+    import json
+
+    from program.engine import history
+    from program.tools import catalog, registry
+
+    schemas = registry.ToolRegistry(list(catalog.TOOLS)).ollama_schema()
+    return history.estimate_tokens_from_chars(len(json.dumps(schemas)))
+
+
+def _reserved_beside_a_maximal_message() -> int:
+    """B6a's chain from LIVE config, now with B20's schema term."""
     from program.engine import history, prompt
 
     soul = history.estimate_tokens_from_chars(prompt.SOUL_MAX_CHARS)
@@ -470,17 +483,44 @@ def test_the_configured_limit_fits_the_context_window_by_its_own_derivation():
         prompt.retrieved_records_max_chars()
         + 6000  # annotation bound asserted by test_the_worst_case_render_is_bounded
     )
-    reserved = (
+    return (
         config.history_output_reserve_tokens()
         + config.history_safety_margin_tokens()
         + config.history_message_overhead_tokens()
         + soul + situation
         + history.estimate_tokens_from_chars(retrieved_chars)
+        + _full_catalogue_schema_tokens()
     )
+
+
+def test_the_configured_limit_fits_the_context_window_by_its_own_derivation():
+    """`defaults.toml` derives the cap; this recomputes that chain from LIVE config,
+    so a smaller num_ctx, a larger output reserve, a larger top_k or **another tool's
+    schema** (B20) fails here rather than quietly letting a maximal message overflow
+    the window."""
     context = int(config.model_options()["num_ctx"])
+    reserved = _reserved_beside_a_maximal_message()
     fits_chars = (context - reserved) * config.history_chars_per_token()
 
     assert config.chat_max_message_chars() <= fits_chars, (
         f"chat.max_message_chars {config.chat_max_message_chars()} exceeds the "
         f"{fits_chars:.0f} characters that fit beside a maximal turn"
+    )
+
+
+def test_tool_schemas_fit_the_headroom_beside_a_maximal_message():
+    """B20's own check, stated in the schemas' terms: when the catalogue grows past
+    what the chat cap leaves free, this fails and names both numbers, so the choice
+    (a lower cap, or shorter schemas) is made on purpose."""
+    from program.engine import history
+
+    context = int(config.model_options()["num_ctx"])
+    schemas = _full_catalogue_schema_tokens()
+    headroom = (context - (_reserved_beside_a_maximal_message() - schemas)
+                - history.estimate_tokens_from_chars(config.chat_max_message_chars()))
+
+    assert schemas <= headroom, (
+        f"the full tool catalogue's schemas need ~{schemas} tokens, but only "
+        f"{headroom} are free beside a maximal {config.chat_max_message_chars():,}-char "
+        f"message. Lower chat.max_message_chars or shorten the schemas (B20)."
     )

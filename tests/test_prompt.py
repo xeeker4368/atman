@@ -362,13 +362,16 @@ def test_plan_budget_receives_the_right_character_counts(monkeypatch):
     captured = {}
     real = history.plan_budget
 
-    def spy(system_prompt_chars=0, retrieved_chars=0, context_tokens=None):
+    def spy(system_prompt_chars=0, retrieved_chars=0, context_tokens=None,
+            tool_schema_chars=0):
         captured.update(
             system_prompt_chars=system_prompt_chars,
             retrieved_chars=retrieved_chars,
             context_tokens=context_tokens,
+            tool_schema_chars=tool_schema_chars,
         )
-        return real(system_prompt_chars, retrieved_chars, context_tokens)
+        return real(system_prompt_chars, retrieved_chars, context_tokens,
+                    tool_schema_chars)
 
     monkeypatch.setattr(prompt.history, "plan_budget", spy)
     retrieval = make_retrieval()
@@ -376,9 +379,13 @@ def test_plan_budget_receives_the_right_character_counts(monkeypatch):
         [{"role": "user", "content": "hi"}],
         SITUATION_WITH_PAIRING,
         retrieval=retrieval,
+        tool_schema_chars=1234,
     )
 
     soul = prompt.load_soul()
+    # B20: the schemas are a third, separate figure, never folded into the others.
+    assert captured["tool_schema_chars"] == 1234
+    assert assembled.budget.tool_schema_tokens == history.estimate_tokens_from_chars(1234)
     rendered = prompt.render_retrieved(retrieval)
 
     assert captured["retrieved_chars"] == len(rendered)

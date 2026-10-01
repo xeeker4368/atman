@@ -431,7 +431,8 @@ def handle_user_message(
 
     # Before the save. Both users go through this identically — see the gate's
     # own docstring on why fabrication is not a permissions question.
-    verdict = gate.check(result.text, result.trace, situation)
+    # The gate reasons over tool calls; B21's window-event markers are not calls.
+    verdict = gate.check(result.text, loop.call_entries(result.trace), situation)
     if not verdict.clean:
         logger.warning(
             "integrity gate: turn in conversation %s recorded as %s (%d finding(s): %s)",

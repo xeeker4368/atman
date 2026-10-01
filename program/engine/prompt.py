@@ -526,7 +526,7 @@ def _record_cost(block: str) -> int:
 
 
 def _siblings_within_cap(
-    result: RetrievalResult, ranked: list[str], cap: int,
+    chunks: Sequence[RetrievedChunk], ranked: list[str], cap: int,
 ) -> tuple[dict[int, list[str]], int]:
     """Which continuation pieces fit, as ``({position: [rendered]}, withheld)``.
 
@@ -541,7 +541,7 @@ def _siblings_within_cap(
     room = cap - sum(_record_cost(block) for block in ranked)
     kept: dict[int, list[str]] = {}
     withheld = 0
-    for position, chunk in enumerate(result.results, start=1):
+    for position, chunk in enumerate(chunks, start=1):
         pieces: list[str] = []
         for offset, sibling in enumerate(chunk.siblings, start=1):
             block = _render_chunk(sibling, f"record {position}, continued {offset}")
@@ -554,25 +554,46 @@ def _siblings_within_cap(
     return kept, withheld
 
 
-def render_retrieved(result: RetrievalResult | None) -> str:
+def render_retrieved(
+    result: RetrievalResult | None,
+    cap: int | None = None,
+    keep_hits: int | None = None,
+) -> str:
     """Retrieved chunks as text, siblings attached under their parent (S7/D7).
 
     The records are bounded by :func:`retrieved_records_max_chars` (B17): continuation
     pieces that do not fit are left out and **counted** in a closing line, never
     silently dropped, the same pattern as the correction annotations' withheld count.
+
+    ``cap`` and ``keep_hits`` exist for the turn's own budget (B21). When the window
+    cannot hold the records at their full size, :func:`assemble_turn` shrinks them in
+    this order: continuation pieces first, by a smaller ``cap``; then whole ranked hits
+    from the **lowest rank up**, by a smaller ``keep_hits``. Hits left out are counted
+    in a closing line, as withheld pieces are. With neither given, the rendering is
+    byte-identical to B17's (pinned by ``test_retrieved_cap``).
     """
     if result is None or not result.results:
         return ""
 
+    chunks = list(result.results)
+    dropped_hits = 0
+    if keep_hits is not None and keep_hits < len(chunks):
+        dropped_hits = len(chunks) - max(0, keep_hits)
+        chunks = chunks[:max(0, keep_hits)]
+    if not chunks:
+        return _hits_left_out(dropped_hits)
+
     ranked = [_render_chunk(chunk, f"record {position}")
-              for position, chunk in enumerate(result.results, start=1)]
-    kept, withheld = _siblings_within_cap(result, ranked, retrieved_records_max_chars())
+              for position, chunk in enumerate(chunks, start=1)]
+    limit = retrieved_records_max_chars() if cap is None else min(
+        cap, retrieved_records_max_chars())
+    kept, withheld = _siblings_within_cap(chunks, ranked, limit)
 
     budget = _AnnotationBudget()
     blocks = [_RETRIEVED_HEADER]
     if not result.supersession.resolved:
         blocks.append(_SUPERSESSION_UNRESOLVED)
-    for position, chunk in enumerate(result.results, start=1):
+    for position, chunk in enumerate(chunks, start=1):
         blocks.append(ranked[position - 1])
         blocks.extend(budget.render(chunk))
         for sibling, block in zip(chunk.siblings, kept[position]):
@@ -586,7 +607,21 @@ def render_retrieved(result: RetrievalResult | None) -> str:
             f"long records {'were' if withheld > 1 else 'was'} left out to keep these "
             f"records within their size limit.]"
         )
+    if dropped_hits:
+        blocks.append(_hits_left_out(dropped_hits))
     return "\n\n".join(blocks)
+
+
+def _hits_left_out(count: int) -> str:
+    """Said when lower-ranked records were dropped for this turn's room (B21).
+
+    Authored text: checked by the naming and trait tripwires in
+    :func:`assemble_turn`. It says only what happened. The records are not gone;
+    they were not sent this time.
+    """
+    return (f"[{count} lower-ranked retrieved record{'s' if count > 1 else ''} "
+            f"{'were' if count > 1 else 'was'} left out of this turn to make room. "
+            f"{'They are' if count > 1 else 'It is'} still in memory.]")
 
 
 class _AnnotationBudget:
@@ -659,6 +694,14 @@ class AssembledPrompt:
     budget: BudgetBreakdown | None = None
     window: HistoryWindow | None = None
     retrieval: RetrievalResult | None = None
+    #: B21: what had to be given up to fit this call, beyond ordinary history
+    #: windowing. Each is a dict with a ``window_event`` kind. The loop logs it and
+    #: writes it into the turn's trace, so a loss is never silent.
+    window_events: list[dict[str, Any]] = field(default_factory=list)
+    #: B21's last resort: the turn does not fit even with nothing left to shrink
+    #: while tools are offered. The caller makes this the final, tool-free call
+    #: and assembles again with ``tool_schema_chars=0``.
+    needs_final_call: bool = False
 
     @property
     def overflowed(self) -> bool:
@@ -705,18 +748,38 @@ def assemble_turn(
     retrieval: RetrievalResult | None = None,
     context_tokens: int | None = None,
     soul_text: str | None = None,
+    *,
+    current_turn_start: int | None = None,
+    tool_schema_chars: int = 0,
 ) -> AssembledPrompt:
     """Build the system prompt, then give history whatever window is left (S12).
 
     Order of operations is the point: the system prompt is built and **measured
-    first**, and history takes the remainder. ``history.plan_budget()`` already
-    takes ``system_prompt_chars`` and ``retrieved_chars`` as caller-supplied
-    inputs precisely so this function could supply them without ``history.py``
-    needing rework — it does not.
+    first**, and history takes the remainder. The two counts are passed
+    **separately** to ``plan_budget`` so ``BudgetBreakdown`` reports where the
+    window went. ``tool_schema_chars`` is the size of the ``tools`` JSON this call
+    sends (B20), reserved the same way.
 
-    The two counts are passed **separately** rather than pre-summed.
-    ``plan_budget`` adds them anyway, but keeping them apart is what lets
-    ``BudgetBreakdown`` report where the window actually went.
+    **The current turn (B21).** ``current_turn_start`` is the index of this turn's
+    user message; the messages after it are this turn's tool rounds (an assistant
+    message carrying ``tool_calls``, then its results). The user's message is
+    **never dropped**. Before B21, windowing walked newest-first and kept only the
+    newest message unconditionally, which after a tool round is a tool result, so a
+    long question could be windowed out with nothing logged. When the turn does not
+    fit, it shrinks in this order:
+
+    1. **older history**, newest kept first: decision #6's ordinary windowing. Not
+       an event: it is the normal path, and what falls out stays retrievable.
+    2. **the retrieved records**: continuation pieces first (a smaller cap, B17's
+       order), then whole hits from the lowest rank up. Event ``records_shrunk``.
+    3. **the oldest whole tool rounds**, never part of one. Event ``rounds_dropped``.
+    4. **the last resort**: ``needs_final_call``, so the caller drops the tools and
+       assembles again without their schemas.
+    5. With no tools to drop, the user's message alone is sent over budget, as
+       before: event ``overflow``, logged at WARNING.
+
+    Without ``current_turn_start`` the behaviour is the pre-B21 one apart from the
+    schema term: the newest message is pinned and older ones fill the rest.
     """
     soul = soul_text if soul_text is not None else load_soul()
     if soul_text is not None:
@@ -725,30 +788,144 @@ def assemble_turn(
     situation = (situation or "").strip()
     _check_pairing(situation)
 
-    retrieved = render_retrieved(retrieval)
-    parts = [part for part in (soul, situation, retrieved) if part]
-    system = _SECTION_SEP.join(parts)
+    def compose(retrieved: str) -> tuple[str, int, history.BudgetBreakdown]:
+        parts = [part for part in (soul, situation, retrieved) if part]
+        # Separators plus the retrieved header, which render_retrieved() folds into
+        # the retrieved text. Counted against the system side so the two reported
+        # figures sum to what was actually sent.
+        scaffolding = max(0, len(parts) - 1) * len(_SECTION_SEP)
+        budget = history.plan_budget(
+            system_prompt_chars=len(soul) + len(situation) + scaffolding,
+            retrieved_chars=len(retrieved),
+            context_tokens=context_tokens,
+            tool_schema_chars=tool_schema_chars,
+        )
+        return _SECTION_SEP.join(parts), scaffolding, budget
 
-    # Separators plus the retrieved header, which render_retrieved() folds into
-    # the retrieved text. Counted against the system side so the two reported
-    # figures sum to what was actually sent.
-    scaffolding = max(0, len(parts) - 1) * len(_SECTION_SEP)
+    def finish(retrieved, window, events=(), needs_final=False):
+        system, scaffolding, budget = compose(retrieved)
+        return AssembledPrompt(
+            system=system,
+            messages=window.messages,
+            soul_chars=len(soul),
+            situation_chars=len(situation),
+            retrieved_chars=len(retrieved),
+            scaffolding_chars=scaffolding,
+            budget=budget,
+            window=window,
+            retrieval=retrieval,
+            window_events=list(events),
+            needs_final_call=needs_final,
+        )
 
-    budget = history.plan_budget(
-        system_prompt_chars=len(soul) + len(situation) + scaffolding,
-        retrieved_chars=len(retrieved),
-        context_tokens=context_tokens,
-    )
-    window = history.select_history(messages, budget)
+    full = render_retrieved(retrieval)
+    if current_turn_start is None:
+        _, _, budget = compose(full)
+        return finish(full, history.select_history(messages, budget))
 
-    return AssembledPrompt(
-        system=system,
-        messages=window.messages,
-        soul_chars=len(soul),
-        situation_chars=len(situation),
-        retrieved_chars=len(retrieved),
-        scaffolding_chars=scaffolding,
+    prior = list(messages[:current_turn_start])
+    current = messages[current_turn_start]
+    rounds = _tool_rounds(messages[current_turn_start + 1:])
+    cost = history.estimate_message_tokens
+
+    def room(retrieved: str) -> int:
+        return compose(retrieved)[2].history_tokens
+
+    def fits(retrieved: str, kept_rounds: list[list[Mapping[str, Any]]]) -> bool:
+        need = cost(current) + sum(cost(m) for r in kept_rounds for m in r)
+        return need <= room(retrieved)
+
+    events: list[dict[str, Any]] = []
+    retrieved = full
+    kept = list(rounds)
+
+    # 2. The records: continuation pieces first, then hits from the lowest rank.
+    if not fits(retrieved, kept) and retrieval is not None and retrieval.results:
+        retrieved, hits_kept = _shrink_records(retrieval, full, lambda r: fits(r, kept))
+        events.append({"window_event": "records_shrunk",
+                       "records_chars_before": len(full),
+                       "records_chars_after": len(retrieved),
+                       "hits": len(retrieval.results), "hits_kept": hits_kept})
+
+    # 3. The oldest whole tool rounds.
+    dropped = 0
+    while kept and not fits(retrieved, kept):
+        kept.pop(0)
+        dropped += 1
+    if dropped:
+        events.append({"window_event": "rounds_dropped", "rounds": dropped,
+                       "of_rounds": len(rounds)})
+
+    if not fits(retrieved, kept):
+        if tool_schema_chars:
+            # 4. The last resort: no tools on this call, and assemble again.
+            events.append({"window_event": "final_call_forced",
+                           "reason": "the turn does not fit beside the tool schemas"})
+            _, _, budget = compose(retrieved)
+            return finish(retrieved, history.HistoryWindow(budget=budget), events,
+                          needs_final=True)
+        # 5. Nothing left to give up: the user's message goes over budget, as before.
+        events.append({"window_event": "overflow",
+                       "message_tokens": cost(current),
+                       "history_tokens": room(retrieved)})
+
+    _, _, budget = compose(retrieved)
+    pinned = [current, *[m for r in kept for m in r]]
+    used = sum(cost(m) for m in pinned)
+    older: list[Mapping[str, Any]] = []
+    for message in reversed(prior):  # 1. older history, newest kept first
+        if used + cost(message) > budget.history_tokens:
+            break
+        older.append(message)
+        used += cost(message)
+    older.reverse()
+    window = history.HistoryWindow(
+        messages=[history.normalise_message(m) for m in [*older, *pinned]],
+        omitted=(len(prior) - len(older)) + sum(len(r) for r in rounds[:dropped]),
+        estimated_tokens=used,
         budget=budget,
-        window=window,
-        retrieval=retrieval,
+        overflowed=any(e["window_event"] == "overflow" for e in events)
+        or budget.over_committed,
     )
+    return finish(retrieved, window, events)
+
+
+def _tool_rounds(extras: Sequence[Mapping[str, Any]]) -> list[list[Mapping[str, Any]]]:
+    """This turn's tool rounds: each an assistant tool-call message and its results.
+
+    A round is dropped whole or kept whole: a result without the call it answers,
+    or a call without its results, reads to the model as something that did not
+    happen the way it did.
+    """
+    rounds: list[list[Mapping[str, Any]]] = []
+    for message in extras:
+        if message.get("role") == "assistant" or not rounds:
+            rounds.append([message])
+        else:
+            rounds[-1].append(message)
+    return rounds
+
+
+def _shrink_records(retrieval: RetrievalResult, full: str, ok) -> tuple[str, int]:
+    """The largest rendering of the records that fits, and how many hits it keeps.
+
+    B17's order of giving up: first a smaller cap, which withholds continuation
+    pieces in parent rank order; then fewer ranked hits, from the lowest rank up,
+    down to none.
+    """
+    hits = len(retrieval.results)
+    if ok(render_retrieved(retrieval, cap=0)):
+        # Every hit fits, and some continuation pieces may: the largest cap that does.
+        low, high = 0, len(full)
+        while high - low > 200:
+            middle = (low + high) // 2
+            if ok(render_retrieved(retrieval, cap=middle)):
+                low = middle
+            else:
+                high = middle
+        return render_retrieved(retrieval, cap=low), hits
+    for keep in range(hits - 1, 0, -1):
+        candidate = render_retrieved(retrieval, cap=0, keep_hits=keep)
+        if ok(candidate):
+            return candidate, keep
+    return render_retrieved(retrieval, cap=0, keep_hits=0), 0

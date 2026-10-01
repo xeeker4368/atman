@@ -140,11 +140,22 @@ class TurnResult:
 
     @property
     def called_tools(self) -> bool:
-        return bool(self.trace)
+        return bool(call_entries(self.trace))
 
     @property
     def tool_budget_exhausted(self) -> bool:
         return self.tool_seconds_used >= self.tool_budget_seconds
+
+
+def call_entries(trace: Sequence[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
+    """The trace's tool-call entries, without B21's window-event markers.
+
+    The trace holds two kinds of entry: one per tool call (it has ``"tool"``), and
+    one per window event (it has ``"window_event"``), so that a turn that had to
+    give something up says so in the record. Anything that reasons over **calls**
+    (the gate, the call/result symmetry) takes this, never the raw trace.
+    """
+    return [entry for entry in trace if "window_event" not in entry]
 
 
 def _call_name(call: Mapping[str, Any]) -> str:
@@ -275,16 +286,34 @@ def run_turn(
     spent = 0.0
     assembled: prompt.AssembledPrompt | None = None
 
+    current_turn_start = len(messages) - 1 if messages else None
     for iteration in range(1, limit + 1):
         final_call = iteration == limit
-        assembled = prompt.assemble_turn(
-            [*messages, *extras], situation, retrieval, soul_text=soul_text
-        )
         # No tools on the last call: see the module docstring. Also no tools
         # when none are registered — an empty `tools: []` is not the same
         # request as one without the field, and Phase 2 registers its tools one
         # task at a time.
         payload = registry.ollama_schema() if (not final_call and len(registry)) else None
+        # B20: the schemas are priced in the window. B21: this turn's user message
+        # is pinned, and anything given up to fit is recorded.
+        assembled = prompt.assemble_turn(
+            [*messages, *extras], situation, retrieval, soul_text=soul_text,
+            current_turn_start=current_turn_start,
+            tool_schema_chars=len(json.dumps(payload)) if payload else 0,
+        )
+        events = list(assembled.window_events)
+        if assembled.needs_final_call:
+            # B21's last resort: the turn does not fit beside the tool schemas even
+            # with everything else given up, so this call goes without tools.
+            final_call, payload = True, None
+            assembled = prompt.assemble_turn(
+                [*messages, *extras], situation, retrieval, soul_text=soul_text,
+                current_turn_start=current_turn_start, tool_schema_chars=0,
+            )
+            events.extend(assembled.window_events)
+        for event in events:
+            logger.warning("turn window, iteration %d: %s", iteration, event)
+            trace.append({"iteration": iteration, **event})
 
         response = ollama.chat(
             assembled.to_messages(), model=model, options=options, tools=payload

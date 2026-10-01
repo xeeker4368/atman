@@ -394,7 +394,15 @@ def test_truncation_is_the_only_thing_that_shortens_a_result():
 def test_tool_results_are_priced_against_the_window_not_appended_freely(
     model, registry, monkeypatch
 ):
-    """A long turn evicts old history rather than silently overflowing num_ctx."""
+    """A long turn evicts old history rather than silently overflowing num_ctx.
+
+    B21 changed what survives. This test used to assert that the newest message,
+    a tool result, survived, which is the rule that let a long question be windowed
+    out behind its own tool results. Now **the turn's user message is pinned**, and
+    a round that does not fit beside it is dropped whole and recorded in the trace.
+    At this num_ctx the schemas (B20) leave ~129 tokens, room for the question and
+    not the round.
+    """
     monkeypatch.setenv("ANAM_MODEL_NUM_CTX", "4096")
     config.reload()
 
@@ -404,15 +412,40 @@ def test_tool_results_are_priced_against_the_window_not_appended_freely(
     ]
     fake = model(calls(("scaffold_big", {})), answer("done"))
 
-    loop.run_turn(history, registry=registry)
+    result = loop.run_turn(history, registry=registry)
 
-    # System message + whatever history fits. The second call carries the tool
-    # exchange, so it must have dropped older turns to stay inside the window.
     first_history = [m for m in fake.calls[0]["messages"] if m["role"] == "user"]
     second = fake.calls[1]["messages"]
     assert len(first_history) < len(history), "history was not windowed at all"
-    assert second[-1]["role"] == "tool", "the newest content must survive"
-    assert any(m.get("tool_calls") for m in second)
+    assert second[-1] == {"role": "user", "content": history[-1]["content"]}, (
+        "this turn's own question must survive")
+    assert not any(m.get("tool_calls") or m["role"] == "tool" for m in second), (
+        "a round is dropped whole, never half")
+    assert [e["window_event"] for e in result.trace if "window_event" in e] == [
+        "rounds_dropped"]
+    assert len(loop.call_entries(result.trace)) == 1, "the call itself is still traced"
+
+
+def test_a_round_that_fits_is_kept_beside_the_pinned_question(model, registry, monkeypatch):
+    """The other branch: with room for the round, the question and the whole round
+    are both sent, older history is what gives way, and nothing is marked."""
+    monkeypatch.setenv("ANAM_MODEL_NUM_CTX", "4400")
+    config.reload()
+
+    history = [
+        {"role": "user", "content": f"turn {i}: " + "filler words here. " * 20}
+        for i in range(12)
+    ]
+    fake = model(calls(("scaffold_big", {})), answer("done"))
+
+    result = loop.run_turn(history, registry=registry)
+
+    second = fake.calls[1]["messages"]
+    roles = [m["role"] for m in second]
+    assert roles[-3:] == ["user", "assistant", "tool"]
+    assert second[-3]["content"] == history[-1]["content"]
+    assert roles.count("user") < len(history), "older history gave way first"
+    assert not [e for e in result.trace if "window_event" in e]
 
 
 # --- Output cap and truncation (plan B8) ------------------------------------

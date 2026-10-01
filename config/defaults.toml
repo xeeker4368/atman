@@ -145,11 +145,23 @@ in_flight_grace_minutes = 41
 #   - retrieval: top_k 10 x embedding.max_input_chars 5,000 = 50,000 ch
 #       + correction annotations < 6,000 ch (asserted, test_supersession)
 #       + record headers ~1,000 ch  = 57,000 ch          -14,250
-#   = 14,304 tokens x 4.0 = 57,216 characters
+#   - tool schemas, the FULL catalogue (B20, 2026-10-01): 9 tools,
+#       4,854 ch of JSON (real tokenizer: 1,052)         -1,214
+#   = 13,090 tokens x 4.0 = 52,360 characters
 #
-# Rounded DOWN to 50,000, the one judgment in the chain, which also leaves ~1,800
-# tokens of earlier history beside a maximal message. tests/test_turn.py recomputes
-# the chain from live config and fails if this exceeds it.
+# (Before B20 the schemas were priced nowhere and the figure read 57,216.) The
+# schema term covers EVERY tool, enabled or not, so switching one on cannot break
+# this silently.
+#
+# Rounded DOWN to 50,000, the one judgment in the chain, which now leaves ~590
+# tokens of earlier history beside a maximal message (it was ~1,800 before B20).
+# tests/test_turn.py recomputes the chain from live config and fails if this exceeds
+# it, and a second test fails, naming both numbers, when the catalogue's schemas
+# outgrow that headroom. Notes' two drafted tools (~369 estimated tokens) still
+# fit; the next tool after them does not, and then this value comes down.
+#
+# A maximal message is never windowed out of its own turn (B21): the turn's tool
+# rounds compete with the retrieved records for what is left, records first.
 #
 # Split-sibling attachment is covered since B17 (2026-09-30): the rendered records are
 # capped at exactly this figure (top_k x max_input_chars + 1,000 of headers =
