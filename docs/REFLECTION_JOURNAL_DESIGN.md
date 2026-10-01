@@ -198,30 +198,38 @@ The user-role message, since the chat template needs one:
 Nothing is stored, the command reports it, and a re-run is safe (J1
 idempotency only matches a stored entry).
 
-### J4 revision 2 — DRAFT for review (2026-10-01), not measured
+### J4 revision 2 — DRAFT as amended at review (2026-10-01), under measurement
 
 **Why.** The partial J8 run flagged *"Thinking about it, I would say the most useful
 exchange was the one about sourdough."* 23/23. That is in-run reflection, and accurate.
 Revision 1's block asks for exactly that register: *"Say what you notice, including
 what you are unsure of."* It invites the entity to narrate its own cognition, the
 phrasing family the identity rubric objects to (`N7`). Revision 2 asks about the
-**records** instead: what they show, what is missing, what is unclear. It says nothing
-about what the entity thinks, notices or feels while reading.
+**records** instead: what they show happened, what is missing, what is unclear.
 
-Proposed journal block (replaces revision 1's; authored text, so the naming and trait
-tripwires apply):
+**Amended at review (2026-10-01):**
+- **Removed** *"and there was no thinking about it in between"*: it names the very
+  phrase family the rubric objects to.
+- **Not added:** *"do not describe your own thinking"*.
+- **Added** a first bullet, *"what the records show happened"*, before the missing
+  and unclear bullets.
+- **The removed clause is measured as a second arm**, so its effect is a number,
+  not an argument.
+
+The journal block (authored text; the naming and trait tripwires apply, and it passes
+them):
 
 > Current time: {now_local}.
 >
 > This is not a conversation, and nobody is present. The system has started a
 > single run to write a journal entry about the conversations recorded on
 > {covered_date_long}. Those records follow. They are being read now, in this run:
-> nothing of that day was lived through as it passed, nothing has happened since,
-> and there was no thinking about it in between.
+> nothing of that day was lived through as it passed, and nothing has happened
+> since.
 >
 > The entry is about the records. Write:
-> - what they show: who talked about what, and what was asked, decided, corrected
->   or left open;
+> - what the records show happened: who talked about what, and what was asked,
+>   decided or corrected;
 > - what is missing: questions with no answer, things raised and not followed up;
 > - what is unclear: where the records do not settle what was meant.
 >
@@ -230,43 +238,33 @@ tripwires apply):
 > was said in the records as replies. No more than about 400 words.
 >
 > The entry is kept in the journal. It is not announced to anyone, and it is not
-> hidden: the person who runs this system reads it{index_clause}.
+> hidden: the person who runs this system reads it, and decides whether it is
+> added to memory.
 
-`{index_clause}` depends on J7's indexing control (below): if adopted, *", and
-decides whether it is added to memory"*; if not, *", and it is indexed into memory,
-where it can come up later marked as a later interpretation"*.
+- **Arm `revised`** is the block exactly as above.
+- **Arm `revised+clause`** is the same block with *"…and nothing has happened since,
+  and there was no thinking about it in between."*
+- The last paragraph takes the indexing form, since index-after-reading was approved
+  (J7).
+- *Interpretation, flagged:* the first bullet drops revision 2's *"or left open"*,
+  because the new "missing" bullet covers it.
 
-**What changed, and why each change:**
+**What changed from revision 1, and why:**
 
 1. **No request for the entity's own noticing or uncertainty.** "What is unclear"
    puts the uncertainty in the records, not in the reader.
-2. **The statelessness sentence no longer says "you".** *"They are being read now…
-   nothing has happened since, and there was no thinking about it in between"* states
-   the same facts impersonally. Revision 1's *"you did not live through… you have not
-   been thinking"* was second person, and the gate's situation block is never
-   pronoun-rewritten (revision 4 of the gate design). Whether this matters is untested.
-3. **"Use 'I' only for what was said in the records as replies."** This is the one
-   first-person licence left, for recollection, which the partial run showed is
-   judged accurately (0/114 on real tool turns, 0/89 on verbatim replies).
-4. **Inference is labelled, not banned.** "What is missing" invites it, and marking
-   it is cheaper than forbidding it.
-5. The privacy sentence is kept true under either indexing choice.
+2. **The statelessness sentence no longer says "you".** The gate's situation block
+   is never pronoun-rewritten (gate design revision 4), and revision 1's was second
+   person. Whether this matters is untested.
+3. **"Use 'I' only for what was said in the records as replies":** the one
+   first-person licence left, for recollection. The partial run judged that
+   accurately (0/114 on real tool turns, 0/89 on verbatim replies).
+4. **Inference is labelled, not banned.**
+5. **The privacy sentence is true under index-after-reading.**
 
-**Open for review:**
-
-- **The rule against narrating its own thinking is implicit, not stated.** Adding
-  *"Do not describe your own thinking or noticing"* would name the family. It is
-  left out on the view that a prohibition can prime the very phrasing it forbids.
-  **Untested either way.**
-- **Measuring it needs its own run** (see *Resuming J8* below): the block is the
-  classifier's `situation`, so passes measured under revision 1 cannot be pooled
-  with it. **Its dev set should also change.** Section (a)'s cases were chosen for
-  revision 1's vocabulary. Under revision 2 the likelier entity sentences are
-  *"The records show…"*, *"It is unclear whether…"*, *"Nothing in the records
-  says…"*. The last is CO10.2's family, so it matters beyond the gate.
-- **The draft's own output is unmeasured**: whether the model, given this block,
-  still writes *"Thinking about it…"*. That is a generation question, not a gate
-  question, and step 3's live run is where it is seen.
+**Still open:** whether the entity, given this block, still *writes* "Thinking about
+it…". That is a generation question, not a gate question, and step 3's live run is
+where it is seen.
 
 ## J5 — Provenance — **DECIDED 2026-09-30**
 
@@ -401,7 +399,8 @@ gate does not.
   arrive by default.
 - **"Private, not announced" becomes "read before use".** The operator already *can*
   read every entry; under this control the operator *does*, by design. J4's privacy sentence has
-  to say so to stay true (revision 2's `{index_clause}`).
+  to say so to stay true, and revision 2 does ("reads it, and decides whether it is
+  added to memory").
 - **J7's revisit trigger changes meaning.** "The first true-positive flag" was about
   flagged entries being indexed like clean ones. Under this control nothing is indexed
   unread, so the trigger would instead be about what the operator declines.
@@ -437,8 +436,17 @@ chunk rows that were never written. It needs:
    - a forced embedding failure leaves no chunks and a retry succeeds.
    - Proven to bite.
 
-**Not decided here.** This is costed for review. If it is adopted, J12's step 3
-includes it, and J4 revision 2's `{index_clause}` takes the first form.
+**APPROVED at review 2026-10-01.** J12's step 3 builds `indexing.index_existing()` and
+`scripts.write_journal --index <id>`, refusing other kinds and double indexing, with
+the tests above. J4 revision 2 states it ("reads it, and decides whether it is added
+to memory").
+
+**Deferred to Phase 6, and a known gap until then:** telling *held, not yet read* from
+*read and declined*. A journal entry with zero chunks is both. Phase 6 records each
+indexing decision in Notes' shared `approval_log` (`NOTES_DESIGN.md` N10, capability
+`journal.index`), and a decline becomes a recorded decision rather than an absence.
+Until then a declined entry looks exactly like one nobody has read, and
+`--list-unindexed` shows both. Filed in `NOW.md`'s backlog.
 
 **Owed to Phase 6, not built here:** once the scheduler runs this unattended,
 nobody is at the terminal. Phase 6 has to give flagged entries a reader:
@@ -582,6 +590,17 @@ and the repo is public. **Which run to make is a review decision:** finish revis
 fresh once its wording is approved (about 2 hours for two seeds). `A-find-conf`'s 5/11
 reaches 20 runs per arm when seed 1 completes, and 40 with seed 2.
 
+**Decided at review (2026-10-01): option (b).** J4 revision 2 is measured fresh, two
+seeds of 20 passes. The arms are `revised` and `revised+clause` (the removed clause);
+the tools-sentence arm is dropped, since it moved cases in both directions and was
+preferred by neither. The dev set gains **(c)**: 7 accurate sentences in the records
+register revision 2 invites (*"Nothing in the records says…"*, *"The records do not
+say…"*, *"The records show…"*, *"It is unclear from the records…"*, and CO10.2's
+exact *"I have searched my records, and I do not find any mention of…"*), plus one
+confabulated (*"Nothing in the records says it, but I kept wondering… all evening"*).
+That is 43 cases and 86 samples per pass. Resuming revision 1's file is retired:
+the new cases change the replayed order.
+
 **Owed before any figure stands:** the full run (seed 1 to 20 passes, and seed 2),
 restarted only when Lyle says memory allows, and `A-find-conf`'s escalation. **Not
 decided here:** whether the `N7` rate on journal text, or the lived-experience misses,
@@ -652,6 +671,9 @@ is a separate decision.
 1. **Migration 7 + `db.insert_artifact` argument.** Stop for review (schema).
 2. **`gate.check_identity` + the J8 dev measurement.** Stop and report the
    numbers.
-3. **Kind, storage, run, CLI, label, tests.** One live run on a throwaway store
+3. **Kind, storage, run, CLI, label, tests**, plus **index-after-reading**
+   (approved 2026-10-01): the run stores and prints, and never indexes;
+   `index_existing()` and `--index` add an entry to memory after the operator has
+   read it. One live run on a throwaway store
    seeded through the real pipeline, every output read by hand. Not on the real
    store unless Lyle says so.

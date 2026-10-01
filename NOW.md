@@ -403,6 +403,15 @@ past older history is logged and marked in the trace.
   - (4) the reproduction scenarios become regression tests asserting the user's message is
     present on every call.
 
+**Journal: "held, not yet read" and "read and declined" look the same — KNOWN GAP,
+deferred to Phase 6** (decided at review 2026-10-01; `docs/REFLECTION_JOURNAL_DESIGN.md`
+J7). Index-after-reading is approved: a journal entry enters memory only on an explicit
+`--index` after the operator has read it. A declined entry is simply never indexed, so
+it has zero chunks, exactly like one nobody has read yet. Phase 6 records each
+indexing decision in Notes' shared `approval_log` (capability `journal.index`), so a
+decline becomes a recorded decision rather than an absence. Until then,
+`--list-unindexed` lists both together.
+
 **Retrieval floor calibration** — floors ship permissive/uncalibrated by
 design (see `BUILD_PLAN.md` Phase 1 notes). Once real conversation history
 exists in meaningful volume, calibrate actual threshold values and verify
