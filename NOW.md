@@ -350,6 +350,53 @@ The journal gets a reader in its own command's output (J7); turns have none. The
 natural home is Phase 9's admin panel, or the Phase 7 observability work. Recorded so
 the persisted-but-unread state is a known state, not a silent one.
 
+**B20: tool-schema tokens are not a budget term** (filed at review 2026-09-30, Moltbook
+revision 3; Tier 3 when built, since it changes prompt-assembly accounting). Every
+tool-bearing call sends the offered tools' JSON schemas, and nothing counts them: not
+`history.plan_budget`, not `prompt.assemble_turn`, and not B6a's derivation of
+`chat.max_message_chars` (`tests/test_turn.py`). **Measured against `gemma4:26b`'s
+tokenizer:** 5 tools **657** tokens, 9 tools (with Moltbook) **1,052**. B6a's derivation
+leaves **1,804** tokens of headroom beside a maximal message, which falls to **752** with
+9 tools. Notes (two tools, ~100 tokens each) and the remaining Phase 5 tools will consume
+most of the rest, with nothing failing when they do.
+**Designed, not built (presented at review):**
+- `plan_budget(..., tool_schema_chars=0)`, with a `tool_schema_tokens` field on
+  `BudgetBreakdown`, and the `reserved + history == context` test extended to it.
+- `prompt.assemble_turn` takes the size, and `loop.py` passes `len(json.dumps(payload))`
+  when tools are sent, 0 on the final, toolless call.
+- B6a's derivation gains the term, computed over the **full catalogue** (every tool, enabled
+  or not), so switching a tool on can never silently break it.
+- A dedicated test fails, naming both numbers, when the full catalogue's schemas exceed the
+  cap's headroom.
+- The 4.0 chars/token estimate over-counts these schemas (real 4.61), which is the safe
+  direction.
+
+**B21: a long user message is silently dropped after tool rounds: REPRODUCED**
+(2026-09-30, found by reading while measuring B20; Tier 3, history windowing).
+- **Mechanism.** After a tool round, the loop re-plans the window over the user's message
+  plus the round's tool messages. `history.select_history` walks newest-first, always keeps
+  only the newest (now a tool result), and stops at the first message that does not fit,
+  which can be **the user's own message**. The model is then asked to answer tool results
+  with no question in front of it.
+- **Silent:** the overflow warning never fires, because the newest message fits.
+- **Reproduced** with the real loop, prompt assembly and windowing, only `ollama.chat`
+  faked (scratchpad script, recorded in the changelog):
+  - a 50,000-char message beside maximal retrieved records survives one round of 2 tool
+    calls, and is **dropped** after 3 calls, or after 2 rounds of 2.
+  - Smallest message dropped after 4 rounds:
+    - records 57,000: 1 call/round from ~42,700 chars; 2 from ~25,900; **3 from ~9,400**;
+    - records 25,000: only at 3 calls/round, from ~41,600 chars;
+    - no records: never, up to the 50,000 cap.
+- **Proposed fix, not applied:**
+  - (1) pin the current turn's user message so it is never evicted;
+  - (2) when the pinned message plus this turn's tool rounds exceed the budget, drop the
+    **oldest whole rounds** (an assistant tool-call message with all its results), never
+    part of one, logging at WARNING;
+  - (3) once (2) has happened, make the next call the final, toolless one, so the model
+    answers with what it has rather than looping;
+  - (4) the reproduction scenarios become regression tests asserting the user's message is
+    present on every call.
+
 **Retrieval floor calibration** — floors ship permissive/uncalibrated by
 design (see `BUILD_PLAN.md` Phase 1 notes). Once real conversation history
 exists in meaningful volume, calibrate actual threshold values and verify

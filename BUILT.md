@@ -1118,15 +1118,21 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   fails it.
 - `[built]` **Tool-schema cost measured** against the real tokenizer: 5 tools 657
   tokens, 9 tools **1,052**. Moltbook adds 395 per tool-bearing call.
-- `[unverified]` **Nothing budgets tool schemas.** Not `plan_budget`, not
-  `assemble_turn`, not B6a's derivation of the chat cap. A maximal message still fits
-  (752 of B6a's 1,804 tokens of headroom left, 1,147 before Moltbook), but only because
-  the cap was rounded down. Each new tool spends that headroom silently. A schema
-  term in the budget is its own task.
-- `[unverified]` **Adjacent, found by reading, not reproduced:** after a tool round
-  the newest message is a tool result, and `select_history` keeps only the newest
-  unconditionally. So a near-maximal user message followed by large tool results could
-  have **the user's own message windowed out**. Independent of Moltbook.
+- `[unverified]` **Nothing budgets tool schemas: filed as B20** (`NOW.md`, fix designed,
+  not built). Not `plan_budget`, not `assemble_turn`, not B6a's derivation of the chat
+  cap. A maximal message still fits (752 of B6a's 1,804 tokens of headroom left, 1,147
+  before Moltbook), but only because the cap was rounded down. Each new tool spends that
+  headroom silently.
+- `[built]` **B21 REPRODUCED: the user's own message can be silently windowed out after
+  tool rounds** (`scripts/history_window_diagnosis_b21.py`; the real loop, prompt assembly
+  and windowing, with only `ollama.chat` faked). After a tool round, `select_history` keeps
+  the newest message (a tool result) and stops at the first that does not fit, which can
+  be the question itself. **Nothing is logged**, since the newest message fits.
+  - A 50,000-char message beside maximal records is dropped after 3 tool calls.
+  - At the records cap, 3 calls per round drop a ~9,400-char message within 4 rounds.
+  - At 25,000 chars of records it takes ~41,600 chars and 3 calls/round.
+  - With no records: never, up to the cap.
+  - Independent of Moltbook. Fix proposed in `NOW.md` (Tier 3), **not applied**.
 - `[unverified]` **The Phase 5 gate call has not been made**: a real turn in which the
   model chooses a Moltbook tool. Anonymous rate limits are probably counted per IP,
   shared with anything else on this connection; that is undocumented.
