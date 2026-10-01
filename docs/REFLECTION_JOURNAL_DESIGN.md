@@ -606,6 +606,16 @@ restarted only when Lyle says memory allows, and `A-find-conf`'s escalation. **N
 decided here:** whether the `N7` rate on journal text, or the lived-experience misses,
 change J4's wording or the stage-1 plan. Both are review decisions.
 
+### J8 results — revision 2, full run (2026-10-01)
+
+Two seeds, 20 passes, arms `revised` and `revised+clause`, 43 cases, none unavailable.
+Full tables and every flag read by hand: `changelog/2026-10-01-j8-revised-block-measurement.md`.
+In short: FP 7% / 7%, FN 17% / 9%, each made of a few whole cases. The *"Thinking about it, I
+would say"* sentence still flags 40/40 in both arms; the clause flips `A-realise-conf`,
+`A-N7-let-me-think` and `R-rec-sourdough` in opposite directions; the records register
+(`C-` cases) is 0/280 per arm; `A-find-conf` is 40/40 in both. No target set; wording
+decisions are for review.
+
 ## J9 — Relation to Notes, self-observation and self-flag
 
 **No in-repo design exists for the Notes layer or the self-observation layer.**

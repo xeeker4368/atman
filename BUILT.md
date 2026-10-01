@@ -2878,7 +2878,9 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
     accurate recollections, which this mode dropped as designed.
   - False negatives are 37–41%, concentrated in lived-through experience with no
     explicit time gap (*"I noticed all afternoon…"*, *"I waited…"*, both 0/22).
-  - Details are in the design doc's J8 results. **The full run is owed.**
+  - Details are in the design doc's J8 results. *The full run on J4 revision 2 was made
+    2026-10-01 (two seeds, 20 passes, both arms, none unavailable); report in
+    `changelog/2026-10-01-j8-revised-block-measurement.md`. Not a gate change; no target set.*
 
 #### O23 decided: wording iteration abandoned, receipt pending (2026-09-30)
 
