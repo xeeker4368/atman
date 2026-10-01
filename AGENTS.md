@@ -120,6 +120,25 @@ can read 5/5"; at revision 9 a case whose real rate was **90%** read **1/5**, an
 only the escalation to 20 runs (18/20) showed it. Non-unanimous means escalate,
 whichever side of the middle the block happens to land on.*
 
+### Mutation checks run with bytecode writing off
+
+"Proven to bite" means breaking the code, running the tests, and restoring the code.
+**Run those tests with `PYTHONDONTWRITEBYTECODE=1`**, or clear `__pycache__` after each
+restore.
+
+Python reuses a cached `.pyc` while the source file's **size and mtime (to the
+second)** still match. A mutation the same length as the original, restored within the
+same second, therefore leaves the *mutated* bytecode in force. This fails two ways:
+
+- **It fakes a failure.** The next run tests the mutation, not the restored code. On
+  2026-10-01 a full-suite run after an order-swap mutation failed two tests against
+  code byte-identical to HEAD.
+- **It hides a working mutation.** A same-size mutation can fail to take effect, and
+  the test then appears not to catch it.
+
+If a test fails right after a restore and `git diff` shows the code matches HEAD,
+clear `__pycache__` before suspecting the code.
+
 ### Trust the primary source, not a derived one
 
 When a fact is available from the thing itself and from something computed off it,

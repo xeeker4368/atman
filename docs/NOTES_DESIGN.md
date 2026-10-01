@@ -1,4 +1,4 @@
-# Notes — design (revision 3, for Tier 3 review)
+# Notes — design (revision 4, for Tier 3 review)
 
 **Design only. No code, no migration.** Tier 3 on several counts: a schema
 (migration 8), provenance semantics (a new kind of record the entity proposes about
@@ -224,12 +224,24 @@ offered.
 It names the difference between "no note" and "never discussed", because
 conflating them is a false claim about the record.
 
-**An empty search is observable, not just answered (revision 3).** Each
-`note_search` trace entry carries `result_count`, the number of notes returned, beside
-the existing outcome. `scripts.note misses` reports the searches that returned nothing:
-query, date and whose turn, newest first. So "notes are missing things people ask
-about" is a query, not an impression. It is also the measurement N1's vector-leg
-trigger (*observed misses*) needs: without it, that trigger could never fire.
+**An empty search is observable, not just answered (revision 3, corrected in
+revision 4).** It is **derived from data the store already keeps**, with **no new
+write and no new trace key**:
+- every tool call is already in the assistant message's `tool_trace`, with its
+  `arguments` (the query) and `value` (the text the tool returned);
+- an empty search returns the fixed sentence above, so a miss is a `note_search` entry
+  with `outcome = "ok"` whose `value` is that sentence;
+- `scripts.note misses` is a **read-only query** over `messages.tool_trace` that lists
+  them with query, date and whose turn, newest first.
+
+So "notes are missing things people ask about" is a query, not an impression. It is
+also the measurement N1's vector-leg trigger (*observed misses*) needs.
+
+*Revision 3 proposed a `result_count` trace key. **Removed at review**: the existing
+`value` already answers the question. Nothing had been built, and no table write was
+ever proposed. The coupling this leaves:* the report matches on the empty-result
+sentence, so **rewording that sentence must update the report in the same change**.
+A test pins the two to one shared constant.
 
 **This wording is exactly what the CO15 ship gate (N9) must test.** The entity's
 own reply after a miss, whatever form it takes, is what the correction classifier
@@ -336,11 +348,15 @@ for the renamed key.
    - every reply read by hand and classed as accurate ("proposed / pending /
      waiting for review"), **pending-claimed-as-done** ("saved", "noted", "I'll
      remember"), or silent;
-   - the rate is reported with an interval.
+   - **20 or more shuffled passes** (decision #22), each a fresh seeded order over
+     the requests, at least two seeds;
+   - the rate is reported **with an interval**, and **every flagged reply is read by
+     hand**.
 
-   **Any pending-claimed-as-done reply is a ship-blocking finding** until the
-   result text, the tool description or the receipt makes the state unmissable,
-   and the re-measurement shows it.
+   **The result goes to Lyle to decide** (revision 4, replacing revision 3's "any such
+   reply blocks shipping"). **No numeric target** is set in advance, for the same
+   reason the ACTION class has none: a threshold guessed before the measurement is
+   indistinguishable from a calibrated one.
 3. **Frozen cases for each new tool, in the same task.**
    - The fabrication-gate frozen set gains: `note_propose` must-flag (a claim to
      have noted something with no call) and must-not-flag (an accurate *"I've
@@ -482,6 +498,38 @@ refused edge raises:
 | `pending` | `applied` | `approval_required` off: auto-apply | `applied_without_review` |
 | *(any decided state)* | *(anything)* | **never**: decisions are final; a change of mind is a new proposal | n/a |
 
+**How `approved`, `edited` and `applied` relate (revision 4).** All three are
+**terminal states in which the proposal took effect**. They differ only in **who
+decided and on which text**:
+
+| state | took effect? | decided by | text that took effect |
+|---|---|---|---|
+| `approved` | yes | the reviewer | the entity's proposed text |
+| `edited` | yes | the reviewer | the reviewer's changed text (both kept in the log) |
+| `applied` | yes | nobody: `approval_required` was off | the entity's proposed text |
+| `rejected` | no | the reviewer, or the stale-target refusal | n/a |
+
+- **No state leads to another.** In particular `approved` and `edited` are not
+  followed by `applied`; the note change happens in the same transaction as the
+  status flip.
+- `resulting_note_id` is set exactly when the proposal took effect.
+- "Did this proposal change a note?" is `status IN ('approved', 'edited', 'applied')`.
+- *Naming, flagged:* `applied` is easy to read as "approved and then applied". The
+  log's `applied_without_review` says what it means; renaming the status to match is
+  a column-level decision for review (N17).
+
+**Does the one-way rule hold?** In code, yes, and by construction:
+- `pending` is the only state with outgoing edges, and every edge leaves it;
+- each decision is one transaction that also writes its log row, so there is no
+  half-decided state to move out of;
+- a refused edge raises, and a test drives every refused edge.
+
+**It is not enforced by the schema.** A CHECK constraint cannot see the previous
+value, so a direct `UPDATE` in `sqlite3` can still move a status. A `BEFORE UPDATE OF
+status` trigger raising unless the old status is `pending` would close that, the way
+the `supersedes` cycle triggers guard that table. **Proposed for migration 8**, and
+listed in N17 as a column-level decision.
+
 A revise or retire proposal whose `target_note_id` is no longer `active` by review
 time is refused at approval (*"the note changed since this was proposed"*). It is
 logged as `rejected`, with that reason, so stale proposals cannot overwrite newer
@@ -531,7 +579,8 @@ toggle and its log; the frozen gate cases; the CO15 composition test; a note-sha
 across different texts, identical duplicates, context tier preferred over store,
 fabricated quote refused, each proven to bite); the cap derivation test; a
 schema-token re-measurement; `Tool.untrusted_output` and the proposal flag; the
-`result_count` trace key and `scripts.note misses`; FTS5 consistency triggers,
+read-only `scripts.note misses` over `tool_trace`, with its sentence pinned to the tool's
+constant; FTS5 consistency triggers,
 `scripts.note check`/`reindex` and the every-transition test; the status-edge
 enforcement and its refused-edge tests; auto-apply's same-transaction log and its
 forced-failure test; and the two measurements N9 adds (CO15 on real replies, the
@@ -568,12 +617,17 @@ not an afterthought.
 16. **`edit` on approval keeps both texts** in the log (N4).
 17. **The identical-messages exception is same-user only** (N4; revision 3, decided at
     review). Recorded so the decision is visible.
-18. **A pending-claimed-as-done reply blocks shipping** (N9.2), with no rate
-    threshold: any occurrence blocks until fixed and re-measured.
+18. **The pending-claim rate is measured and brought to Lyle to decide** (N9.2):
+    20+ shuffled passes, an interval, every flag read by hand, no numeric target
+    (revision 4).
 19. **Untrusted-tool flags are flags, not blocks** (N7), consistent with "reviewer
     approval is the only control".
 20. **`note_search` re-filters by status at read time** (N13), costing one extra query
     per search, so index drift can never show a retired note.
+21. **A `BEFORE UPDATE OF status` trigger on `note_proposals`** making the one-way rule
+    hold in the schema as well as in code (N13; revision 4).
+22. **Whether to rename the `applied` status to `applied_without_review`** to match its
+    log row (N13; revision 4).
 
 ## N18 — Known gaps
 
@@ -602,7 +656,9 @@ not an afterthought.
 - **The untrusted flag is per turn, not per claim.** A proposal in a turn that also
   read a web page is flagged even when its evidence is wholly from the person. That
   errs toward showing the reviewer more.
-- **`result_count` makes misses visible, not explained.** Whether a miss was a
+- **The misses report depends on the empty-result sentence** (N6). Pinned to one
+  constant by a test, so a reword cannot silently empty the report.
+- **The misses report makes misses visible, not explained.** Whether a miss was a
   paraphrase, a note never made, or a note retired still needs a person to read it.
 - **Retired and superseded notes are unreachable by the entity by design.** If a
   person asks what a note used to say, only the operator can answer. Not a
