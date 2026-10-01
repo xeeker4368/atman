@@ -220,3 +220,122 @@ def test_receipts_ignore_markers():
 
 def test_a_turn_with_only_markers_did_not_call_tools():
     assert not loop.TurnResult(text="x", trace=[{"window_event": "overflow"}]).called_tools
+
+
+# --- review 2026-10-01: proofs that nothing changed where nothing should -----
+
+import hashlib  # noqa: E402
+import json  # noqa: E402
+
+from program.integrity import classifier, gate, gate_eval  # noqa: E402
+from program.memory.retrieval import RetrievedChunk  # noqa: E402
+
+_ECHO = Tool(name="probe_echo", description="TEST-ONLY echo.",
+             parameters={"type": "object", "properties": {"text": {"type": "string"}},
+                         "required": ["text"]},
+             handler=lambda text: f"echo: {text}")
+_BIG = Tool(name="probe_big", description="TEST-ONLY large result.",
+            parameters={"type": "object", "properties": {}, "required": []},
+            handler=lambda: "R" * 3000)
+
+
+def _probe_records(n, size, sib=0):
+    def c(i, text, siblings=()):
+        return RetrievedChunk(chunk_id=f"c{i}", text=text, created_at="2026-09-30T10:00:00",
+                              siblings=list(siblings))
+    return RetrievalResult(query="q", results=[
+        c(i, f"R{i}: " + "record text " * (size // 12),
+          [c(f"{i}s{s}", f"R{i}S{s}: " + "piece text " * (size // 11)) for s in range(sib)])
+        for i in range(n)])
+
+
+def _probe_history(n, size):
+    return [{"role": "user" if k % 2 == 0 else "assistant",
+             "content": f"m{k} " + "words " * (size // 6)} for k in range(n)] + [
+        {"role": "user", "content": "And the current question?"}]
+
+
+def _probe_call(name, **arguments):
+    return {"function": {"name": name, "arguments": arguments}}
+
+
+#: sha256 over every model call (messages, tools, options) of the four scenarios
+#: below, taken by running them on the code BEFORE B20/B21 (commit cb6dafd, exported
+#: and run with the same interpreter, 2026-10-01). A turn that fits must send exactly
+#: what it sent before: no schema term, no pinning and no shrinking can show up in it.
+BEFORE_B20_B21 = "fda59f4771cad76be10d11d3d61ff61330b08663eb81ce12414cc3e439841e63"
+
+
+def test_a_turn_that_fits_sends_what_it_sent_before_b20_b21(monkeypatch):
+    scenarios = [
+        ([{"role": "user", "content": "Hello there."}], None, []),
+        (_probe_history(6, 400), _probe_records(5, 600),
+         [[_probe_call("probe_echo", text="a"), _probe_call("probe_big")]]),
+        (_probe_history(20, 500), _probe_records(10, 1500),
+         [[_probe_call("probe_echo", text="a")],
+          [_probe_call("probe_big"), _probe_call("probe_big")]]),
+        (_probe_history(4, 300), _probe_records(4, 2000, sib=2),
+         [[_probe_call("probe_big")]]),
+    ]
+    digest = hashlib.sha256()
+    for msgs, retrieval, rounds in scenarios:
+        sent = []
+
+        def fake(messages, model=None, options=None, tools=None, _rounds=rounds, _sent=sent):
+            _sent.append({"messages": messages, "tools": tools, "options": options})
+            if tools is not None and len(_sent) <= len(_rounds):
+                return {"message": {"role": "assistant", "content": "",
+                                    "tool_calls": _rounds[len(_sent) - 1]},
+                        "done_reason": "stop"}
+            return {"message": {"role": "assistant", "content": "Answered."},
+                    "done_reason": "stop"}
+
+        monkeypatch.setattr(loop.ollama, "chat", fake)
+        result = loop.run_turn(msgs, situation="", retrieval=retrieval,
+                               registry=ToolRegistry([_ECHO, _BIG]))
+        assert events(result) == [] and result.prompt.window.omitted == 0
+        digest.update(json.dumps(sent, sort_keys=True, default=str).encode())
+
+    assert digest.hexdigest() == BEFORE_B20_B21
+
+
+_REPLIES = (
+    "CONSISTENT",
+    "CONTRADICTS-SELF\n- I have been thinking | nothing runs between replies",
+    "CONTRADICTS-TOOL\n- the search | the trace",
+    "CONTRADICTS-ACTION\n- I have saved that piece | claims a file",
+)
+_MARKERS = [
+    {"iteration": 2, "window_event": "records_shrunk", "records_chars_before": 51000,
+     "records_chars_after": 20000, "hits": 10, "hits_kept": 4},
+    {"iteration": 3, "window_event": "rounds_dropped", "rounds": 1, "of_rounds": 2},
+    {"iteration": 4, "window_event": "final_call_forced", "reason": "test"},
+]
+
+
+def test_window_events_in_the_trace_leave_every_gate_verdict_byte_identical(monkeypatch):
+    """Every frozen case under four scripted replies: what the gate is handed in
+    production (`call_entries` of a trace carrying markers) gives the same verdict, the
+    same advisory and the same classifier prompt as the trace with no markers at all."""
+    truth = gate.load_architecture()
+    checked = 0
+    for reply in _REPLIES:
+        for case in gate_eval.load_cases():
+            seen = []
+
+            def scripted(prompt, _reply=reply, _seen=seen):
+                _seen.append(prompt)
+                return _reply
+
+            monkeypatch.setattr(classifier, "classify", scripted)
+            plain = gate.check(case.answer, list(case.trace), case.situation,
+                               ground_truth=truth)
+            marked = gate.check(case.answer,
+                                loop.call_entries([*case.trace, *_MARKERS]),
+                                case.situation, ground_truth=truth)
+
+            assert plain.to_json() == marked.to_json(), case.id
+            assert plain.advisory_json() == marked.advisory_json(), case.id
+            assert len(seen) in (0, 2) and (not seen or seen[0] == seen[1]), case.id
+            checked += 1
+    assert checked == len(_REPLIES) * len(gate_eval.load_cases())

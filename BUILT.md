@@ -1161,6 +1161,24 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   - Two existing tests changed deliberately: the loop's windowing test asserted the
     newest *tool result* survives, which was the B21 rule itself, and the budget spy
     gained the new argument.
+- `[built]` **Proved at review (2026-10-01), as committed tests:**
+  - **A turn that fits sends exactly what it sent before B20/B21.** A digest over every
+    model call (messages, tools, options) of four fitting scenarios was taken by running
+    them on the pre-B20 code (`cb6dafd`, exported) and is pinned:
+    `test_a_turn_that_fits_sends_what_it_sent_before_b20_b21`. The scenarios are a
+    single message; short history with records and a round; longer history with two
+    rounds; and records with continuation pieces.
+  - **Window events change no gate verdict.** Every frozen case under four scripted
+    replies, given `call_entries` of a trace carrying all three event kinds, produces a
+    verdict, advisory and classifier prompt byte-identical to the trace without them.
+  - Both proven to bite: stopping `call_entries` from filtering fails the gate proof (the
+    markers reach the classifier's prompt); putting the pinned messages before older
+    history fails the digest.
+  - **Measured, not pinned: long histories differ by design.** When older history is
+    already being windowed and tools are offered, the schema term leaves room for
+    **one fewer older message** (2,000-char messages, 60 and 120 of them: 18 → 19 and
+    78 → 79 omitted). With no tools offered it is identical. The omitted message stays
+    retrievable.
 - `[unverified]` **After a dropped round the model may call the same tool again.** Its
   earlier call is no longer in the prompt. Bounded by `max_iterations`; the trace shows
   it.
@@ -4018,7 +4036,7 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   no state and asserts about state — has ~20 `db.init_databases()` call sites in
   `tests/` worth a deliberate pass. Not done.*
 
-- `[built]` **Test suite** — 1,436 tests passing plus 4 skipped (2026-10-01, after B20/B21; 1,419 after journal step 2; 1,411 after Moltbook revision 4; the 4 skips include the two opt-in live Moltbook tests, which pass when run. 1,406 after the Moltbook read tools; 1,354 plus 1 environmental failure after migration 7; 1,350 after the O23 receipt; 1,323 after B18; 1,268 before B11 stage 3) (`pytest`), `ruff check`
+- `[built]` **Test suite** — 1,438 tests passing plus 4 skipped (2026-10-01, after the B20/B21 proofs; 1,436 after B20/B21; 1,419 after journal step 2; 1,411 after Moltbook revision 4; the 4 skips include the two opt-in live Moltbook tests, which pass when run. 1,406 after the Moltbook read tools; 1,354 plus 1 environmental failure after migration 7; 1,350 after the O23 receipt; 1,323 after B18; 1,268 before B11 stage 3) (`pytest`), `ruff check`
   clean (2026-09-27, after B10 and its follow-up; 1,234 on 2026-09-24, 1,140 on 2026-09-18). The backup race test is no longer
   flaky (B14). *Two standing failures, both known and neither from this work:
   `test_a_missing_session_secret_stops_the_server_from_starting`, caused by an
