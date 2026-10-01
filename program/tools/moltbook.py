@@ -171,6 +171,12 @@ def fetch(path: str, params: dict[str, Any] | None = None,
             "Moltbook's rate limit for this kind of request has been reached."
             + _retry_after(response, payload) + " Nothing was retried."
         )
+    if response.status_code in (401, 403):
+        raise MoltbookError(
+            f"Moltbook refused a read that needs no key (HTTP {response.status_code}: "
+            f"{_message(payload, response.status_code)}). These read tools send no key, "
+            f"so Moltbook may now require authentication for reading. Nothing was retried."
+        )
     if response.status_code not in (200, 404):
         raise MoltbookError(
             f"Moltbook returned HTTP {response.status_code}: "
@@ -466,7 +472,7 @@ MOLTBOOK_BROWSE = Tool(
         "required": [],
     },
     handler=browse,
-    enabled=config.moltbook_configured,
+    enabled=config.moltbook_enabled,
     timeout_seconds=15.0,
 )
 
@@ -487,7 +493,7 @@ MOLTBOOK_SEARCH = Tool(
         "required": ["query"],
     },
     handler=search,
-    enabled=config.moltbook_configured,
+    enabled=config.moltbook_enabled,
     timeout_seconds=15.0,
 )
 
@@ -502,7 +508,7 @@ MOLTBOOK_READ_POST = Tool(
         "required": ["post_id"],
     },
     handler=read_post,
-    enabled=config.moltbook_configured,
+    enabled=config.moltbook_enabled,
     timeout_seconds=25.0,
 )
 
@@ -521,7 +527,7 @@ MOLTBOOK_READ_AGENT = Tool(
         "required": ["name"],
     },
     handler=read_agent,
-    enabled=config.moltbook_configured,
+    enabled=config.moltbook_enabled,
     timeout_seconds=15.0,
 )
 

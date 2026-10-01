@@ -31,8 +31,8 @@ def fixture(name: str) -> dict:
 
 @pytest.fixture
 def enabled(monkeypatch):
-    """Moltbook switched on with a fake key. Conftest switches it off for everyone."""
-    monkeypatch.setenv("ANAM_MOLTBOOK_API_KEY", "fake-key-for-tests-only")
+    """Moltbook switched on. Conftest switches it off for everyone."""
+    monkeypatch.setenv("ANAM_MOLTBOOK_ENABLED", "true")
     config.reload()
     registry.reset_default_registry()
     yield
@@ -154,6 +154,16 @@ def test_a_rate_limit_names_the_wait_and_is_never_retried(api):
 def test_a_rate_limit_wait_is_read_from_the_body_when_the_header_is_absent(api):
     api(FakeResponse(429, {"statusCode": 429, "retry_after_seconds": 7}))
     with pytest.raises(moltbook.MoltbookError, match="about 7 seconds"):
+        moltbook.browse()
+
+
+@pytest.mark.parametrize("status", [401, 403])
+def test_moltbook_starting_to_require_authentication_is_named(api, status):
+    """Reads are public today. If that changes, the entity and the operator should
+    see why, not a bare status."""
+    api(FakeResponse(status, {"statusCode": status, "message": "Unauthorized"}))
+    with pytest.raises(moltbook.MoltbookError,
+                       match=rf"refused a read that needs no key .*HTTP {status}.*send no key"):
         moltbook.browse()
 
 
@@ -433,15 +443,38 @@ def test_an_unknown_agent_says_so(api):
 NAMES = ("moltbook_browse", "moltbook_search", "moltbook_read_post", "moltbook_read_agent")
 
 
-def test_the_tools_are_offered_only_when_moltbook_is_set_up(enabled, monkeypatch):
-    assert set(NAMES) <= set(registry.default_registry().names)
-
-    monkeypatch.setenv("ANAM_MOLTBOOK_API_KEY", "   ")
+@pytest.mark.parametrize("switch, key, offered", [
+    ("true", "", True),        # reads need no key
+    ("true", "a-key", True),
+    ("false", "a-key", False),  # a configured key does not switch reading on
+    ("false", "", False),
+])
+def test_the_tools_follow_their_own_switch_not_the_key(monkeypatch, switch, key, offered):
+    """Reading and posting on separate axes (revision 4): only `moltbook.enabled`
+    decides whether the read tools exist. The key is posting's."""
+    monkeypatch.setenv("ANAM_MOLTBOOK_ENABLED", switch)
+    monkeypatch.setenv("ANAM_MOLTBOOK_API_KEY", key)
     config.reload()
     registry.reset_default_registry()
-    assert not set(NAMES) & set(registry.default_registry().names)
+    try:
+        present = set(NAMES) <= set(registry.default_registry().names)
+        absent = not set(NAMES) & set(registry.default_registry().names)
+        assert (present if offered else absent)
+    finally:
+        registry.reset_default_registry()
     # listed in the catalogue regardless, so the full set stays greppable
     assert set(NAMES) <= {t.name for t in catalog.TOOLS}
+
+
+def test_reading_is_off_by_default_in_both_config_layers():
+    """Fail closed: a fresh checkout does not call a third-party service. Read from
+    the files themselves, since conftest overrides the value for every test."""
+    import tomllib
+
+    defaults = tomllib.loads((config.PROJECT_ROOT / "config" / "defaults.toml")
+                             .read_text(encoding="utf-8"))
+    assert defaults["moltbook"]["enabled"] is False
+    assert config._FALLBACK["moltbook"]["enabled"] is False
 
 
 def test_none_is_a_side_effect_tool():
@@ -515,10 +548,6 @@ def test_the_shared_deadline_cannot_be_shorter_than_one_request(monkeypatch):
         config.moltbook_read_post_deadline_seconds()
 
 
-def test_configured_never_returns_the_value(monkeypatch):
-    monkeypatch.setenv("ANAM_MOLTBOOK_API_KEY", "secret-value")
-    config.reload()
-    assert config.moltbook_configured() is True
 
 
 # --- the fixtures themselves -------------------------------------------------

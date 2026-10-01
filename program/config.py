@@ -87,6 +87,7 @@ _FALLBACK: dict[str, Any] = {
     "moltbook": {
         # No api_key here on purpose: it is a secret with no default, set only in
         # config/local.toml or ANAM_MOLTBOOK_API_KEY. The read tools never send it.
+        "enabled": False,
         "base_url": "https://www.moltbook.com/api/v1",
         "timeout_seconds": 10.0,
         "read_post_deadline_seconds": 20.0,
@@ -182,6 +183,7 @@ _ENV_MAP: dict[str, tuple[str, str, str]] = {
     "ANAM_SEARXNG_TIMEOUT_SECONDS": ("searxng", "timeout_seconds", "float"),
     "ANAM_SEARXNG_MAX_RESULTS": ("searxng", "max_results", "int"),
     "ANAM_MOLTBOOK_API_KEY": ("moltbook", "api_key", "str"),
+    "ANAM_MOLTBOOK_ENABLED": ("moltbook", "enabled", "bool"),
     "ANAM_MOLTBOOK_BASE_URL": ("moltbook", "base_url", "str"),
     "ANAM_MOLTBOOK_TIMEOUT_SECONDS": ("moltbook", "timeout_seconds", "float"),
     "ANAM_MOLTBOOK_READ_POST_DEADLINE_SECONDS": (
@@ -782,18 +784,19 @@ def searxng_max_results() -> int:
 MOLTBOOK_HOST = "www.moltbook.com"
 
 
-def moltbook_configured() -> bool:
-    """Whether Moltbook is set up on this machine: a non-empty ``moltbook.api_key``.
+def moltbook_enabled() -> bool:
+    """Whether the read-only Moltbook tools exist at all right now (M1, revision 4).
 
-    The read tools' ``enabled`` predicate (M1), so with nothing configured their
-    schemas never enter the prompt. **The read tools do not send the key**:
-    measured 2026-09-30, every read endpoint answers without it, so it stays on
-    this machine until posting (Phase 8) needs it. This is therefore the "Moltbook
-    is set up here" switch, not a statement that reading uses the key. Never
-    raises, and never returns the value.
+    Decision #12's first axis, for **reading only**. Read at call time by
+    ``default_registry()``, so a disabled capability is never offered to the model.
+
+    **Its own setting, deliberately not "a key is configured".** The reads send no
+    key (every read endpoint is public, measured 2026-09-30), so tying them to the
+    key would couple reading to posting's credential. Phase 8's posting gets its
+    own axes (decision #12). **Defaults to false**: an external third-party service
+    stays off until someone turns it on. Bootstrap-only, like ``comfyui.enabled``.
     """
-    value = get("moltbook", "api_key")
-    return value is not None and bool(str(value).strip())
+    return bool(get("moltbook", "enabled", False))
 
 
 def moltbook_base_url() -> str:

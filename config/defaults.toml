@@ -403,13 +403,19 @@ max_results = 6
 # The read-only Moltbook tools (Phase 5). Design: docs/MOLTBOOK_READ_DESIGN.md.
 #
 # `api_key` is NOT set here and has no default. It is a secret, set only in
-# config/local.toml or ANAM_MOLTBOOK_API_KEY, the way auth.session_secret is. Its
-# presence is the "Moltbook is set up on this machine" switch that decides whether
-# the tools are offered at all. THE READ TOOLS NEVER SEND IT: measured 2026-09-30,
-# every read endpoint answers without authentication, so the key stays on this
-# machine until posting (Phase 8) needs it.
+# config/local.toml or ANAM_MOLTBOOK_API_KEY, the way auth.session_secret is. THE
+# READ TOOLS NEVER SEND IT: measured 2026-09-30, every read endpoint answers without
+# authentication, so the key stays on this machine until posting (Phase 8) needs it.
 #
 # Every key here is bootstrap-only.
+
+# Whether the read-only tools exist at all (decision #12's first axis, for READING).
+# Its own switch, not "a key is configured": reads use no key, and tying them to it
+# would couple reading to posting's credential. Posting gets its own axes in
+# Phase 8. OFF BY DEFAULT: an external third-party service stays off until someone
+# turns it on (in config/local.toml or ANAM_MOLTBOOK_ENABLED). A disabled tool is
+# not offered to the model at all, the image_generate pattern.
+enabled = false
 
 # The API root. The accessor RAISES unless it is https on exactly
 # www.moltbook.com: a typo must not point the client, and later the posting key,

@@ -1056,9 +1056,21 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   key: a test walks its AST, docstrings excluded. Proven to bite: adding a bearer
   header fails 2 tests. The raising key accessor was not built (no caller); posting
   adds it.
-- `[built]` **Offered only when Moltbook is set up** (`config.moltbook_configured()`,
-  a non-empty `moltbook.api_key`). This is now a "set up here" switch, not something
-  the reads use, and the design doc says so.
+- `[built]` **Offered only when `moltbook.enabled` is true** (revision 4, 2026-09-30,
+  replacing "a key is configured"). Reading and Phase 8 posting now sit on separate
+  axes: the key plays no part in whether the read tools exist. **Default `false`**, so
+  a fresh checkout calls no third-party service. It is switched on in
+  `config/local.toml` or `ANAM_MOLTBOOK_ENABLED`. Tested with switch and key varied
+  independently. Proven to bite: reverting to key presence fails 3 tests; defaulting
+  on fails 1.
+- `[built]` **A 401 or 403 is named** as Moltbook refusing a read that needs no key,
+  possibly because it now requires authentication. Never retried. Removing the branch
+  fails 2 tests.
+- `[built]` **Anonymous rate-limit buckets measured** (revision 4): identical to the keyed
+  ones (`/posts` 200, single post and comments 500, search and profile 60, ~60 s
+  windows). Nothing is under 60/min, so there is still no client-side limiter.
+- `[built]` **The two opt-in live tests pass** (2026-09-30, no key sent). One live render
+  was read by eye: allowlisted fields only.
 - `[built]` **The connection:** `trust_env` off, redirects refused, never followed,
   and `moltbook.base_url` pinned to https on exactly `www.moltbook.com`. Each is
   proven to bite: 1, 1 and 5 failing tests. The `trust_env` proof is on the session
@@ -1115,10 +1127,9 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   the newest message is a tool result, and `select_history` keeps only the newest
   unconditionally. So a near-maximal user message followed by large tool results could
   have **the user's own message windowed out**. Independent of Moltbook.
-- `[unverified]` **Not yet run live.** The two opt-in live tests
-  (`ANAM_MOLTBOOK_LIVE=1`) and the Phase 5 gate call wait for Lyle to confirm the key
-  has been regenerated. Rate limits for keyless reads may be counted per IP; that is
-  undocumented.
+- `[unverified]` **The Phase 5 gate call has not been made**: a real turn in which the
+  model chooses a Moltbook tool. Anonymous rate limits are probably counted per IP,
+  shared with anything else on this connection; that is undocumented.
 - `[unverified]` **Agent-written text is framed, not defended against.** The header
   says to read it as content, not instructions. That is a framing and nothing more.
 
@@ -3941,7 +3952,7 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   no state and asserts about state — has ~20 `db.init_databases()` call sites in
   `tests/` worth a deliberate pass. Not done.*
 
-- `[built]` **Test suite** — 1,406 tests passing plus 4 skipped (2026-09-30, after the Moltbook read tools; the two new skips are its opt-in live tests. 1,354 plus 1 environmental failure after migration 7; 1,350 after the O23 receipt; 1,323 after B18; 1,268 before B11 stage 3) (`pytest`), `ruff check`
+- `[built]` **Test suite** — 1,411 tests passing plus 4 skipped (2026-09-30, after Moltbook revision 4; the 4 skips include the two opt-in live Moltbook tests, which pass when run. 1,406 after the Moltbook read tools; 1,354 plus 1 environmental failure after migration 7; 1,350 after the O23 receipt; 1,323 after B18; 1,268 before B11 stage 3) (`pytest`), `ruff check`
   clean (2026-09-27, after B10 and its follow-up; 1,234 on 2026-09-24, 1,140 on 2026-09-18). The backup race test is no longer
   flaky (B14). *Two standing failures, both known and neither from this work:
   `test_a_missing_session_secret_stops_the_server_from_starting`, caused by an

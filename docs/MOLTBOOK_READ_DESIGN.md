@@ -1,4 +1,4 @@
-# Moltbook read-only tools — design (revision 3, built 2026-09-30)
+# Moltbook read-only tools — design (revision 4, built 2026-09-30)
 
 Task *Read-only Moltbook tools*, moved from Phase 8 to Phase 5 at review on
 2026-09-30. The build is Tier 1. This document exists because it records a
@@ -108,17 +108,20 @@ or by name through `moltbook_read_agent`.
 `side_effect_tools()`, and ACTION and receipts do not apply. Reading has no
 effect to receipt.
 
-**`enabled` = the key is configured.** A tool is offered only when
-`config.moltbook_configured()` is true, so with no key the schemas never enter
-the prompt (decision #12's first axis, the `image_generate` pattern). No
-separate read flag: nothing would read it except this predicate. The Phase 9
-toggles are for posting.
+**`enabled` (revisions 2–3: "the key is configured"; superseded by revision 4
+below).** A tool is offered only when its predicate is true, so a disabled tool's
+schema never enters the prompt (decision #12's first axis, the `image_generate`
+pattern). The Phase 9 toggles are for posting.
 
-**Built — what that predicate now means.** The reads send no key (M5), so the key
-is not *needed* for reading. The predicate is kept as the single "Moltbook is set
-up on this machine" switch, as approved. It no longer describes anything a read
-uses. If a separate read switch is wanted, it would be a `moltbook.read_enabled`
-flag read by this same predicate. **Not added without a request.**
+**Revision 4 (review, 2026-09-30): the switch is `moltbook.enabled`, not the key.**
+Revision 3 kept "a key is configured" as the predicate after the reads stopped
+sending the key, which coupled reading to posting's credential. Now
+`config.moltbook_enabled()` reads a bootstrap `moltbook.enabled`, and the key plays
+no part in whether the read tools exist. Reading and Phase 8 posting stay on
+separate axes. **Default `false`**: an external third-party service stays off until
+someone turns it on, so a fresh checkout calls nothing. `moltbook_configured()` is
+removed (no caller). Tested with the switch and the key varied independently:
+the key does not switch reading on, and its absence does not switch it off.
 
 ### Schema cost, measured (requested at review)
 
@@ -259,6 +262,11 @@ rather than assuming it.
   a retry inside a turn spends the turn's tool budget waiting.
 - `X-RateLimit-Remaining` is logged at INFO. It is logged at WARNING when under
   10% of its bucket, so sustained pressure is visible.
+- **Measured without the key (revision 4): the anonymous buckets are the same as the
+  keyed ones.** `/posts` 200, a single post and its comments 500, `/search` and
+  `/agents/profile` 60, each in its own ~60 s window. Nothing is below 60/min, so
+  the next point stands. The anonymous buckets are probably counted per IP, shared
+  with anything else on this household's connection; that is undocumented.
 - **No client-side limiter.** A turn makes at most `max_iterations − 1 = 4`
   tool calls. Two people talking at once is 8 per turn duration, against the
   smallest bucket's 60. **Trigger to revisit:** any unattended caller (a Phase 6
@@ -273,13 +281,15 @@ rather than assuming it.
   no `Authorization` header and **never reads the key** (a test walks its AST,
   docstrings excluded, and finds no route to it). The key stays on this machine
   until posting.
-- **`config.moltbook_configured()`** is the non-raising predicate for `enabled`.
-  It never returns the value. **The raising `moltbook_api_key()` accessor was
-  not built**: with no caller it would be dead code. Posting adds it. Verified
+- **No key accessor exists.** Revision 3's `moltbook_configured()` was removed at
+  revision 4, when `moltbook.enabled` replaced it, and the raising
+  `moltbook_api_key()` was never built: with no caller either would be dead
+  code. Posting adds the raising one. Verified
   2026-09-30: `config.get("moltbook", "api_key")` resolves a non-empty value from
   `config/local.toml` (gitignored).
-- **Rate limits for unauthenticated reads** returned the same bucket sizes in the
-  headers. Whether they are counted per IP rather than per key is not documented.
+- **If Moltbook starts requiring authentication for reads**, a 401 or 403 now gets
+  its own message: the read needed no key, these tools send none, and Moltbook may
+  now require one. Nothing is retried (revision 4).
 - `ANAM_MOLTBOOK_API_KEY` is added to `_ENV_MAP`. A commented `[moltbook]`
   example is added to `local.example.toml`.
 - **Bootstrap-only**, like `auth.session_secret`. Decision #9's admin panel
@@ -308,9 +318,10 @@ Built: the autouse `isolated_data_dir` sets `ANAM_MOLTBOOK_API_KEY` to **empty**
 which turns Moltbook **off** for every test. The real key is never loaded, and
 the tools are never offered, so no unrelated test (a live-model one especially)
 can have the model call the real service. Moltbook's own tests turn it on with a
-fake key and a fake session. **Two live tests are opt-in** (`ANAM_MOLTBOOK_LIVE=1`),
-send no key, and **have not been run**: the live Phase 5 gate call waits for the
-key to be confirmed regenerated.
+fake session, switched on through `moltbook.enabled`. **Two live tests are opt-in**
+(`ANAM_MOLTBOOK_LIVE=1`) and send no key. **Run 2026-09-30 (revision 4): both
+pass.** One real render was also read by eye: allowlisted fields only. The Phase 5
+gate call (a turn through the real model) is separate.
 
 ## M6 — Provenance — **DECIDED 2026-09-30: design document only**
 
