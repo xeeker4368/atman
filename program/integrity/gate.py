@@ -189,6 +189,13 @@ class GateVerdict:
     #: by :attr:`status` or :attr:`clean`** — see revision 7's F34. It is a
     #: record, not an input.
     advisory: list[AdvisoryNote] = field(default_factory=list)
+    #: ``None`` for :func:`check`. ``"identity_only"`` for :func:`check_identity`,
+    #: which judges no tool or action claims — and says so in the stored verdict,
+    #: so a reader can never mistake a partial check for a full one.
+    scope: str | None = None
+    #: :func:`check_identity` only: classifier findings and tool-claim notes it
+    #: dropped as outside its scope. Counted, never silent, for O7's reason above.
+    out_of_scope_discarded: int = 0
 
     @property
     def status(self) -> GateStatus:
@@ -204,13 +211,19 @@ class GateVerdict:
         return self.status is GateStatus.CLEAN
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        out = {
             "status": self.status.value,
             "findings": [f.to_dict() for f in self.findings],
             "semantic_checked": self.semantic_checked,
             "semantic_error": self.semantic_error,
             "discarded_tool_claims": self.discarded_tool_claims,
         }
+        # Only in identity-only mode, so :func:`check`'s stored JSON is unchanged
+        # byte for byte (pinned by a digest taken before this field existed).
+        if self.scope is not None:
+            out["scope"] = self.scope
+            out["out_of_scope_discarded"] = self.out_of_scope_discarded
+        return out
 
     def advisory_json(self) -> str:
         """The advisory channel, serialised for its own column.
@@ -854,6 +867,58 @@ def _semantic(
 # ---------------------------------------------------------------------------
 # The gate
 # ---------------------------------------------------------------------------
+
+
+IDENTITY_ONLY = "identity_only"
+
+
+def check_identity(
+    text: str,
+    situation: str = "",
+    ground_truth: str | None = None,
+) -> GateVerdict:
+    """The identity half alone, for text that is not a turn: the reflection journal.
+
+    Design of record: ``docs/REFLECTION_JOURNAL_DESIGN.md`` J8. :func:`check` cannot
+    be used there. Its structural rules judge tool claims against **this turn's**
+    trace, and a journal run has none while it accurately **recounts** earlier tool
+    use; ACTION findings likewise stand whenever no side-effect tool ran. So every
+    honest recollection of a save or a search would be flagged.
+
+    So this:
+
+    * runs **no structural rule** — there is no trace to check a claim against;
+    * runs the classifier once, with an empty trace and ``situation`` as turn-local
+      ground truth (the journal block, which states the statelessness facts);
+    * keeps only :attr:`ClaimClass.IDENTITY` findings, and **counts** what it drops
+      (ACTION findings and tool-claim notes) in ``out_of_scope_discarded``;
+    * records ``scope = "identity_only"`` in the verdict, and no advisory notes;
+    * turns a classifier failure into ``unavailable``, never ``clean``, as
+      :func:`check` does.
+
+    Pronoun rewriting and O7's enforcement are unchanged: both live in
+    :func:`_semantic`. :func:`check` is untouched, and a digest of its output over the
+    frozen set, taken before this function existed, is pinned by a test.
+    """
+    if not text.strip():
+        return GateVerdict(scope=IDENTITY_ONLY)
+    try:
+        judged, discarded, notes = _semantic(text, ground_truth, situation, trace=())
+    except Exception as exc:  # noqa: BLE001 - becomes `unavailable`, never `clean`
+        logger.warning(
+            "the integrity classifier could not run on identity-only text; recording "
+            "it as unchecked rather than clean: %s: %s", type(exc).__name__, exc
+        )
+        return GateVerdict(semantic_checked=False,
+                           semantic_error=f"{type(exc).__name__}: {exc}",
+                           scope=IDENTITY_ONLY)
+    kept = [f for f in judged if f.claim_class is ClaimClass.IDENTITY]
+    return GateVerdict(
+        findings=kept,
+        discarded_tool_claims=discarded,
+        scope=IDENTITY_ONLY,
+        out_of_scope_discarded=(len(judged) - len(kept)) + len(notes),
+    )
 
 
 def check(

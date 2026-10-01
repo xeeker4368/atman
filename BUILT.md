@@ -2802,6 +2802,32 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   (0 of 12 side-effect turns quote an id). The fix is a Tier 3 gate-rule change, in
   `NOW.md`'s backlog.
 
+#### `check_identity`: the identity half alone, for journal text (2026-09-30, journal step 2)
+
+- `[built]` **`gate.check_identity(text, situation)`** (`docs/REFLECTION_JOURNAL_DESIGN.md`
+  J8).
+  - It runs no structural rule and makes one classifier call with an empty trace.
+  - It keeps only identity findings; ACTION findings and tool notes are dropped and
+    **counted** (`out_of_scope_discarded`).
+  - It records `scope: "identity_only"` in the verdict.
+  - A classifier failure reads `unavailable`, never clean.
+  - **`check()` is byte-identical to before**: a digest over every frozen case under
+    four scripted replies (verdict, advisory and every classifier prompt) was taken
+    from HEAD's `gate.py` before the change and is pinned by a test. The two new
+    verdict fields serialise only in identity-only mode.
+  - **Proven to bite, four mutations:** running structural rules fails 2 tests;
+    keeping every class fails 1; always serialising the scope fails the digest test;
+    a failure reading clean fails 1.
+- `[unverified]` **Its J8 dev measurement is PARTIAL.** The host stopped the run for
+  low memory after 11 of 20 passes of seed 1, and seed 2 never ran. That is short of
+  the two-seed, 20-pass bar, so these are not findings.
+  - What it shows: 0 flags on 474 accurate samples apart from `N7`'s *"Thinking about
+    it…"* (23/23). 190 of 787 samples carried an ACTION or tool objection, nearly all
+    accurate recollections, which this mode dropped as designed.
+  - False negatives are 37–41%, concentrated in lived-through experience with no
+    explicit time gap (*"I noticed all afternoon…"*, *"I waited…"*, both 0/22).
+  - Details are in the design doc's J8 results. **The full run is owed.**
+
 #### O23 decided: wording iteration abandoned, receipt pending (2026-09-30)
 
 - `[built]` **Decided at review (design F50): no further wording work on the ACTION
@@ -3958,7 +3984,7 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   no state and asserts about state — has ~20 `db.init_databases()` call sites in
   `tests/` worth a deliberate pass. Not done.*
 
-- `[built]` **Test suite** — 1,411 tests passing plus 4 skipped (2026-09-30, after Moltbook revision 4; the 4 skips include the two opt-in live Moltbook tests, which pass when run. 1,406 after the Moltbook read tools; 1,354 plus 1 environmental failure after migration 7; 1,350 after the O23 receipt; 1,323 after B18; 1,268 before B11 stage 3) (`pytest`), `ruff check`
+- `[built]` **Test suite** — 1,419 tests passing plus 4 skipped (2026-09-30, after journal step 2; 1,411 after Moltbook revision 4; the 4 skips include the two opt-in live Moltbook tests, which pass when run. 1,406 after the Moltbook read tools; 1,354 plus 1 environmental failure after migration 7; 1,350 after the O23 receipt; 1,323 after B18; 1,268 before B11 stage 3) (`pytest`), `ruff check`
   clean (2026-09-27, after B10 and its follow-up; 1,234 on 2026-09-24, 1,140 on 2026-09-18). The backup race test is no longer
   flaky (B14). *Two standing failures, both known and neither from this work:
   `test_a_missing_session_secret_stops_the_server_from_starting`, caused by an
