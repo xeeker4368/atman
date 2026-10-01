@@ -1,4 +1,4 @@
-# Notes — design (revision 1, for Tier 3 review)
+# Notes — design (revision 2, for Tier 3 review)
 
 **Design only. No code, no migration.** Tier 3 on several counts: a schema
 (migration 8), provenance semantics (a new kind of record the entity proposes about
@@ -96,7 +96,8 @@ generation, `turn.py:402`), at the point it builds attribution.
   fields to exactly `{"user_id"}` (`tests/test_attribution.py:40`), and it widens a
   type every writing tool receives to carry data only one tool needs.
 - **(b) — recommended, and Lyle's lean.** A separate **`OriginContext`**
-  (`conversation_id`, `user_message_id`, `call_id`), passed only to a tool that
+  (`conversation_id`, `user_message_id`, `call_id`, and since revision 2
+  `context_message_ids` for quote resolution, N4), passed only to a tool that
   declares `takes_origin`, with the **same four guards** attribution has:
   1. **declared**, not inferred (`Tool.takes_origin`);
   2. **never model-settable**: `Tool.__post_init__` refuses `origin` in
@@ -128,14 +129,51 @@ until then."*
 are not in the history it is sent or in the rendered records. So evidence is taken
 as **short exact quotes**, and the handler **resolves each quote to a message id**:
 
-- a verbatim substring match, first against this conversation's messages, then
-  across the store, with `chunks_fts` used to shortlist before the exact check;
 - an entity proposal needs **at least one resolved quote**. A quote that matches
   nothing is refused with `TOOL_ERROR` (*"that quote does not appear in any
   message"*). **Fabricated evidence therefore cannot enter a proposal;**
-- a quote matching several messages records all of them;
 - the triggering `user_message_id` from `OriginContext` is **always** recorded
   beside them, so the reviewer always sees what prompted the proposal.
+
+**Resolving a quote: short quotes, and quotes that match many messages** (review,
+2026-10-01). A short quote such as *"oat milk"* can match dozens of messages, and
+recording whichever came first would attach the proposal to evidence nobody chose.
+So, in this order:
+
+1. **Normalise both sides.** Collapse runs of whitespace; fold curly quotes and
+   apostrophes to straight; compare case-insensitively. Nothing looser: no stemming,
+   no fuzzy match. A paraphrase is not a quote.
+2. **A minimum length.** After normalising, a quote must be at least **24
+   characters and 4 words** (`notes.min_quote_chars`, `notes.min_quote_words`;
+   judgment values). Shorter is refused before any search: *"that quote is too
+   short to identify a message; quote more of what was said"*. A refusal tells the
+   model what to do differently, the `INVALID_ARGUMENTS` / `TOOL_ERROR` split's
+   intent.
+3. **Prefer what the entity was shown this turn.** `OriginContext` gains
+   `context_message_ids`: the ids `turn.py` can name for this turn's context. That is
+   the conversation's messages (a superset of the windowed history; the loop's
+   window holds normalised dicts without ids) and the messages behind this turn's
+   retrieved chunks (`db.get_messages_in_chunks`). The quote is matched there
+   first. **Only if it matches nothing there** is the rest of the store searched,
+   with `chunks_fts` shortlisting before the exact check.
+4. **Require uniqueness within the tier where it matched.** Exactly one message must
+   contain it. If several do, it is refused: *"that quote appears in N messages;
+   quote more of it so it identifies one"*. **One exception, for review:** when every
+   match is the **same full message text** (the soak store has *"Make me an image of
+   a copper kettle on a slate worktop, morning light."* three times), no longer quote
+   can separate them, and they are the same evidence. The most recent one in the
+   matching tier is recorded, and the review command says how many identical
+   messages there were. This mirrors the gate's rule for identical sentences
+   (`pronouns.original_for`, finding #12): ambiguity between *different* texts is
+   refused, and duplicates of one text are not ambiguity.
+5. **What is stored:** for each quote, the resolved message id, the tier it was
+   found in (`context` or `store`), and the identical-duplicate count when step 4's
+   exception applied. The review command prints each evidence message verbatim with
+   its tier, so a quote found only outside the turn's context is visible as such.
+
+**Why not record every match** (revision 1 did): a short quote's matches are mostly
+unrelated, and a reviewer shown twelve messages for one quote learns nothing about
+which one the entity meant.
 
 **Operator commands**, `python -m scripts.note`:
 
@@ -327,7 +365,8 @@ enums and six fields. (Drafted JSON: 461 and 1,009 characters.)
 - The remaining Phase 5 tools will each cost a similar amount (the self-flag
   tool; bounded research execution if it becomes a tool), so at ~100–250 each
   the headroom runs out within two or three more tools.
-- **B20's fix should land before or with Notes**: the budget term, and the test
+- **B20 lands BEFORE the Notes tools** (review, 2026-10-01; a hard ordering, not a
+  preference). B20 was built 2026-10-01 and is under review. The budget term, and the test
   that fails when schemas exceed the headroom. Otherwise Notes spends most of
   what is left with nothing noticing.
 
@@ -347,7 +386,8 @@ the runner's transaction (B3). **Nothing in `working.sql`.**
     note_proposals   id, action CHECK(add|revise|retire),
                      target_note_id NULL REFERENCES notes(id),
                      subject_kind, subject, subject_user_id NULL, text NULL, reason NULL,
-                     evidence_message_ids (JSON, NOT NULL for entity proposals),
+                     evidence (JSON, NOT NULL for entity proposals: per quote,
+                               {quote, message_id, tier, identical_count}),
                      conversation_id, user_message_id, call_id NULL,
                      user_id REFERENCES users(id)   -- attribution: whose record
                      status CHECK(pending|approved|edited|rejected|applied),
@@ -368,7 +408,7 @@ already forbids that.
 
 **Column-level decisions for review (AGENTS.md, frozen-table rule), before any code:**
 
-- `evidence_message_ids` as a JSON column rather than a join table. Proposed: JSON.
+- `evidence` as a JSON column rather than a join table. Proposed: JSON.
   It is written once and read once, by the review command.
 - `call_id` nullable. The operator path has none.
 - `subject_user_id` nullable. Most subjects are not household members.
@@ -400,7 +440,10 @@ Migration 8 and its forced-failure test; `OriginContext` and its guards (proven 
 bite); `note_search` and `note_propose`; `scripts.note`; the receipt
 generalisation, with O23's isolation proof re-run; the settings-backed approval
 toggle and its log; the frozen gate cases; the CO15 composition test; a note-shaped
-`check_identity` dev pass; the cap derivation test; a schema-token re-measurement;
+`check_identity` dev pass; quote-resolution tests (too short, no match, ambiguous
+across different texts, identical duplicates, context tier preferred over store,
+fabricated quote refused, each proven to bite); the cap derivation test; a
+schema-token re-measurement;
 and `BUILT.md` and a changelog in the same change. The CO15 test is a ship gate,
 not an afterthought.
 
@@ -408,8 +451,10 @@ not an afterthought.
 
 1. **Lexical-only search in v1** (N1), with the trigger for a vector leg being
    observed misses.
-2. **Evidence as exact quotes resolved to message ids** (N4). Unresolvable quotes
-   are refused. Resolution searches the whole store, not only this conversation.
+2. **Evidence as exact quotes resolved to message ids** (N4). Normalised matching, a
+   24-character / 4-word minimum, the turn's context searched first, uniqueness
+   required within the tier, and the identical-duplicates exception. Unresolvable,
+   too-short and ambiguous quotes are refused.
 3. **`OriginContext`, option (b)** (N3), with `dispatch` filling `call_id`.
 4. **Receipts generalised to `(kind, id)`, option (A)** (N8), including the
    `artifact_ids` → `records` trace-key change.
@@ -422,7 +467,8 @@ not an afterthought.
 9. **A shared `approval_log` table keyed by capability** (N10), not a
    Notes-specific one.
 10. **Note text cap = 600 characters, and 5 results per search** (N11).
-11. **B20's fix before or with Notes** (N12).
+11. **B20 lands before the Notes tools** (N12): a hard ordering. B20 is built and
+    under review; Notes' build does not start until it is committed.
 12. **Migration 8's column-level choices** (N13).
 13. **Decision #20 applies unchanged to notes** (N15).
 14. **The reviewer reading Jodie's messages verbatim** as part of review (N15).
@@ -439,9 +485,14 @@ not an afterthought.
   is on journal text.
 - **Paraphrase misses** under lexical-only search (N1).
 - **A direct SQL edit of the approval setting** bypasses the log (N10).
-- **Quote resolution is exact.** A quote with a changed apostrophe or a trailing
-  space fails. Proposed: normalise whitespace and quote characters before
-  matching; nothing looser.
+- **Quote resolution is exact after normalisation** (N4). A quote with a changed word
+  fails, which is intended: a paraphrase is not evidence.
+- **The identical-duplicates exception records one message for several** (N4 step 4).
+  A reviewer is told the count, but which of the identical messages the entity "meant"
+  is unknowable.
+- **The turn's context is approximated** by the whole conversation plus the retrieved
+  chunks' messages (N4 step 3). That is a superset of what the model was actually sent
+  when older history had been windowed out.
 - **Notes are not corrected by supersession.** A person correcting a fact that is
   also in a note corrects the message, not the note. The note changes only
   through a revise proposal the entity has to think to make, a milder form of
