@@ -3163,6 +3163,25 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   pay for it per quote.
 - `[unverified]` **Tool-schema headroom is about 309 tokens with 11 tools** (see `NOW.md`): the next
   tool forces the configured message cap below 50,000 or something else to give.
+- `[built]` **Notes piece 4: `scripts.note`, the only human control** (2026-10-02, Tier 3, reviewed and
+  approved, b78e0e6; `changelog/2026-10-02-notes-piece-4-scripts-note.md`, which holds the verbatim
+  `--help` and review output). `program/memory/note_admin.py` plus `scripts/note.py`: `add`, `revise`,
+  `retire` (immediate, origin `operator`, logged), `list`, `review`, `approve`, `edit`, `reject`,
+  `misses`, `check`, `reindex`.
+  - **One transaction per decision** through `db.transaction()`: the note change, the proposal's flip
+    from `pending` and the `approval_log` row commit together or not at all. Forced-failure tests (a
+    failing log insert) leave every table identical for each command and decision.
+  - **Refuses a store below schema version 8 and never creates or migrates one**; the real store is at 6
+    until the server's first startup. An AST test finds no `init_databases`, migration call or
+    `executescript`, and the only plain `sqlite3.connect` is the read-only schema check.
+  - **`subject_user_id` is set only by `--subject-user`**; a household name in the subject is suggested.
+    A revise or retire whose target is no longer active is refused at approval and recorded as rejected
+    with the reason. Edit keeps both texts in the log. Approval re-checks the text cap.
+  - **Review** prints the untrusted context first (NULL, `[]` and a list are three distinct texts), the
+    origin, each quote verbatim with the speaker's name, tier and duplicate count, the gate verdict as a
+    noisy aid, and the entity's own reply found by parsing stored traces for the call id.
+  - 77 tests; 42 mutations killed (three first survived and were closed).
+  - `[unverified]` The review prints "Nothing is saved until you approve it" even for a decided proposal.
 - `[unverified]` **No guard on a `notes` row's text while it is active** (direct SQL can edit it);
   the design puts that discipline in the tools and `scripts.note`, which do not exist yet.
 

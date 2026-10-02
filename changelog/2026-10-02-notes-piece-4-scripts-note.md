@@ -80,3 +80,131 @@ Full suite 1,809 passed, 4 skipped; `ruff` clean. 77 tests in `tests/test_note_a
   operator add silently linking a household name, a reply lookup that trusted a substring match, and
   `misses` listing a failed search. **One equivalent mutant is recorded, not hidden:** dropping the
   reply lookup's `LIKE` prefilter changes nothing, because the Python check that follows decides.
+
+## Sample output, verbatim (`--help` and the review of two seeded proposals)
+
+Produced on a scratch store by a script that seeds two proposals through the real `note_propose` tool. The first carries evidence from both tiers, an untrusted flag, a gate flag and an entity reply claiming the note is saved; the second has a NULL `untrusted_context` (a flag and a NULL cannot coexist on one proposal). The reviewer reads this text before every approval, so it is kept here to be reviewed as text.
+
+```
+=== python -m scripts.note --help ===
+usage: python -m scripts.note [-h] COMMAND ...
+
+Notes: operator add / revise / retire, and review of the entity's proposals.
+
+positional arguments:
+  COMMAND
+    add       add a note now (origin operator, logged)
+    revise    replace an active note's text now (old one kept, marked
+              superseded)
+    retire    retire an active note now (its text is kept)
+    list      list notes (active by default)
+    review    with no id, list pending proposals; with an id, show everything
+              a reviewer needs to decide it
+    approve   approve a pending proposal as proposed
+    edit      approve with changed text (both texts kept in the log)
+    reject    reject a pending proposal
+    misses    searches that found no note, newest first (read-only)
+    check     compare the search index with the active notes (read-only)
+    reindex   rebuild the search index from the notes (changes no note)
+
+options:
+  -h, --help  show this help message and exit
+
+guarantees:
+  * every decision, its note change and its approval_log row are written in ONE transaction:
+    if any part fails, nothing changes.
+  * this command never migrates and never creates a store. It refuses a store below schema
+    version 8 (the real store is at version 6 until the server's first startup applies
+    migrations 7 and 8). Migrations run only at server startup.
+  * a proposal is decided once. A change of mind is a new proposal.
+  * subject_user_id is set only by --subject-user. A household member's name in the subject is
+    suggested, never applied.
+  * the identity gate's verdict shown in `review` is a noisy aid, NOT a control: the control is you
+    reading the proposal, its evidence and the entity's own reply.
+
+exit status: 0 done; 1 refused or failed (nothing changed, or a stale proposal recorded as
+rejected); 2 bad usage; 3 the store is not one this command may touch.
+
+=== review (list) ===
+2 pending proposal(s), oldest first. `review ID` shows one in full.
+  369ba6e6  add    person  'Jodie'                            for Lyle  2026-10-02 14:58  [UNTRUSTED CONTEXT: web_fetch]
+  6d5a8518  add    person  "Jodie's grandmother"              for Lyle  2026-10-02 14:58  [untrusted: not recorded]
+
+=== review 369ba6e6 ===
+PROPOSAL 369ba6e6-96e7-4182-9527-dfc8e6da3047
+  action: add    status: pending    proposed 2026-10-02 14:58    made on behalf of: Lyle
+
+UNTRUSTED CONTEXT (read this first)
+  WARNING: this turn read text written OUTSIDE the household before proposing: web_fetch
+
+ORIGIN
+  conversation: 382564b3-b3f6-4386-8d3e-a022632871ac  (belongs to Lyle, started 2026-10-02 14:58)
+  triggering message: 7f5279dc-2cc9-4614-8e26-ac1a621382ab
+    [2026-10-02 10:01] Lyle: Please make a note of that for her.
+  call id: aa37f8a3913d431083383782d1f5aaf4
+
+PROPOSED
+  kind: person    subject: Jodie
+  suggestion: the subject names household member Jodie. Nothing is linked unless you approve with --subject-user Jodie.
+  text: Takes her coffee with oat milk.
+
+EVIDENCE
+  1. quote: 'Jodie takes her coffee with oat milk'
+     speaker: Lyle (role user)    tier: context    identical messages: 1
+     message 89a15f25-d13a-4d4a-87df-c6ee5c3e0d6e [2026-10-02 10:00]:
+       Jodie takes her coffee with oat milk, never dairy.
+  2. quote: 'My grandmother kept her starter above the stove'
+     speaker: Jodie (role user)    tier: store    identical messages: 1
+     message 3e557b2f-33f8-4ec5-8fd9-7be87687afeb [2026-09-30 05:00]:
+       My grandmother kept her starter above the stove.
+     (found only outside this turn's context: nothing in the conversation showed it to the entity)
+
+IDENTITY GATE on the proposed text (flag-only; a noisy aid, NOT a control: it misses lived-through claims with no time marker and flags some accurate sentences; read the proposal yourself)
+  status: flagged
+  cited: 'Takes her coffee with oat milk.'
+  reason: nothing runs between replies
+
+THE ENTITY'S OWN REPLY TO THAT TURN (does it tell the person the note is saved?)
+  [2026-10-02 10:01] I've saved that note about Jodie.
+  the gate's verdict on that reply:
+    status: clean
+  (A proposal is pending. Nothing is saved until you approve it.)
+
+decide:  approve 369ba6e6 [--subject-user NAME]   |   edit 369ba6e6 --text "..."   |   reject 369ba6e6 [--reason "..."]
+
+
+=== review 6d5a8518 ===
+PROPOSAL 6d5a8518-cd89-4bae-98ab-fb3f29dda033
+  action: add    status: pending    proposed 2026-10-02 14:58    made on behalf of: Lyle
+
+UNTRUSTED CONTEXT (read this first)
+  not recorded (the turn did not store it, so this is NOT a statement that none ran)
+
+ORIGIN
+  conversation: 382564b3-b3f6-4386-8d3e-a022632871ac  (belongs to Lyle, started 2026-10-02 14:58)
+  triggering message: 7f5279dc-2cc9-4614-8e26-ac1a621382ab
+    [2026-10-02 10:01] Lyle: Please make a note of that for her.
+  call id: 7da775c90f754b0baf31a8b8372631c8
+
+PROPOSED
+  kind: person    subject: Jodie's grandmother
+  text: Her grandmother kept a sourdough starter above the stove.
+
+EVIDENCE
+  1. quote: 'My grandmother kept her starter above the stove'
+     speaker: Jodie (role user)    tier: store    identical messages: 1
+     message 3e557b2f-33f8-4ec5-8fd9-7be87687afeb [2026-09-30 05:00]:
+       My grandmother kept her starter above the stove.
+     (found only outside this turn's context: nothing in the conversation showed it to the entity)
+
+IDENTITY GATE on the proposed text (flag-only; a noisy aid, NOT a control: it misses lived-through claims with no time marker and flags some accurate sentences; read the proposal yourself)
+  status: clean
+
+THE ENTITY'S OWN REPLY TO THAT TURN (does it tell the person the note is saved?)
+  [2026-10-02 10:01] Noted. I'll remember that.
+  the gate's verdict on that reply:
+    status: clean
+  (A proposal is pending. Nothing is saved until you approve it.)
+
+decide:  approve 6d5a8518 [--subject-user NAME]   |   edit 6d5a8518 --text "..."   |   reject 6d5a8518 [--reason "..."]
+```
