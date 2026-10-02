@@ -34,6 +34,8 @@ from program.tools.moltbook import (
     MOLTBOOK_READ_POST,
     MOLTBOOK_SEARCH,
 )
+from program.tools.note_propose import NOTE_PROPOSE
+from program.tools.note_search import NOTE_SEARCH
 from program.tools.registry import Tool
 from program.tools.web_fetch import WEB_FETCH
 from program.tools.web_search import WEB_SEARCH
@@ -50,4 +52,5 @@ from program.tools.web_search import WEB_SEARCH
 TOOLS: tuple[Tool, ...] = (
     MEMORY_SEARCH, WEB_SEARCH, WEB_FETCH, IMAGE_GENERATE, CREATIVE_WRITE,
     MOLTBOOK_BROWSE, MOLTBOOK_SEARCH, MOLTBOOK_READ_POST, MOLTBOOK_READ_AGENT,
+    NOTE_SEARCH, NOTE_PROPOSE,
 )

@@ -93,6 +93,14 @@ _FALLBACK: dict[str, Any] = {
         "read_post_deadline_seconds": 20.0,
         "max_results": 5,
     },
+    "notes": {
+        "enabled": False,
+        "max_results": 5,
+        "max_subject_chars": 60,
+        "max_text_chars": 650,      # derived; see config/defaults.toml
+        "min_quote_chars": 24,
+        "min_quote_words": 4,
+    },
     "ingestion": {
         "max_upload_bytes": 10_000_000,
         "max_extracted_chars": 1_000_000,
@@ -190,6 +198,7 @@ _ENV_MAP: dict[str, tuple[str, str, str]] = {
         "moltbook", "read_post_deadline_seconds", "float",
     ),
     "ANAM_MOLTBOOK_MAX_RESULTS": ("moltbook", "max_results", "int"),
+    "ANAM_NOTES_ENABLED": ("notes", "enabled", "bool"),
     "ANAM_WEB_FETCH_TOTAL_TIMEOUT_SECONDS": (
         "web_fetch", "total_timeout_seconds", "float",
     ),
@@ -782,6 +791,54 @@ def searxng_max_results() -> int:
 #: The one host the Moltbook client may talk to (M5). A config typo must not point
 #: the client, and later the posting key, at another host.
 MOLTBOOK_HOST = "www.moltbook.com"
+
+
+# --- Notes (Phase 5; docs/NOTES_DESIGN.md, docs/NOTES_BUILD_PLAN.md) ------------
+#
+# Every key here is BOOTSTRAP-ONLY (ruling of 2026-10-02): `notes.enabled` is read like
+# `moltbook.enabled`, so changing it needs a restart. Only `approval_required`, built in a later
+# piece, is settings-backed.
+
+
+def notes_enabled() -> bool:
+    """Whether the two note tools exist at all (decision #12's first axis). Default **false**:
+    Notes ships dark until its two ship gates pass, and only Lyle switches it on. Read at call
+    time by ``default_registry()``, so a disabled tool is never offered to the model."""
+    return bool(get("notes", "enabled", False))
+
+
+def _notes_int(key: str, default: int, minimum: int = 1) -> int:
+    value = int(get("notes", key, default))
+    if value < minimum:
+        raise ConfigError(f"notes.{key} is {value}; it must be at least {minimum}.")
+    return value
+
+
+def notes_max_results() -> int:
+    """Notes returned by one ``note_search`` (judgment value, like ``top_k``)."""
+    return _notes_int("max_results", 5)
+
+
+def notes_max_subject_chars() -> int:
+    """Longest subject label. A label, not a sentence; judgment value."""
+    return _notes_int("max_subject_chars", 60)
+
+
+def notes_max_text_chars() -> int:
+    """Longest note text, **derived** from ``agent.max_tool_result_chars`` (N11): the largest
+    value for which a full page of ``notes_max_results()`` worst-case notes still renders under
+    that cap. ``tests/test_notes_tools.py`` recomputes it from the live renderer."""
+    return _notes_int("max_text_chars", 1)
+
+
+def notes_min_quote_chars() -> int:
+    """Shortest quote that can identify a message (N4 step 2; judgment value)."""
+    return _notes_int("min_quote_chars", 24)
+
+
+def notes_min_quote_words() -> int:
+    """Fewest words in a quote (N4 step 2; judgment value)."""
+    return _notes_int("min_quote_words", 4)
 
 
 def moltbook_enabled() -> bool:

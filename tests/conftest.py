@@ -353,6 +353,8 @@ def isolated_data_dir(tmp_path, monkeypatch):
     # The environment layer wins over config/local.toml.
     monkeypatch.setenv("ANAM_MOLTBOOK_ENABLED", "false")
     monkeypatch.setenv("ANAM_MOLTBOOK_API_KEY", "")
+    # Notes ships dark: its tools are not offered in any test unless that test switches them on.
+    monkeypatch.setenv("ANAM_NOTES_ENABLED", "false")
     config.reload()
     # Stores are cached per resolved path, so clearing here means this test gets
     # its own vector store rather than one another test built for another path.
@@ -364,5 +366,6 @@ def isolated_data_dir(tmp_path, monkeypatch):
     monkeypatch.delenv("ANAM_WORKSPACE_DIR", raising=False)
     monkeypatch.delenv("ANAM_MOLTBOOK_ENABLED", raising=False)
     monkeypatch.delenv("ANAM_MOLTBOOK_API_KEY", raising=False)
+    monkeypatch.delenv("ANAM_NOTES_ENABLED", raising=False)
     config.reload()
     vectors.reset_vector_store()

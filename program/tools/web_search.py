@@ -239,6 +239,7 @@ def search_web(query: str) -> str:
 
 
 WEB_SEARCH = Tool(
+    untrusted_output=True,
     name="web_search",
     description=(
         "Search the public internet and get back the highest-scoring results — "

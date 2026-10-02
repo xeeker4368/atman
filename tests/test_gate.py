@@ -972,7 +972,10 @@ def test_side_effect_tools_are_the_attribution_taking_ones():
     are the same set today. The coupling is deliberate and is documented at the
     function; this pins the membership so a new tool cannot change it silently.
     """
-    assert set(gate.side_effect_tools()) == {"creative_write", "image_generate"}
+    # `note_propose` joined at Notes piece 3: it declares `takes_attribution` (a proposal is
+    # attributed to the person present), so it is in the full catalogue's set even while Notes is
+    # dark. The gate's verdicts are proven unchanged by it in tests/test_notes_tools.py.
+    assert set(gate.side_effect_tools()) == {"creative_write", "image_generate", "note_propose"}
 
 
 def test_a_timed_out_side_effect_call_counts_as_having_run():

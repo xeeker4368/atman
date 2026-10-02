@@ -221,6 +221,11 @@ class Tool:
     #: It stays out of the recorded arguments and the trace, and a tool that does not declare it
     #: is dispatched exactly as before it existed. See ``program/origin.py``.
     takes_origin: bool = False
+    #: Whether this tool returns **text written outside the household** (a web page, a post by
+    #: another agent): untrusted input that could carry an instruction. Declared, never inferred.
+    #: A note proposed in a turn that already ran such a tool is flagged to the reviewer (N7); the
+    #: flag is derived from this, so a new external tool is covered the moment it declares it.
+    untrusted_output: bool = False
     #: Whether this capability exists right now (decision #12's first axis). A
     #: **call-time predicate**, not a boolean, so the answer comes from config when
     #: the registry is built rather than from whatever it was at import. ``None``
@@ -716,6 +721,16 @@ def _check_reported_ids(tool: Tool, artifact_ids: tuple[str, ...]) -> None:
             f"tool {tool.name!r} reported artifact ids but does not declare "
             f"takes_attribution. Only a tool that writes a record may report one."
         )
+
+
+def untrusted_tools() -> tuple[str, ...]:
+    """Names of tools returning text written outside the household, from the full catalogue.
+
+    Derived from ``Tool.untrusted_output`` rather than a second list, the way
+    :func:`side_effect_tools` derives from ``takes_attribution``."""
+    from program.tools import catalog
+
+    return tuple(sorted(tool.name for tool in catalog.TOOLS if tool.untrusted_output))
 
 
 def side_effect_tools() -> tuple[str, ...]:

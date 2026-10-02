@@ -110,6 +110,7 @@ from program.engine import loop
 from program.engine import situation as situation_block
 from program.integrity import corrections, gate
 from program.memory import db, retrieval
+from program.memory import notes as notes_db
 from program.memory.retrieval import RetrievalResult
 from program.origin import OriginContext
 from program.settings.permissions import Actor
@@ -391,6 +392,47 @@ def _build_origin(
     )
 
 
+def untrusted_context_by_call(
+    trace, registry: ToolRegistry | None = None
+) -> dict[str, list[str]]:
+    """For each successful ``note_propose`` call in the trace, the **untrusted-output tools that
+    returned text earlier in the same trace** (N7).
+
+    The handler cannot see its turn's earlier calls (the origin is built before the loop and
+    dispatch passes no trace), so the turn fills this in afterwards. A tool counts when it
+    **returned** text (``outcome == "ok"``): a failed or timed-out call gave the entity nothing
+    written outside the household to read. Order is the order of the trace, so a proposal made
+    before a page was fetched in the same round is not flagged for it. Names are listed once, in
+    the order first seen. ``[]`` is a real answer: *recorded, none*.
+
+    "Untrusted" is what the registry **in use** declares (``Tool.untrusted_output``), resolved as
+    the loop resolves it: those are the tools that actually ran. (``registry.untrusted_tools()``
+    answers the same question from the full catalogue, for a stored trace whose tool has since
+    been disabled.)
+    """
+    active = registry if registry is not None else tool_registry.default_registry()
+    untrusted = {tool.name for tool in active if tool.untrusted_output}
+    seen: list[str] = []
+    found: dict[str, list[str]] = {}
+    for entry in loop.call_entries(trace):
+        tool = entry.get("tool")
+        if tool == "note_propose" and entry.get("outcome") == "ok" and entry.get("call_id"):
+            found[entry["call_id"]] = list(seen)
+        if tool in untrusted and entry.get("outcome") == "ok" and tool not in seen:
+            seen.append(tool)
+    return found
+
+
+def _record_untrusted_context(trace, registry: ToolRegistry | None) -> None:
+    """Fill ``note_proposals.untrusted_context`` for this turn's proposals. NULL (not recorded)
+    is what a proposal keeps if this fails, so a failure never reads as *none*. Does nothing, and
+    reads nothing, in a turn that proposed no note."""
+    if not any(e.get("tool") == "note_propose" for e in trace):
+        return
+    for call_id, tools in untrusted_context_by_call(trace, registry).items():
+        notes_db.set_untrusted_context(call_id, tools)
+
+
 def _build_situation(actor: Actor, user_message_id: str) -> str:
     """The current-situation block for this turn (decision #5).
 
@@ -520,6 +562,9 @@ def handle_user_message(
                 "flag (conversation %s)",
                 len(verdict.advisory), conversation_id[:8],
             )
+
+    with _after_durable("the untrusted context of note proposals", conversation_id):
+        _record_untrusted_context(result.trace, registry)
 
     with _after_durable("correction links", conversation_id):
         _record_corrections(actor, conversation_id, retrieved, content,

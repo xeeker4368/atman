@@ -725,6 +725,7 @@ def fetch_url(url: str) -> str:
 
 
 WEB_FETCH = Tool(
+    untrusted_output=True,
     name="web_fetch",
     description=(
         "Retrieve one public web page by URL and read its text. Use it to read "

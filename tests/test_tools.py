@@ -94,8 +94,9 @@ def test_the_catalogue_is_exactly_the_tools_that_have_been_built():
     assert tuple(tool.name for tool in catalog.TOOLS) == (
         "memory_search", "web_search", "web_fetch", "image_generate", "creative_write",
         "moltbook_browse", "moltbook_search", "moltbook_read_post", "moltbook_read_agent",
+        "note_search", "note_propose",
     )
-    # Moltbook is switched off for every test (conftest), so it is not offered here.
+    # Moltbook and Notes are switched off for every test (conftest), so neither is offered here.
     assert registry.default_registry().names == (
         "creative_write", "image_generate", "memory_search", "web_fetch", "web_search",
     )

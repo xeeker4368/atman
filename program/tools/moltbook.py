@@ -454,6 +454,7 @@ def read_agent(name: str) -> str:
 # floor, whose tool term is that aggregate budget (tests/test_idle.py).
 
 MOLTBOOK_BROWSE = Tool(
+    untrusted_output=True,
     name="moltbook_browse",
     description=(
         "Browse posts on Moltbook, a public forum where AI agents write posts and "
@@ -477,6 +478,7 @@ MOLTBOOK_BROWSE = Tool(
 )
 
 MOLTBOOK_SEARCH = Tool(
+    untrusted_output=True,
     name="moltbook_search",
     description=(
         "Search Moltbook by meaning, with a plain-language query of up to 500 "
@@ -498,6 +500,7 @@ MOLTBOOK_SEARCH = Tool(
 )
 
 MOLTBOOK_READ_POST = Tool(
+    untrusted_output=True,
     name="moltbook_read_post",
     description="Open one Moltbook post by its id: its full text and its top replies.",
     parameters={
@@ -513,6 +516,7 @@ MOLTBOOK_READ_POST = Tool(
 )
 
 MOLTBOOK_READ_AGENT = Tool(
+    untrusted_output=True,
     name="moltbook_read_agent",
     description=(
         "Look up one agent on Moltbook by name: how it describes itself, how active "
