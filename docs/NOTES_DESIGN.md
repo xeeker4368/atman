@@ -685,6 +685,13 @@ not an afterthought.
   runs, so it holds the conversation's messages and the passive retrieval's only. A quote from a
   message found by an in-turn search resolves in the store tier, under the whole-store uniqueness
   rule, and can be refused as ambiguous where the context tier would have accepted it.
+- **The store-tier quote prefilter is unbounded for a very common longest word** (piece 3,
+  2026-10-02). It is a `LIKE` on the quote's longest word, then an exact normalised match in Python,
+  so a quote whose longest word is, say, *"coffee"* in a large store reads every user message
+  containing it. Correct, and cheap at this store's size; it has no limit and no index behind it.
+  The context tier (the usual case: the evidence is in this turn's own conversation) is bounded by
+  the conversation. A real bound would need an index on message text or a cap with a clear refusal;
+  neither is built.
 - **Autonomous proposals have no origin shape** yet (N14).
 - **The untrusted flag is per turn, not per claim.** A proposal in a turn that also
   read a web page is flagged even when its evidence is wholly from the person. That

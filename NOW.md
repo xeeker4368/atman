@@ -403,6 +403,17 @@ past older history is logged and marked in the trace.
   - (4) the reproduction scenarios become regression tests asserting the user's message is
     present on every call.
 
+**Planning item, no fix now (2026-10-02): tool-schema headroom is about 309 tokens with 11 tools.**
+B20's derivation (`config/defaults.toml`, `tests/test_turn.py`) prices every tool's schema against the
+chat message cap. With Notes' two tools the derived cap is 51,236 characters, the configured 50,000
+fits, and about **309 tokens** of earlier history are left beside a maximal message (about 590 with 9
+tools). **Phase 5's further tools** (the self-flag tool, bounded research execution if it becomes a
+tool, Moltbook posting) will each cost roughly 100 to 250 tokens, so **the next one forces the
+configured message cap below 50,000, or something else to give**: shorter schemas, a smaller
+retrieval or soul allowance, a larger window, or a tool-selection step that offers fewer tools per
+turn. The B20 tests fail naming both numbers when it happens, so it cannot be silent; the choice is
+Lyle's and is not made here.
+
 **B22 — `archive.db` has no triggers, so its append-only rule is convention** (filed 2026-10-02,
 found by the REPLACE audit during Notes piece 1; **Tier 3, not built**). `schema/archive.sql`
 declares two tables and no trigger: nothing in the schema stops an `UPDATE`, `DELETE` or

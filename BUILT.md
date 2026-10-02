@@ -3131,6 +3131,38 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   files before any edit and is unchanged after, `e5c92a42…806762`; its first pin changed hourly (a
   minute-granular time in the correction prompt) and was re-taken. 20 tests in `tests/test_origin.py`;
   every guard and the builder mutated and killed.
+- `[built]` **Notes piece 3: `note_search` and `note_propose`, shipped dark** (2026-10-02, Tier 3,
+  reviewed and approved; `changelog/2026-10-02-notes-piece-3-tools.md`). **Both are in the catalogue
+  and neither is offered to the model**: `notes.enabled` is a bootstrap setting, default false.
+  - `note_search` is lexical only (FTS5/BM25), re-reads rows and filters `status = 'active'` after
+    consulting the index (so a stale index entry cannot show a retired note), returns at most 5 notes
+    each shown by an 8-character id and *"confirmed N days ago"*, and says exactly one sentence on a
+    miss (`note_texts.NO_MATCH`, shared with the later misses report). Not filtered by who asks.
+  - `note_propose` writes a **pending proposal and nothing else**: no note is created or changed, no
+    status other than `pending` is reachable, and its result says a proposal exists and a note does
+    not (no id named). Every refusal is a `TOOL_ERROR` the model can act on: bad action, bad subject
+    kind (**there is no `self` kind**), subject and text bounds (`notes.max_text_chars` **650, derived**
+    from the live renderer), `note_id` rules (active note, unambiguous prefix), at least one quote, each
+    quote text, minimum length, and **evidence that resolves only to a message a person wrote**
+    (N4 amendment, N17 #23): normalised exact match, context tier preferred, uniqueness within the
+    tier with the same-user identical-duplicate exception, no paraphrase, no citing its own reply.
+  - The identity gate runs on the text, flag-only, stored on the row (a retire has no text, so NULL: no
+    verdict, never clean). **`untrusted_context` is filled by the turn after the answer is durable**:
+    the untrusted-output tools that returned text earlier in the same trace (NULL = not recorded,
+    `[]` = none; a failed update stays NULL and never fails the turn).
+  - **Unchanged for everything existing, proven:** the gate's verdict digest over every frozen case with
+    `note_propose` in the catalogue is `c3a01db6…ad488`, equal to the value pinned from before
+    `check_identity` existed, and the piece-2 turn digest is `e5c92a42…806762`. `side_effect_tools()`
+    now includes `note_propose` (three existing catalogue guards updated).
+  - **Budget:** real tokenizer 9 tools 1,057, 11 tools 1,337 (+280); the derived `chat.max_message_chars`
+    is 51,236 (was 52,360), the configured 50,000 still fits with ~309 tokens to spare.
+  - 77 tests in `tests/test_notes_tools.py`; 51 mutations, each killed.
+- `[unverified]` **The store-tier quote prefilter is unbounded for a very common longest word**
+  (recorded in N18): a `LIKE` on a word such as "the" returns every user message containing it, each
+  then normalised and compared in Python. Correct, and cheap at this store's size; a large store would
+  pay for it per quote.
+- `[unverified]` **Tool-schema headroom is about 309 tokens with 11 tools** (see `NOW.md`): the next
+  tool forces the configured message cap below 50,000 or something else to give.
 - `[unverified]` **No guard on a `notes` row's text while it is active** (direct SQL can edit it);
   the design puts that discipline in the tools and `scripts.note`, which do not exist yet.
 
