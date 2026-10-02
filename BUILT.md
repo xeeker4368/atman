@@ -3083,8 +3083,28 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   (`recursive_triggers = ON`, per connection, database-wide semantics) is reported, not taken.
   105 tests in `tests/test_notes_schema.py`; every guard proven to bite by neutering it while
   keeping its name, plus removing it.
-- `[unverified]` **No guard on a `notes` row's text** (it can be edited by direct SQL); the design
-  puts that discipline in the tools and `scripts.note`, which do not exist yet.
+- `[built]` **A retired or superseded note is frozen** (review, 2026-10-02): a `BEFORE UPDATE`
+  trigger refuses every change to a note whose status is not `active`, including a direct `UPDATE`
+  back to `active`; retiring and superseding still work. Applied to migration 8 **in place**: a
+  read-only `MAX(version)` on the real `data/working.db` is **6**, so 8 has never run on real data.
+  Also: an explicit rowid of -1 could not be told from "none given" (`new.rowid` is -1 in a BEFORE
+  INSERT trigger), so `AFTER INSERT` triggers refuse negative rowids; that assumption and the
+  helper's `foreign_keys` pragma (a plain `sqlite3` connection accepts bad references) are each
+  pinned by a test. Tests: 145; every guard mutated and killed.
+- `[unverified]` **LATENT GAP, found by audit 2026-10-02: REPLACE-style statements skip DELETE
+  triggers, and nothing guards `chunks`, `messages` or the archive against them.** With
+  `recursive_triggers` off (the default, and no connection pragma is changed) an `INSERT OR REPLACE`,
+  `REPLACE INTO` or `UPDATE OR REPLACE` removes a conflicting row **without firing delete
+  triggers**; measured. Piece 1 guards the Notes tables. **Evidence that nothing exists today:**
+  `grep -rnE "OR REPLACE|REPLACE INTO|ON CONFLICT" program scripts ops` finds only
+  `program/settings/store.py:528` (`INSERT INTO settings … ON CONFLICT(key) DO UPDATE`, an upsert on a
+  table with no FTS index, which runs UPDATE triggers) and two comments in `migrations.py`. **None
+  targets `chunks`, `messages` or another FTS-backed table.** But a future `REPLACE INTO chunks`
+  would skip `chunks_fts_delete` and leave the index pointing at a row that is gone, and **the
+  archive has no triggers at all** (`archive.sql`), so its append-only rule is a convention a
+  `REPLACE INTO messages` would break silently. Reported, not changed; closing it is a schema review.
+- `[unverified]` **No guard on a `notes` row's text while it is active** (direct SQL can edit it);
+  the design puts that discipline in the tools and `scripts.note`, which do not exist yet.
 
 ## Correction / supersession
 

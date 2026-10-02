@@ -264,7 +264,10 @@ build whose tools ship dark.
   non-empty JSON array. **REPLACE cannot get round these:** SQLite fires no DELETE trigger for a
   row an `INSERT OR REPLACE` / `UPDATE OR REPLACE` removes (with `recursive_triggers` off, as
   here), so `BEFORE INSERT` triggers refuse a reused id or explicit rowid on all three tables and
-  `BEFORE UPDATE` triggers refuse changing an id or rowid on `notes` and `note_proposals`.
+  `BEFORE UPDATE` triggers refuse changing an id or rowid on `notes` and `note_proposals`, and
+  `AFTER INSERT` triggers refuse a negative rowid (`new.rowid` is -1 when none is given). **A
+  retired or superseded note is frozen**: a `BEFORE UPDATE` trigger refuses every change to a
+  note whose status is not `active`.
 - **`approval_log`**: shared across capabilities (keyed by `capability`), **append-only in the
   schema** (update and delete raise). `decision` is **not** closed in the schema: the vocabulary
   is validated in code, `db.APPROVAL_DECISIONS` and `db.record_approval`, so a new capability

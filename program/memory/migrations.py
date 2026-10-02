@@ -440,6 +440,12 @@ def _v8_notes(conn: sqlite3.Connection) -> None:
       review; it also holds N17 #21's one-way status rule, which it subsumes).
     * ``approval_log`` is append-only in the schema: ``BEFORE UPDATE`` and ``BEFORE DELETE``
       raise (approved).
+    * **A retired or superseded note is frozen** (ruling of 2026-10-02): a ``BEFORE UPDATE``
+      trigger refuses every change to a note whose ``status`` is not ``active``, so nothing,
+      not even a direct ``UPDATE`` back to ``active``, alters what a note said once it left
+      the active set. Retiring and superseding themselves are updates **from** ``active`` and
+      still work. (Applied to migration 8 in place: the real store is at version 6, so 8 has
+      never run on real data.)
     * **Deletes (ruling of 2026-10-02):** a decided proposal cannot be deleted (a pending one
       may be), and **nothing can be deleted from ``notes``**: retiring and superseding change
       ``status`` and keep the text. So there is no ``AFTER DELETE`` FTS trigger: it could never
@@ -459,7 +465,9 @@ def _v8_notes(conn: sqlite3.Connection) -> None:
       unless ``recursive_triggers`` is on, so those statements overwrote rows the delete guards
       protect. ``BEFORE INSERT`` triggers refuse an existing id (or explicit rowid) on all three
       tables, and ``BEFORE UPDATE`` triggers refuse changing an id or rowid on ``notes`` and
-      ``note_proposals`` (``approval_log`` refuses every update). No connection pragma is
+      ``note_proposals`` (``approval_log`` refuses every update), and an ``AFTER INSERT``
+      trigger on each table refuses a negative rowid (``new.rowid`` is -1 when none was given,
+      so an explicit -1 could not otherwise be told from none). No connection pragma is
       changed.
 
     **The FTS index is external content over a VIEW of the active notes, not over ``notes``.**
@@ -584,6 +592,15 @@ def _v8_notes(conn: sqlite3.Connection) -> None:
                 SELECT new.rowid, new.subject, new.text WHERE new.status = 'active';
         END;
 
+        CREATE TRIGGER notes_inactive_is_frozen BEFORE UPDATE ON notes
+        WHEN old.status <> 'active'
+        BEGIN
+            SELECT RAISE(
+                ABORT,
+                'a retired or superseded note is frozen: its text is kept as it was'
+            );
+        END;
+
         CREATE TRIGGER notes_no_delete BEFORE DELETE ON notes
         BEGIN
             SELECT RAISE(ABORT, 'notes are never deleted: retire or supersede them');
@@ -651,6 +668,28 @@ def _v8_notes(conn: sqlite3.Connection) -> None:
           OR (new.rowid <> -1 AND EXISTS (SELECT 1 FROM approval_log WHERE rowid = new.rowid))
         BEGIN
             SELECT RAISE(ABORT, 'an approval_log row is never replaced: its id (or rowid) exists');
+        END;
+
+        -- ``new.rowid`` is -1 in a BEFORE INSERT trigger when no rowid was given, so an
+        -- explicit rowid of -1 cannot be told apart from none and would slip past the guards
+        -- above. Auto-assigned rowids are positive; refusing a negative one after the insert
+        -- (which aborts the whole statement, a REPLACE's deletion included) closes that.
+        CREATE TRIGGER notes_no_negative_rowid AFTER INSERT ON notes
+        WHEN new.rowid < 0
+        BEGIN
+            SELECT RAISE(ABORT, 'a negative rowid is refused');
+        END;
+
+        CREATE TRIGGER note_proposals_no_negative_rowid AFTER INSERT ON note_proposals
+        WHEN new.rowid < 0
+        BEGIN
+            SELECT RAISE(ABORT, 'a negative rowid is refused');
+        END;
+
+        CREATE TRIGGER approval_log_no_negative_rowid AFTER INSERT ON approval_log
+        WHEN new.rowid < 0
+        BEGIN
+            SELECT RAISE(ABORT, 'a negative rowid is refused');
         END;
 
         CREATE TRIGGER approval_log_append_only_update BEFORE UPDATE ON approval_log

@@ -19,12 +19,14 @@ NOTES_OBJECTS = {
     "view": {"active_notes"},
     "fts": {"notes_fts"},
     "triggers": {
-        "notes_fts_insert", "notes_fts_update", "notes_no_delete",
+        "notes_fts_insert", "notes_fts_update", "notes_no_delete", "notes_inactive_is_frozen",
         "note_proposals_insert_pending", "note_proposals_decided_is_final",
         "note_proposals_decided_no_delete",
         "approval_log_append_only_update", "approval_log_append_only_delete",
         "notes_no_replace", "notes_id_is_final", "note_proposals_no_replace",
         "note_proposals_id_is_final", "approval_log_no_replace",
+        "notes_no_negative_rowid", "note_proposals_no_negative_rowid",
+        "approval_log_no_negative_rowid",
     },
 }
 ALL_OBJECT_NAMES = set().union(*NOTES_OBJECTS.values())
@@ -102,7 +104,7 @@ def test_migration_eight_creates_exactly_its_objects(store):
             "AND tbl_name = 'note_proposals'")}
     assert on_proposals == {"note_proposals_insert_pending", "note_proposals_decided_is_final",
                             "note_proposals_decided_no_delete", "note_proposals_no_replace",
-                            "note_proposals_id_is_final"}
+                            "note_proposals_id_is_final", "note_proposals_no_negative_rowid"}
     assert "notes_fts_delete" not in names("trigger"), (
         "an AFTER DELETE FTS trigger can never fire when nothing may be deleted")
 
@@ -212,16 +214,12 @@ def test_the_index_equals_the_active_set_after_every_transition(store):
              lambda: conn.execute("UPDATE notes SET text = 'almond milk' WHERE id = 'n1'")),
             ("edit subject of an active note",
              lambda: conn.execute("UPDATE notes SET subject = 'Jodie H' WHERE id = 'n1'")),
-            ("edit text of a retired note",
-             lambda: conn.execute("UPDATE notes SET text = 'still gone' WHERE id = 'n2'")),
             ("a second active note", lambda: note(conn, "n4", "bike lock code", subject="Lyle")),
             ("supersede the first",
              lambda: conn.execute("UPDATE notes SET status = 'superseded' WHERE id = 'n1'")),
             ("retire the second",
              lambda: conn.execute(
                  "UPDATE notes SET status = 'retired', retired_at = 'now' WHERE id = 'n4'")),
-            ("reactivate it (direct SQL)",
-             lambda: conn.execute("UPDATE notes SET status = 'active' WHERE id = 'n4'")),
         ]
         for label, step in steps:
             step()
@@ -287,7 +285,6 @@ def test_rebuild_and_integrity_check_hold_after_retire_supersede_and_edit_sequen
         conn.execute("UPDATE notes SET status = 'superseded' WHERE id = 'n1'")
         conn.execute("UPDATE notes SET text = 'edited fact' WHERE id = 'n2'")
         conn.execute("UPDATE notes SET status = 'retired' WHERE id = 'n3'")
-        conn.execute("UPDATE notes SET text = 'edited after retire' WHERE id = 'n3'")
         conn.execute("UPDATE notes SET subject = 'Renamed' WHERE id = 'n4'")
         check_index(conn)
         # plain integrity-check (the index against itself) and the content comparison
@@ -768,3 +765,158 @@ def test_ordinary_inserts_still_work_with_the_replace_guards_in_place(world):
             note(conn, f"n{i}")
             log(conn, lid=f"l{i}")
             proposal(conn, world, f"p{i}")
+
+
+# --- a retired or superseded note is frozen (review, 2026-10-02) -------------
+
+NOTE_ASSIGNMENTS = [
+    "id = 'changed'", "subject_kind = 'topic'", "subject = 'changed'",
+    "subject_user_id = NULL", "text = 'changed'", "status = 'active'",
+    "status = 'retired'", "status = 'superseded'", "version = 2",
+    "previous_note_id = NULL", "origin = 'entity'", "created_at = 'x'",
+    "last_confirmed_at = 'x'", "retired_at = 'x'",
+    "text = text",                      # even a no-op update is a change attempt
+]
+
+
+@pytest.mark.parametrize("status", ("retired", "superseded"))
+@pytest.mark.parametrize("assignment", NOTE_ASSIGNMENTS)
+def test_every_column_of_a_retired_or_superseded_note_is_frozen(store, status, assignment):
+    with db.transaction() as conn:
+        note(conn, "n1", "what it said", status=status)
+    with db.connection() as conn:
+        before = tuple(conn.execute("SELECT * FROM notes").fetchone())
+    with pytest.raises(sqlite3.DatabaseError, match="frozen|keeps its id"):
+        with db.transaction() as conn:
+            conn.execute(f"UPDATE notes SET {assignment} WHERE id = 'n1'")
+    with db.connection() as conn:
+        assert tuple(conn.execute("SELECT * FROM notes").fetchone()) == before
+
+
+def test_an_active_note_can_still_be_edited_superseded_and_retired(store):
+    with db.transaction() as conn:
+        note(conn, "n1", "first")
+        note(conn, "n2", "second")
+        conn.execute("UPDATE notes SET text = 'edited', last_confirmed_at = 'later' "
+                     "WHERE id = 'n1'")
+        conn.execute("UPDATE notes SET status = 'superseded' WHERE id = 'n1'")
+        conn.execute("UPDATE notes SET status = 'retired', retired_at = 'now' WHERE id = 'n2'")
+    with db.connection() as conn:
+        rows = {r["id"]: (r["status"], r["text"]) for r in conn.execute("SELECT * FROM notes")}
+    assert rows == {"n1": ("superseded", "edited"), "n2": ("retired", "second")}
+
+
+def test_a_frozen_note_stays_out_of_the_index_and_the_index_stays_consistent(store):
+    with db.transaction() as conn:
+        note(conn, "n1", "oat milk")
+        conn.execute("UPDATE notes SET status = 'retired' WHERE id = 'n1'")
+        check_index(conn)
+    with pytest.raises(sqlite3.DatabaseError):
+        with db.transaction() as conn:
+            conn.execute("UPDATE notes SET status = 'active' WHERE id = 'n1'")
+    with db.transaction() as conn:
+        check_index(conn)
+        assert indexed_rowids(conn) == set()
+
+
+# --- two facts the guards depend on, pinned (review, 2026-10-02) -------------
+
+
+def test_new_rowid_is_minus_one_in_a_before_insert_trigger_when_none_is_given(store):
+    """The REPLACE guards test `new.rowid <> -1` to tell "no rowid given" from "an explicit
+    rowid that may collide". That depends on SQLite's behaviour, so it is pinned on the real
+    table with a temporary trigger rather than assumed."""
+    with db.transaction() as conn:
+        conn.execute("CREATE TEMP TABLE seen (r INTEGER)")
+        conn.execute("CREATE TEMP TRIGGER peek BEFORE INSERT ON main.notes "
+                     "BEGIN INSERT INTO temp.seen VALUES (new.rowid); END")
+        note(conn, "auto-1")
+        note(conn, "auto-2")
+        conn.execute(
+            "INSERT INTO notes (rowid, id, subject_kind, subject, text, status, version, origin, "
+            "created_at, last_confirmed_at) VALUES (4242, 'explicit', 'person', 's', 't', "
+            "'active', 1, 'operator', 'x', 'x')")
+        assert [r[0] for r in conn.execute("SELECT r FROM seen")] == [-1, -1, 4242]
+
+
+def raw_connection():
+    """A plain sqlite3 connection to the working database, with SQLite's own defaults: no
+    helper, so `PRAGMA foreign_keys` is OFF."""
+    conn = sqlite3.connect(str(db.working_path()))
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+NOTES_WITH_BAD_REFERENCES = [
+    "INSERT INTO notes (id, subject_kind, subject, subject_user_id, text, status, version,"
+    " origin, created_at, last_confirmed_at) VALUES ('b1', 'person', 's', 'no-such-user', 't',"
+    " 'active', 1, 'operator', 'x', 'x')",
+    "INSERT INTO notes (id, subject_kind, subject, text, status, version, previous_note_id,"
+    " origin, created_at, last_confirmed_at) VALUES ('b2', 'person', 's', 't', 'active', 2,"
+    " 'no-such-note', 'operator', 'x', 'x')",
+]
+
+
+def _bad_proposal_sql(world, column):
+    cols = dict(id="bp-" + column, action="revise", target_note_id="existing",
+                subject_kind="person", subject="s", text="t", evidence='["q"]',
+                conversation_id=world.conv, user_message_id=world.msg, user_id=world.user,
+                status="pending", created_at="x")
+    cols[column] = "no-such-" + column
+    names = ", ".join(cols)
+    marks = ", ".join(f"'{v}'" for v in cols.values())
+    return f"INSERT INTO note_proposals ({names}) VALUES ({marks})"
+
+
+def _all_bad_inserts(world):
+    sqls = list(NOTES_WITH_BAD_REFERENCES)
+    for column in ("conversation_id", "user_message_id", "target_note_id"):
+        sqls.append(_bad_proposal_sql(world, column))
+    return sqls
+
+
+def test_the_connection_helpers_foreign_keys_setting_is_what_refuses_a_bad_reference(world):
+    """Not the schema alone: `FOREIGN KEY` clauses are inert unless the connection turns the
+    pragma on, and SQLite's default is off. The same bad inserts are refused through
+    `db.connection()` and **accepted** through a plain `sqlite3` connection. So the guarantee
+    is the helper's, and any code that opens its own connection loses it."""
+    with db.transaction() as conn:
+        note(conn, "existing")
+    sqls = _all_bad_inserts(world)
+
+    with db.connection() as conn:
+        assert conn.execute("PRAGMA foreign_keys").fetchone()[0] == 1
+    for sql in sqls:
+        with pytest.raises(sqlite3.IntegrityError, match="FOREIGN KEY"):
+            with db.transaction() as conn:
+                conn.execute(sql)
+    with db.connection() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM note_proposals").fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM notes").fetchone()[0] == 1
+
+    raw = raw_connection()
+    try:
+        assert raw.execute("PRAGMA foreign_keys").fetchone()[0] == 0
+        for sql in sqls:
+            raw.execute(sql)           # accepted: the helper's pragma was the only barrier
+        raw.commit()
+        assert raw.execute("SELECT COUNT(*) FROM note_proposals").fetchone()[0] == 3
+    finally:
+        raw.close()
+
+
+@pytest.mark.parametrize("table", ("notes", "note_proposals", "approval_log"))
+@pytest.mark.parametrize("rowid", (-1, -5))
+def test_a_negative_rowid_is_refused_so_minus_one_never_hides_an_explicit_rowid(
+        world, table, rowid):
+    """`new.rowid` is -1 when none is given, so an explicit -1 looks like "none" to the REPLACE
+    guards. Closed by refusing any negative rowid; then a row at -1 can never exist to be
+    replaced."""
+    _seed(world, table)
+    before = _survivor(table)
+    cols, values = _row_values(table, world, "neg")
+    with pytest.raises(sqlite3.DatabaseError, match="negative rowid"):
+        with db.transaction() as conn:
+            conn.execute(f"INSERT OR REPLACE INTO {table}(rowid, {', '.join(cols)}) "
+                         f"VALUES (?, {', '.join('?' * len(cols))})", [rowid, *values])
+    assert _survivor(table) == before
