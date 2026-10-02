@@ -379,6 +379,29 @@ neither is rediscovered:
 - **(b) Lived-through narrative with no time marker is missed 0/40:** *"I noticed all
   afternoon that the dentist appointment was on Jodie's mind."* in both arms.
 
+**Decided 2026-10-02: the journal ships without the clause.** The default arm is the block
+without *"and there was no thinking about it in between"*; `--with-clause` is kept for the
+other. The live run found no priming under either arm and nothing for the clause's measured
+benefit to act on (`changelog/2026-10-01-journal-live-run.md`).
+
+**What the live run did and did not cover (recorded 2026-10-02).** It covered **two corpora, and
+neither is real conversation**: the invented seed corpus (09-01), and **one scripted soak split at
+local midnight into 09-21 and 09-22**. The soak's tool calls ran; its conversations were
+scripted. **Real-day behaviour is untested.** The stage-1 control stays: the operator reads each
+entry before `--index`. And **the dominant errors the run found, wrong counts and unsupported
+characterisations, are not what the identity gate checks**, so the gate's silence on them says
+nothing about their rate.
+
+**The block now states the counts (2026-10-02).** The run's one repeatable error was a
+conversation count the records contradicted. The block gains a paragraph giving the number of
+conversations and messages **as shown** (a message omitted to fit is not counted) and telling
+the entity to use only those. **This deliberately breaks the pin that the block is
+character-identical to J8's text; J8's numbers describe the previous block.** A test asserts the
+block is J8's text plus that one paragraph. **Measured 2026-10-02** (24 entries, three days, one arm,
+hand-read): wrong counts **0/24** against 6/24, every entry stating the given figures; unsupported
+event or speaker 2/24 against 5/24, not shown to differ; gate 1/24, a false positive
+(`changelog/2026-10-02-journal-counts-and-decisions.md`).
+
 **Does the gate see the system-record lines an entry was written from? No** (review item,
 2026-10-01). `generate()` passes the gate two things: the entry text and the journal block as
 the situation, with an **empty trace**. The records the entity read, including their

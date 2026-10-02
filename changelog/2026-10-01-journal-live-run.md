@@ -21,7 +21,7 @@ the store copy and the per-day record dumps stay outside the repository
   `memory_search`, 3 `web_search`; 11 `supersedes` links), **2026-09-22** (147 messages, 13
   conversations, 71,330 characters; 2 `image_generate`, 3 `creative_write`, 1 `web_search`; 2
   links). 426 messages in all.
-- **The mix**: all three, because there are only three. 09-22 is the day with real tool calls
+- **The mix**: all three, because there are only three. 09-22 is the day with tool calls
   and corrections that fits the window; **09-21 is the heavy day with the most corrections
   (11) and tool calls**, 29,019 estimated tokens against the window, with 29 messages clipped
   and none omitted; 09-01 is the quiet control with neither.
@@ -113,7 +113,14 @@ read the C2 difference (5 against 2) as an effect of the clause.
 - **A dense day fits**: 09-21 at 29,019 estimated tokens, nothing omitted, 29 messages clipped.
   The estimator over-counts, so the real prompt was smaller; the longest sample took 150 s.
 
-## Limits, stated
+## Limits, stated (added 2026-10-02)
+- **Two corpora, neither real conversation.** 09-01 is the invented seed corpus. **09-21 and
+  09-22 are one scripted soak split at local midnight** (09-21 ends 23:59, 09-22 begins 00:00),
+  so "three days" is two corpora. The tool calls in it ran; the conversations were scripted.
+  **Real-day behaviour is untested.** The stage-1 reading control stays.
+- **The dominant errors are not what the identity gate checks.** The wrong conversation count and
+  the unsupported characterisations are not identity claims; the gate was clean on all of them by
+  design, and its only flags were two false positives. Reading the entry is what catches them.
 - One reader, no second check; C is soft. 24 entries per arm, **three days, one model**, so an
   interval of 0–14% on A and B says "not common", not "does not happen".
 - 09-01 is the invented seed corpus, not soak; it is the quiet control.

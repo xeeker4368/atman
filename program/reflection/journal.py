@@ -94,6 +94,18 @@ _REST = (
     "added to memory.",
 )
 
+#: Given facts (2026-10-02, after the live run). The first live run found one repeatable
+#: error: entries stated a conversation count the records contradicted ("four distinct
+#: conversations" over a day holding eight). The counts are now stated, and the entity is
+#: told to use only them. **This deliberately breaks the pin that the block is
+#: character-identical to J8's text**: J8's numbers describe the block without this
+#: paragraph. Authored text: `prompt.check_authored_text` applies.
+_COUNTS = (
+    "The records below hold {conversations} and {messages}. These counts are given: "
+    "when you say how many conversations or messages there were, use these, and do "
+    "not count anything else yourself."
+)
+
 _RECORDS_HEADER = (
     "RECORDS OF {day}: stored messages, not the present situation. Lines marked "
     "\"You\" are replies you gave. Lines marked \"system record\" were written by the "
@@ -118,16 +130,31 @@ def local_time_text(moment: datetime, tz: ZoneInfo) -> str:
     return f"{long_date(local.date())}, {local.strftime('%H:%M')}"
 
 
-def journal_block(now_text: str, day_text: str, *, clause: bool = False) -> str:
+def _plural(n: int, noun: str) -> str:
+    return f"{n} {noun}" if n == 1 else f"{n} {noun}s"
+
+
+def counts_paragraph(conversations: int, messages: int) -> str:
+    return _COUNTS.format(conversations=_plural(conversations, "conversation"),
+                          messages=_plural(messages, "message"))
+
+
+def journal_block(
+    now_text: str, day_text: str, *, conversations: int, messages: int, clause: bool = False
+) -> str:
     """The journal block: the entity's situation **and** the gate's ground truth.
 
     One function builds both, so the entity and the gate cannot be shown different
-    wording. (If the live run finds the clause primes the entity, the fallback is to
+    wording. ``conversations`` and ``messages`` are the counts of the records **as shown**
+    (a message omitted to fit is not counted; the omission is stated separately).
+    (If the live run finds the clause primes the entity, the fallback is to
     give the gate the clause and the entity not; that needs this split and a test that
     the two cannot drift. Not built: it is costed only if the run says so.)
     """
     intro = _INTRO.format(day=day_text) + (CLAUSE if clause else "") + "."
-    return "\n\n".join([f"Current time: {now_text}.", intro, *_REST])
+    return "\n\n".join(
+        [f"Current time: {now_text}.", intro, counts_paragraph(conversations, messages), *_REST]
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -296,6 +323,13 @@ class Prepared:
         }
 
 
+def _block_for(now_text: str, day_text: str, shown: list[_Unit], clause: bool) -> str:
+    return journal_block(
+        now_text, day_text, clause=clause,
+        conversations=len({u.conversation_id for u in shown}), messages=len(shown),
+    )
+
+
 def _assemble(block: str, day_text: str, shown: list[_Unit], omitted: int) -> tuple[str, str]:
     header = _RECORDS_HEADER.format(day=day_text)
     if omitted:
@@ -334,14 +368,15 @@ def prepare(
     units = _units(rows, tz)
 
     day_text = long_date(covered)
-    block = journal_block(local_time_text(now, tz), day_text, clause=clause)
-    prompt.check_authored_text(block, "journal block")
+    now_text = local_time_text(now, tz)
+    prompt.check_authored_text(_block_for(now_text, day_text, units, clause), "journal block")
     prompt.check_authored_text(_USER_MESSAGE.format(day=day_text), "journal user message")
 
     # Smallest number of earliest messages to drop so that the prompt fits. Cost only
     # falls as more are dropped, so this is a search, not a scan.
     def fits(k: int) -> bool:
-        return _fits(*_assemble(block, day_text, units[k:], k))
+        shown = units[k:]
+        return _fits(*_assemble(_block_for(now_text, day_text, shown, clause), day_text, shown, k))
 
     if not fits(len(units)):
         raise JournalError(
@@ -362,7 +397,9 @@ def prepare(
             f"window beside soul.md and the journal block"
         )
 
-    system, user = _assemble(block, day_text, units[omitted:], omitted)
+    shown = units[omitted:]
+    block = _block_for(now_text, day_text, shown, clause)
+    system, user = _assemble(block, day_text, shown, omitted)
     budget = history.plan_budget(system_prompt_chars=len(system) + len(user))
     return Prepared(
         covered=covered,

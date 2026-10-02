@@ -2974,8 +2974,10 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
     local calendar day (`app.timezone`, DST-correct window). Default date yesterday;
     today and future refused; one entry per covered date; an empty day writes nothing;
     `--dry-run` makes no model call. The prompt is `soul.md` → block → records, through
-    `prompt.build_system_prompt` and its checks. **The block is character-identical to the
-    text J8 measured** (a test compares it with the dev script's constants), in both arms.
+    `prompt.build_system_prompt` and its checks. **The block was character-identical to the
+    text J8 measured** until 2026-10-02, when one paragraph was added (the given conversation and
+    message counts, below); a test now asserts it equals J8's text plus that paragraph and nothing
+    else. **J8's numbers describe the block without the counts paragraph.**
   - **Budget (J3):** each message is clipped to `journal.max_message_chars` (2,000, a
     judgment value); if the day still does not fit, the earliest messages are dropped
     whole and counted in the prompt and the row.
@@ -3009,7 +3011,22 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   cognition-family phrasings and 0/24 lived-through claims in each arm**; the gate flagged 1/24
   per arm, both false positives on the *"learned"* topic. So the clause **does not prime**, and its
   false-negative benefit **cannot be shown on this population** (nothing for the gate to miss).
-  Recommendation recorded, decision Lyle's: ship without the clause.
+  **Decided 2026-10-02: ship without the clause.** The default arm is the block without it;
+  `--with-clause` is kept. (Recorded in J7.)
+- `[built]` **The block now states the conversation and message counts** (2026-10-02, Tier 3
+  authored text; `changelog/2026-10-02-journal-counts-and-decisions.md`). The first run's repeatable
+  error was a wrong conversation count (6/8 entries on the quiet day). With the counts given,
+  **0/24 wrong-count entries** (all 24 stated the given figures), measured on the same three days,
+  one arm, a fresh shuffle each pass, every entry read by hand. Unsupported event or speaker 2/24
+  against 5/24, **not shown to differ**. Gate 1/24, a false positive. Tests: 45; four mutations
+  killed.
+- `[unverified]` **The run covered two corpora, and neither is real conversation.** 09-01 is the
+  invented seed corpus. **09-21 and 09-22 are one scripted soak split at local midnight** (the
+  first ends 23:59, the second begins 00:00), so they are one corpus counted as two days. Its tool
+  calls ran, but the conversations were scripted. **Behaviour on a real day is untested**, and
+  the stage-1 control (the operator reading each entry before `--index`) stays. The dominant
+  errors the run found, wrong counts and unsupported characterisations, **are not what the
+  identity gate checks**.
 - `[unverified]` **One reader, three days, one model.** The hand reading is mine alone and the
   "claims not in the records" column is the softest; *"four distinct conversations"* is a
   repeatable miscount on the quiet day. `check_identity` measured a wash on 43 hand-built cases

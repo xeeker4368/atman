@@ -249,18 +249,52 @@ def test_a_day_that_fits_omits_nothing_and_says_nothing_about_omission(world):
 # --- J4: the prompt -----------------------------------------------------------
 
 
-def test_the_block_is_exactly_the_text_j8_measured():
-    """What shipped is what was measured: both arms, character for character."""
+def test_the_block_is_j8s_text_plus_one_counts_paragraph_and_nothing_else():
+    """J8 measured a block without the counts paragraph, so its numbers describe THAT block
+    (2026-10-02). The pin that the block is character-identical to J8's text is deliberately
+    replaced by this: everything else is still exactly J8's text, and the one added
+    paragraph is the given counts."""
     from scripts import journal_gate_dev_j8 as dev
 
-    assert journal.journal_block(dev.NOW, dev.DAY) == dev.REVISED_BLOCK
-    assert journal.journal_block(dev.NOW, dev.DAY, clause=True) == dev.REVISED_WITH_CLAUSE
+    counts = journal.counts_paragraph(8, 53)
+    for clause, measured in ((False, dev.REVISED_BLOCK), (True, dev.REVISED_WITH_CLAUSE)):
+        block = journal.journal_block(dev.NOW, dev.DAY, clause=clause,
+                                      conversations=8, messages=53)
+        assert counts in block
+        assert block.replace(counts + "\n\n", "") == measured
+
+
+def test_the_counts_are_the_shown_records_and_are_told_to_be_used(world):
+    seed_day(world)
+    p = journal.prepare(DAY, now=NOW)
+
+    assert "The records below hold 2 conversations and 4 messages." in p.block
+    assert "use these, and do not count anything else yourself" in p.block
+    assert p.block in p.system
+    one = journal.counts_paragraph(1, 1)
+    assert one.startswith("The records below hold 1 conversation and 1 message.")
+
+
+def test_an_omitted_message_is_not_counted_in_the_given_counts(world, monkeypatch):
+    monkeypatch.setattr(config, "model_options", lambda: {"num_ctx": 7000})
+    monkeypatch.setattr(config, "journal_max_message_chars", lambda: 100000)
+    c = db.start_conversation(world.lyle)
+    for i in range(40):
+        say(world.lyle, "user", f"message-{i:02d} " + "w" * 800,
+            f"2026-09-21T13:{i:02d}:00+00:00", c)
+
+    p = journal.prepare(DAY, now=NOW)
+
+    shown = 40 - p.messages_omitted
+    assert p.messages_omitted > 0
+    assert f"hold 1 conversation and {shown} messages." in p.block
 
 
 @pytest.mark.parametrize("clause", [False, True])
 def test_the_block_passes_the_prompt_checks_and_states_no_elapsed_time(clause):
     block = journal.journal_block("Tuesday 22 September 2026, 11:00",
-                                  "Monday 21 September 2026", clause=clause)
+                                  "Monday 21 September 2026", clause=clause,
+                                  conversations=8, messages=53)
 
     prompt.check_authored_text(block, "journal block")
     assert not prompt.states_elapsed_time(block)   # nothing for the pairing rule to pair

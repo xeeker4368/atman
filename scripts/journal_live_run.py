@@ -1,7 +1,7 @@
 """Journal step 3's live run: real model, real days, both prompt arms, nothing stored.
 
     python -m scripts.journal_live_run --store DIR --out PATH [--passes 8] [--seed 1]
-        [--days 2026-09-22,2026-09-21,2026-09-01] [--resume]
+        [--days 2026-09-22,2026-09-21,2026-09-01] [--arms revised] [--resume]
 
 Design of record: docs/REFLECTION_JOURNAL_DESIGN.md J12, step 3, and the review rulings of
 2026-10-01. The clause is decided by what the entity WRITES under each arm, not by fixed
@@ -61,6 +61,8 @@ def main() -> int:
     ap.add_argument("--seed", type=int, default=1)
     ap.add_argument("--days", default="2026-09-22,2026-09-21,2026-09-01")
     ap.add_argument("--resume", action="store_true")
+    ap.add_argument("--arms", default=",".join(ARMS),
+                    help="comma list from: " + ", ".join(ARMS) + " (one arm gives 3 samples/pass)")
     args = ap.parse_args()
 
     from program import config
@@ -74,7 +76,10 @@ def main() -> int:
 
     db.init_databases()
     days = [date.fromisoformat(d) for d in args.days.split(",")]
-    pairs = [(d, arm) for d in days for arm in ARMS]
+    arms = args.arms.split(",")
+    if not set(arms) <= set(ARMS):
+        sys.exit(f"unknown arm in --arms {args.arms}")
+    pairs = [(d, arm) for d in days for arm in arms]
 
     done = 0
     if args.out.exists():
