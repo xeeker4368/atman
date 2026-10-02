@@ -3210,6 +3210,39 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
     recorded" receipt. Pinned by a test that makes the build fail and finds no row, and by an AST test
     that the insert is the last statement before the return.
   - `[unverified]` Nothing renders a receipt yet (Phase 9).
+- `[built]` **Notes piece 6: the approval toggle, the approval log and auto-apply** (2026-10-02, Tier 3,
+  reviewed and approved, 04e2639; `changelog/2026-10-02-notes-piece-6-approval.md`, which holds the
+  verbatim command output and result texts). `notes.enabled` is still off: nothing is offered.
+  - **`notes.approval_required`** is settings-backed, default required, and **its only writer is
+    `scripts.note approval on|off`**, which writes the setting and an `approval_required_on|off` row in one
+    transaction. `store.set` and `store.clear` refuse it; a test scans for callers of the in-transaction
+    writer. **Fails closed** (no row, unreadable table, garbage value, any error: required); the TOML seed is
+    not consulted by the decision.
+  - **Read fresh, inside the transaction it governs**, never through `store`'s cache (which is invalidated
+    only in-process): proven in both directions with the cache warm and through a real second process.
+  - **Auto-apply** (`notes.record_proposal`): insert pending, then in the same transaction the note change
+    (`notes.apply_change`, shared with the operator's decisions), the flip to `applied_without_review` and the
+    log row; a failure of any step leaves every table unchanged, the proposal row included. A stale revise or
+    retire target stays pending. Pending proposals stay pending when approval is switched off.
+  - **The tool tells the truth in both modes**: a static, neutral description; the result text says what
+    happened (pending, or added/changed/retired with no one having reviewed it). `note_search` frames an
+    unreviewed note *"added/changed without review N days ago"* by a join to the proposal row (no migration);
+    `notes.max_text_chars` is 639 (derived). A receipt reads "Applied without review." from the row.
+  - **`review --applied`** lists proposals applied without review in the pending view plus the resulting note.
+  - **The untrusted-context flag of an applied proposal lives in the approval log**, because a decided proposal
+    is frozen in every column: `untrusted_context_recorded` (registered in `db.APPROVAL_DECISIONS`, and pinned
+    by `test_the_decision_vocabulary_is_validated_in_code`), appended once per proposal after the loop.
+    **One reader, `note_admin.review_view`, merges the two sources**: the column (a proposal decided by a
+    person, or still pending) first, and the log row only when the column is NULL and the proposal was applied
+    without review. If the post-loop write never ran, both are absent and the review prints *"not recorded"*,
+    never *"none"* (a test; `[]` in the log row prints *none*). The pending list reads the column alone, which
+    is complete for a pending proposal.
+  - **Budget, real tokenizer:** 11 tools 1,327 tokens, derived message cap 51,256, ~314 tokens of headroom.
+  - 37 mutations killed; a test per cell of enabled x approval_required. Digests `c3a01db6…ad488` and
+    `e5c92a42…806762` unchanged.
+  - `[unverified]` With approval off a proposal made after an untrusted read is still applied (its flag is
+    known only after the loop). Nothing yet reads `review --applied` over time to decide whether approval could
+    stay off.
 - `[unverified]` **No guard on a `notes` row's text while it is active** (direct SQL can edit it);
   the design puts that discipline in the tools and `scripts.note`, which do not exist yet.
 
