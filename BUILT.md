@@ -2960,7 +2960,60 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   a review decision.
 
 ## Research / reflection
-- *(nothing yet)*
+
+- `[built]` **Reflection journal, step 3** (2026-10-01; `docs/REFLECTION_JOURNAL_DESIGN.md`
+  J1–J8, J11, J12). **Built and tested; no live run has been made or read.** The live run
+  that decides the clause (J12) is the next stop for review.
+  - **Kind and label.** `reflection_journal`, `source_trust = interpretive` (new value),
+    root `workspace/journals/`, no new config key (backup, isolation guard and
+    `.gitignore` already cover it). The render label is pinned verbatim: *"reflection
+    journal — a later interpretation, not a record of what was said"*.
+  - **The run** (`program/reflection/journal.py`; `write_entry`, with `prepare` and
+    `generate` as separate layers so a harness can sample without touching the store).
+    Reads the day's raw messages from the store, **not retrieval**, for all users, in the
+    local calendar day (`app.timezone`, DST-correct window). Default date yesterday;
+    today and future refused; one entry per covered date; an empty day writes nothing;
+    `--dry-run` makes no model call. The prompt is `soul.md` → block → records, through
+    `prompt.build_system_prompt` and its checks. **The block is character-identical to the
+    text J8 measured** (a test compares it with the dev script's constants), in both arms.
+  - **Budget (J3):** each message is clipped to `journal.max_message_chars` (2,000, a
+    judgment value); if the day still does not fit, the earliest messages are dropped
+    whole and counted in the prompt and the row.
+    The row also records `messages_clipped`: how many of the messages **shown** were cut
+    (an omitted message is not counted as clipped).
+  - **Order:** generate → `gate.check_identity` (given the same block as the situation) →
+    bytes → row with the verdict in the same insert → **no indexing**. A truncated reply
+    stores nothing; an unavailable classifier is stored as `unavailable`.
+  - **Index after reading (J7).** `indexing.index_existing(id)` refuses an unknown id, any
+    other kind, a row with no text, and an already-indexed row. The already-indexed check
+    is repeated **inside the insert's transaction** (`db.insert_chunks(only_if_unindexed=)`,
+    a `db.py` change that touches no lock, retry or timeout behaviour).
+  - **Command** `python -m scripts.write_journal [--date] [--dry-run] [--with-clause]`,
+    `--index ID`, `--list-unindexed`. It prints the entry, the stored path, the verdict with
+    each cited sentence and reason, `unavailable` as such, and what the operator can and
+    cannot do. **`check_identity` is a noisy aid, not a control** (ruling 2026-10-01): the
+    control is the operator reading before `--index`.
+  - **Tests:** `tests/test_journal.py`, 43. Full suite 1,479 passed, 4 skipped; `ruff` clean.
+    **Proven to bite, 18 mutations**, each failing its own test (one equivalent mutant was
+    found and replaced: `datetime + timedelta` on an aware value is wall-clock, so the DST
+    test needed a UTC-side mutation, which it kills).
+  - **System-record lines are written for every tool, not only side-effect ones.** J3 says
+    receipts; `receipts.for_trace` covers only side-effect tools, so a web search would have
+    left no line. Side-effect calls read the row (as receipts do); other tools use the
+    trace outcome. Arguments are never rendered.
+  - `tests/test_no_person_present.py` is updated deliberately: `reflection` is no longer a
+    forbidden stem, and the package may hold only `journal`.
+- `[built]` **The live run was made** (2026-10-01; `changelog/2026-10-01-journal-live-run.md`):
+  48 real entries on a copy of the soak store, 24 per arm, interleaved with a fresh shuffle each
+  pass, nothing stored, the real store checked untouched by fingerprint. Hand-read: **0/24
+  cognition-family phrasings and 0/24 lived-through claims in each arm**; the gate flagged 1/24
+  per arm, both false positives on the *"learned"* topic. So the clause **does not prime**, and its
+  false-negative benefit **cannot be shown on this population** (nothing for the gate to miss).
+  Recommendation recorded, decision Lyle's: ship without the clause.
+- `[unverified]` **One reader, three days, one model.** The hand reading is mine alone and the
+  "claims not in the records" column is the softest; *"four distinct conversations"* is a
+  repeatable miscount on the quiet day. `check_identity` measured a wash on 43 hand-built cases
+  (`changelog/2026-10-01-j8-revised-block-measurement.md`).
 
 ## Correction / supersession
 

@@ -480,6 +480,11 @@ _SOURCE_LABELS = {
     "generated_image": "generated image, prompt only",
     "creative_writing": "creative writing",
     "file": "uploaded file",
+    # J5, kept verbatim as decided: the second half is what stops an entry being read
+    # as something somebody said.
+    "reflection_journal": (
+        "reflection journal — a later interpretation, not a record of what was said"
+    ),
 }
 
 

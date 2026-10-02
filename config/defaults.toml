@@ -506,6 +506,15 @@ max_upload_bytes = 10000000
 # partly ingested with the truncation on the record, not rejected outright.
 max_extracted_chars = 1000000
 
+[journal]
+# Reflection journal (docs/REFLECTION_JOURNAL_DESIGN.md J3).
+#
+# Each message is clipped to this many characters before the day is rendered, with
+# the clip marked in the text. JUDGMENT VALUE, not measured: it keeps one long
+# message from using the window the rest of the day needs. 2,000 characters is
+# about 500 tokens at the 4.0 chars/token in [history].
+max_message_chars = 2000
+
 [database]
 # Write contention. See docs/DB_CONTENTION_DESIGN.md for the measurements.
 #

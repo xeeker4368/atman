@@ -791,6 +791,30 @@ def get_conversation_messages(conversation_id: str) -> list[sqlite3.Row]:
         ).fetchall()
 
 
+def get_messages_between(start_iso: str, end_iso: str) -> list[sqlite3.Row]:
+    """Every message with ``start_iso <= timestamp < end_iso``, oldest first, all users.
+
+    For the reflection journal (J3), which reads a whole day's raw messages directly
+    rather than through retrieval. Each row carries ``owner_name``, the name of the
+    **conversation's** user: an assistant message's own ``user_id`` is the person it
+    was answering, so the owner is what labels a conversation. Timestamps are UTC
+    ``isoformat()`` strings, which order correctly as text (checked in a test at the
+    boundary, where a whole-second value omits its fraction).
+
+    Read-only; one query.
+    """
+    with connection() as conn:
+        return conn.execute(
+            """SELECT m.*, u.name AS owner_name
+                 FROM messages m
+                 LEFT JOIN conversations c ON c.id = m.conversation_id
+                 LEFT JOIN users u ON u.id = c.user_id
+                WHERE m.timestamp >= ? AND m.timestamp < ?
+                ORDER BY m.conversation_id, m.timestamp, m.id""",
+            (start_iso, end_iso),
+        ).fetchall()
+
+
 def get_previous_user_message_time(
     user_id: str, exclude_message_id: str | None = None
 ) -> str | None:
@@ -916,9 +940,26 @@ def insert_chunk(
         )
 
 
+class ArtifactAlreadyIndexed(Exception):
+    """``insert_chunks(only_if_unindexed=...)`` found the artifact already has chunks."""
+
+    def __init__(self, artifact_id: str) -> None:
+        super().__init__(f"artifact {artifact_id} already has chunks")
+        self.artifact_id = artifact_id
+
+
 @retry_on_locked
-def insert_chunks(rows: Sequence[dict[str, Any]]) -> None:
+def insert_chunks(
+    rows: Sequence[dict[str, Any]], *, only_if_unindexed: str | None = None
+) -> None:
     """Write several chunk rows in ONE transaction — all of them or none.
+
+    ``only_if_unindexed`` names an artifact id: inside the **same transaction** as the
+    insert, the artifact is checked for existing chunks and
+    :class:`ArtifactAlreadyIndexed` is raised (rolling everything back) if there are
+    any. The reflection journal's ``--index`` needs the check and the write to be one
+    unit, or two concurrent runs could both pass a separate check and write duplicates.
+    Every other caller passes nothing and is unchanged.
 
     Each row takes :func:`insert_chunk`'s keyword arguments. Exists for the
     artifact path (``indexing.index_text``), where a document is one unit: a
@@ -937,6 +978,10 @@ def insert_chunks(rows: Sequence[dict[str, Any]]) -> None:
         return
     now = now_iso()
     with transaction() as conn:
+        if only_if_unindexed is not None and conn.execute(
+            "SELECT 1 FROM chunks WHERE artifact_id = ? LIMIT 1", (only_if_unindexed,)
+        ).fetchone():
+            raise ArtifactAlreadyIndexed(only_if_unindexed)
         for row in rows:
             _insert_chunk_row(conn, now=now, **row)
 

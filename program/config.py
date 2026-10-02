@@ -878,6 +878,20 @@ def ingestion_max_extracted_chars() -> int:
     return value
 
 
+def journal_max_message_chars() -> int:
+    """Per-message clip when rendering a day for the reflection journal (J3).
+
+    A judgment value (see ``config/defaults.toml``). Bootstrap-only: not settings-backed.
+    """
+    value = int(get("journal", "max_message_chars", 2000))
+    if value < 1:
+        raise ConfigError(
+            f"journal.max_message_chars is {value}; it must be at least 1. A clip of "
+            f"nothing would render every message empty."
+        )
+    return value
+
+
 # --- web_fetch (task 2.5) ---------------------------------------------------
 #
 # None of these is settings-backed. The two that bound a turn feed the tool's

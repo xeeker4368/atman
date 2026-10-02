@@ -1,4 +1,4 @@
-# Notes — design (revision 4, for Tier 3 review)
+# Notes — design (revision 4, APPROVED 2026-10-01, including N17 #21 and #22)
 
 **Design only. No code, no migration.** Tier 3 on several counts: a schema
 (migration 8), provenance semantics (a new kind of record the entity proposes about
@@ -282,6 +282,19 @@ prompt-injection path: a page or a post that tells the entity to note something.
   cannot itself be cited as evidence.
 - Stored on the proposal (`untrusted_context`, a JSON list of tool names) and printed
   first in the review command.
+
+**`check_identity` is a noisy aid, not a control (ruling 2026-10-01, J8).** J8's full run
+on journal text (`changelog/2026-10-01-j8-revised-block-measurement.md`) found false
+positives and false negatives that each come from a few whole sentences, and shifted
+between arms with wording that said nothing about them. The control on a proposal is the
+reviewer reading it (N0, N4). The verdict is shown to help that read, never to stand in
+for it. Two observations from that run, named so they are expected here:
+- **(a) A tool-shaped objection can take the identity label.** *"…so I looked it up and
+  gave him several causes"*, an accurate recollection of a real search, was flagged 40/40
+  under one arm (reason: the tool-record sentence). A note citing a search can meet this.
+- **(b) Lived-through narrative with no time marker is missed.** *"I noticed all
+  afternoon that…"* is missed 0/40. A note is mostly third person, but a proposal that
+  slips into the entity's own lived experience will not necessarily be flagged.
 
 ## N8 — Receipts: generalised from artifacts to (record kind, id)
 

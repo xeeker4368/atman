@@ -170,6 +170,14 @@ def test_b5_did_not_build_a_session_mode():
 
     program = config.PROJECT_ROOT / "program"
     assert not any(
-        pathlib.Path(p).stem in {"scheduler", "reflection", "autonomous"}
+        pathlib.Path(p).stem in {"scheduler", "autonomous", "session", "daemon"}
         for p in program.rglob("*.py")
     ), "a session mode appeared; B5's scope was a property, not a wiring"
+
+    # The reflection journal (step 3, `docs/REFLECTION_JOURNAL_DESIGN.md` J11) is the task
+    # this test said should arrive with its own design, and it is a **package holding the
+    # journal and nothing else**: a run an operator starts, not a session mode.
+    # Deliberately updated, not loosened: anything else under it fails here.
+    reflection = program / "reflection"
+    assert {p.stem for p in reflection.glob("*.py")} == {"__init__", "journal"}
+    assert not (program / "reflection.py").exists()

@@ -88,7 +88,12 @@ def pack(pieces: list[str], target: int) -> list[str]:
 
 
 def index_text(
-    artifact_id: str, user_id: str, text: str, artifact_type: str
+    artifact_id: str,
+    user_id: str,
+    text: str,
+    artifact_type: str,
+    *,
+    only_if_unindexed: bool = False,
 ) -> tuple[int, list[str]]:
     """Chunk, embed and store. Returns ``(count, chunk_ids)``.
 
@@ -130,7 +135,8 @@ def index_text(
     embedded = [(uuid.uuid4().hex, body, ollama.embed(body)) for body in chunks]
 
     db.insert_chunks(
-        [
+        only_if_unindexed=artifact_id if only_if_unindexed else None,
+        rows=[
             {
                 "chunk_id": chunk_id,
                 "conversation_id": None,
@@ -164,3 +170,59 @@ def index_text(
         "indexed %s as %d %s chunk(s)", artifact_id[:8], len(written), kind.source_type
     )
     return len(written), written
+
+
+# ---------------------------------------------------------------------------
+# Indexing an artifact that is already stored (reflection journal, J7)
+# ---------------------------------------------------------------------------
+
+#: The only kind held back from memory until a person has read it. No other kind is
+#: indexed late, so none may be indexed through this path: a second use of it would be
+#: a new decision, not a reuse (`docs/REFLECTION_JOURNAL_DESIGN.md` J7).
+HELD_KINDS = frozenset({"reflection_journal"})
+
+
+class IndexRefused(Exception):
+    """:func:`index_existing` will not index this artifact. The message says why."""
+
+
+class AlreadyIndexed(IndexRefused):
+    """The artifact has chunks already. Reported, never duplicated."""
+
+
+def index_existing(artifact_id: str) -> tuple[int, list[str]]:
+    """Index a stored journal entry into memory, after the operator has read it.
+
+    Reads the row and indexes its ``extracted_text`` under its kind's provenance, with
+    :func:`index_text`'s atomicity (every chunk embedded first, all rows in one
+    transaction, vectors after). It **refuses**:
+
+    * an id with no row;
+    * any kind other than a held one (:data:`HELD_KINDS`);
+    * a row with no extracted text;
+    * a row that already has chunks. The check is made twice: here, for a clear
+      message, and again **inside the insert's transaction**, so two concurrent
+      ``--index`` runs cannot both write.
+
+    An embedding or write failure raises with no chunks written, and a retry works.
+    """
+    row = db.get_artifact(artifact_id)
+    if row is None:
+        raise IndexRefused(f"no artifact has id {artifact_id}")
+    if row["artifact_type"] not in HELD_KINDS:
+        raise IndexRefused(
+            f"artifact {artifact_id} is a {row['artifact_type']!r}, and only "
+            f"{', '.join(sorted(HELD_KINDS))} entries are indexed late. Everything else "
+            f"is indexed when it is written."
+        )
+    text = row["extracted_text"] or ""
+    if row["extraction_status"] != "extracted" or not text.strip():
+        raise IndexRefused(f"artifact {artifact_id} has no extracted text to index")
+    if db.get_artifact_chunks(artifact_id):
+        raise AlreadyIndexed(f"artifact {artifact_id} is already indexed")
+    try:
+        return index_text(
+            artifact_id, row["user_id"], text, row["artifact_type"], only_if_unindexed=True
+        )
+    except db.ArtifactAlreadyIndexed as exc:
+        raise AlreadyIndexed(f"artifact {artifact_id} is already indexed") from exc

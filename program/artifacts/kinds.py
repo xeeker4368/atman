@@ -107,6 +107,22 @@ KINDS: tuple[ArtifactKind, ...] = (
             "what was asked for."
         ),
     ),
+    ArtifactKind(
+        artifact_type="reflection_journal",
+        root=config.workspace_dir,
+        subdirectory="journals",
+        source_type="reflection_journal",
+        source_trust="interpretive",
+        note=(
+            "Reflection journal, J5 (`docs/REFLECTION_JOURNAL_DESIGN.md`). "
+            "`interpretive` is a new value: `firsthand` is the entity's own "
+            "experience and `secondhand` is someone else's document, and an entry "
+            "is neither, it is the entity's later reading of records. Nothing "
+            "scores on trust (`test_source_trust_does_not_change_ranking`), so the "
+            "value is a record, not a lever. **The render label is what is "
+            "load-bearing**: without it a journal chunk reads as a conversation."
+        ),
+    ),
 )
 
 _BY_TYPE = {kind.artifact_type: kind for kind in KINDS}

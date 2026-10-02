@@ -113,6 +113,11 @@ def _output_cap() -> int:
         )
     return cap
 
+
+#: Public name for the same single source, for runs that are not turns (the reflection
+#: journal) and must cap their one reply by the same reservation.
+output_cap = _output_cap
+
 #: Why the loop stopped. Recorded rather than inferred from the shape of the
 #: result, because "the model chose to answer" and "the model ran out of
 #: iterations and was made to answer" look identical from the text alone.
