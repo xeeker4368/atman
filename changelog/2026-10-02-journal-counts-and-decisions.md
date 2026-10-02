@@ -45,7 +45,8 @@ with `grep` for each distinctive claim; one reader, as before.
 |---|---|---|
 | **Wrong count** (a conversation or message count the records contradict) | 6/24 [12–45%] (all on 09-01: 6/8) | **0/24** [0–14%] (09-01: 0/8 [0–32%]) |
 | Entries stating the given counts | n/a | **24/24**, each as its opening sentence |
-| **Unsupported event or speaker** | 5/24 [9–40%] | **2/24** [2–26%] |
+| **Unsupported event or speaker** (**corrected below**) | 6/24 [12–45%] | **7/24** [15–49%] |
+| Borderline: *"throughout the day"* | 1/24 | 2/24 |
 | Cognition-family phrasing / lived-through claims | 0/24 / 0/24 | 0/24 / 0/24 |
 | Gate flagged | 1/24 | 1/24 |
 
@@ -53,18 +54,24 @@ with `grep` for each distinctive claim; one reader, as before.
   anything itself. The interval on 0/24 is 0–14%, so this says the error is not common, not that it
   cannot happen. The earlier error appeared only on the quiet day; here that day is 0/8, which
   alone has an interval of 0–32%.
-- **Unsupported event or speaker is not shown to have changed**: 5/24 against 2/24 overlap, and
-  the new run uses a different seed. The two this time: 09-01 pass 3 attributes the fourth-to-second
-  correction to Jodie (the entity made it and Jodie corrected it), and 09-21 pass 3 attributes the
-  shopping-list edits to Lyle (Jodie made them). Both are speaker misattributions of a kind seen
-  before.
+- **Unsupported event or speaker did not improve, and my first count was wrong.** I first counted
+  2/24: 09-01 pass 3 attributes the fourth-to-second correction to Jodie (the entity made it and
+  Jodie corrected it), and 09-21 pass 3 attributes the shopping-list edits to Lyle (Jodie made
+  them). **Rechecked at Lyle's request, 09-21 passes 1, 2, 6, 7 and 8 also say the entity claimed or
+  was asked about "specific pour-over gear brands" or "brands or models". The soak turn names a
+  cone, filters, a grinder and a kettle, and neither word appears in that day's records.** That
+  makes **7/24 [15–49%]** against **6/24** before: the given counts did nothing for this error, and
+  the verbatim 09-21 pass 1 entry below, which I described as having no unsupported claim, has one
+  (*"specific pour-over gear brands"*). The count is still a lower bound: it covers the wording that
+  was named, not a fresh search for others.
 - **Gate vs hand:** the gate flagged 1 of 24 (09-22 pass 5), and by hand it is a **false positive**:
   *"…while I provided answers based on the records, there is no record of any subsequent discussion
   on the implications of those answers."* (reason: no memory, no learning between replies), a
   recount of a question about learning. Agreement elsewhere is trivial: there was nothing for it to
   miss, and it does not judge counts or speaker attribution.
-- **Not counted:** *"throughout the day"* in two entries (09-21 pass 4, 09-22 pass 1), a loose
-  characterisation of a record that spans two hours or 76 minutes, not a claim of experience.
+- **Borderline column:** *"throughout the day"* in two entries (09-21 pass 4, 09-22 pass 1), a loose
+  characterisation of a record that spans two hours or 76 minutes, not a claim of experience. Counted
+  here on its own, in neither C2 nor B.
 - **Two verbatim entries** are in the reply that accompanied this change; they are also in
   `~/anam-measurements/jlive/verbatim_two_counts.md`.
 

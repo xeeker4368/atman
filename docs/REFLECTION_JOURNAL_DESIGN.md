@@ -399,8 +399,23 @@ the entity to use only those. **This deliberately breaks the pin that the block 
 character-identical to J8's text; J8's numbers describe the previous block.** A test asserts the
 block is J8's text plus that one paragraph. **Measured 2026-10-02** (24 entries, three days, one arm,
 hand-read): wrong counts **0/24** against 6/24, every entry stating the given figures; unsupported
-event or speaker 2/24 against 5/24, not shown to differ; gate 1/24, a false positive
+event or speaker **7/24 against 6/24, no improvement** (corrected after a recheck: five entries on 09-21
+invent "specific pour-over gear brands", which the soak turn never names); gate 1/24, a false positive
 (`changelog/2026-10-02-journal-counts-and-decisions.md`).
+
+**Can the review step show the day's messages as the entity saw them? Not built; proposed as a
+small addition to step 3 (2026-10-02).** The gate checks no speaker attributions, counts or event
+claims, and the live run's commonest errors were exactly those, so the operator's reading of an
+entry needs the source beside it. **Proposal: `python -m scripts.write_journal --show-records DATE`
+[`--with-clause`]**, read-only: it calls `journal.prepare` (no model call, nothing written) and prints
+the *records section* of the prompt, from `RECORDS OF…` on, exactly as the entity received it (the
+`You`/system-record labelling, the clipped markers, and the omitted-messages note), headed by the
+given counts and the `messages_omitted`/`messages_clipped` figures. It refuses today and future days
+as the write does, and says so for an empty day. Day output can be 70–110 thousand characters, so it
+is meant to be piped to a pager. The command's closing text after a write would name it, so the
+operator is pointed at the source at the moment they are reading the entry. **Tests it would carry:**
+its output equals `prepare(...).system`'s records section byte for byte; no model call; no row written;
+a refused date. **About 25 lines plus those tests; not started.**
 
 **Does the gate see the system-record lines an entry was written from? No** (review item,
 2026-10-01). `generate()` passes the gate two things: the entry text and the journal block as

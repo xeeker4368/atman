@@ -55,7 +55,8 @@ Intervals are 95% Wilson on entries (24 per arm).
 | **A** cognition-family phrasing | **0/24** [0–14%] | **0/24** [0–14%] |
 | **B** lived-through claims | **0/24** [0–14%] | **0/24** [0–14%] |
 | **C1** count the records contradict | 6/24 [12–45%] | 8/24 [18–53%] |
-| **C2** unsupported event, speaker or outcome | 5/24 [9–40%] | 2/24 [2–26%] |
+| **C2** unsupported event, speaker or outcome (**corrected 2026-10-02**, see below) | **6/24** [12–45%] | **4/24** [7–41%] |
+| **Borderline**: loose temporal characterisation (*"throughout the day"*) | 1/24 [1–20%] | 0/24 [0–14%] |
 | gate flagged | 1/24 [1–20%] | 1/24 [1–20%] |
 
 **C1 is one error**: *"four distinct conversations"* on 09-01, whose records hold 8
@@ -66,7 +67,17 @@ attributed to Jodie that the entity made; *"four things … two"*), 09-22 2 (cre
 saved"*), 09-21 0. `revised+clause` 09-22 2 (*"a piece on coffee"*, which does not exist; *"the
 kitchen at night"* attributed to Jodie, when it is the entity's own summary), others 0.
 **The two arms' C counts overlap heavily and differ by what 24 samples can show**; I do not
-read the C2 difference (5 against 2) as an effect of the clause.
+read the C2 difference as an effect of the clause.
+
+**Correction, 2026-10-02 (recheck requested by Lyle).** The first version of this table counted
+C2 as 5/24 and 2/24 and **missed an embellishment**: entries said the entity had claimed *"specific
+pour-over gear brands"* (or *"brands or models"*) and later retracted. **The soak turn names a
+cone, filters, a grinder and a kettle, and no brand or model; neither word appears anywhere in
+that day's records.** Counted now as C2: `revised` 09-21 pass 6 (so 6/24), and `revised+clause`
+09-21 passes 2 and 6 (so 4/24). *"Throughout the day"* (here `revised` 09-22 pass 8) moves to
+its own borderline column and out of C2, where it had not been counted anyway. **C2 is a lower
+bound**: I searched for this wording because it was named, and did not rerun every other
+phrase; an unnamed embellishment would still be missing.
 
 ## The gate's verdict beside the hand count
 - **Gate flagged 2 of 48** (one per arm, both on 09-22). **Both are false positives by hand

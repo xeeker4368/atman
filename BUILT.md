@@ -3017,8 +3017,9 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   authored text; `changelog/2026-10-02-journal-counts-and-decisions.md`). The first run's repeatable
   error was a wrong conversation count (6/8 entries on the quiet day). With the counts given,
   **0/24 wrong-count entries** (all 24 stated the given figures), measured on the same three days,
-  one arm, a fresh shuffle each pass, every entry read by hand. Unsupported event or speaker 2/24
-  against 5/24, **not shown to differ**. Gate 1/24, a false positive. Tests: 45; four mutations
+  one arm, a fresh shuffle each pass, every entry read by hand. Unsupported event or speaker **7/24
+  against 6/24, no improvement** (corrected 2026-10-02: five 09-21 entries invent "pour-over gear
+  brands", which the records never name). Gate 1/24, a false positive. Tests: 45; four mutations
   killed.
 - `[unverified]` **The run covered two corpora, and neither is real conversation.** 09-01 is the
   invented seed corpus. **09-21 and 09-22 are one scripted soak split at local midnight** (the

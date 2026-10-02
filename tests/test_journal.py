@@ -514,6 +514,43 @@ def test_the_already_indexed_check_is_inside_the_inserting_transaction(world):
     assert len(db.get_artifact_chunks(entry)) == before
 
 
+def test_two_concurrent_index_runs_write_the_chunks_once(world, monkeypatch):
+    """The concurrency claim, tested rather than argued. Both threads pass the plain
+    "already indexed?" pre-check (nothing exists yet), both embed (a barrier holds each at the
+    embedding call until the other arrives), and then both try to insert. Exactly one may
+    succeed; the other must be told the entry is already indexed, and the entry must hold one
+    set of chunks, not two."""
+    import threading
+
+    entry = stored_entry(world)
+    barrier = threading.Barrier(2, timeout=10)
+
+    def held_embed(text, *a, **k):
+        barrier.wait()
+        return deterministic(text)
+
+    monkeypatch.setattr(indexing.ollama, "embed", held_embed)
+    outcomes = []
+
+    def run():
+        try:
+            outcomes.append(("ok", indexing.index_existing(entry)[0]))
+        except indexing.AlreadyIndexed:
+            outcomes.append(("already", 0))
+        except Exception as exc:  # noqa: BLE001 - any other outcome fails the assertion below
+            outcomes.append(("error", repr(exc)))
+
+    threads = [threading.Thread(target=run) for _ in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=60)
+
+    assert sorted(kind for kind, _ in outcomes) == ["already", "ok"], outcomes
+    written = next(count for kind, count in outcomes if kind == "ok")
+    assert len(db.get_artifact_chunks(entry)) == written
+
+
 def test_another_kind_and_an_unknown_id_are_refused(world):
     piece = writing.store("A piece.", world.lyle, title="P")
     with pytest.raises(indexing.IndexRefused, match="creative_writing"):

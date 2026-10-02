@@ -205,6 +205,17 @@ def index_existing(artifact_id: str) -> tuple[int, list[str]]:
       ``--index`` runs cannot both write.
 
     An embedding or write failure raises with no chunks written, and a retry works.
+
+    **Why two concurrent runs cannot both write.** The insert's transaction is
+    ``BEGIN`` (deferred), then the "has chunks?" read, then the inserts. Two connections
+    that both read first each hold a shared lock; the first to write takes the reserved
+    lock, and the second's attempt to upgrade is refused with ``SQLITE_BUSY`` at once, since
+    waiting could never succeed (the first cannot commit while the second holds its shared
+    lock). ``retry_on_locked`` then re-runs the whole transaction, whose read now sees the
+    committed chunks and raises ``ArtifactAlreadyIndexed``. So the loser reports "already
+    indexed", never duplicates. This is SQLite's locking, not a property written here:
+    ``test_two_concurrent_index_runs_write_the_chunks_once`` drives two real threads through
+    it, and would fail if the check were ever moved out of the transaction.
     """
     row = db.get_artifact(artifact_id)
     if row is None:
