@@ -106,6 +106,7 @@ IDs, no matching tool_result in trace"* — a lookup rather than a guess.
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 import re
 import threading
@@ -117,6 +118,7 @@ from typing import Any, Callable, Iterable, Mapping
 
 from program import config
 from program.attribution import AttributionContext
+from program.origin import OriginContext
 
 logger = logging.getLogger(__name__)
 
@@ -127,6 +129,10 @@ _NAME = re.compile(r"^[a-z][a-z0-9_]*$")
 #: The keyword an attribution-taking handler receives. Reserved: a tool may not
 #: declare it in ``parameters``, so it can never be model-settable.
 ATTRIBUTION_ARGUMENT = "attribution"
+
+#: The keyword an origin-taking handler receives (Notes piece 2). Reserved the same way: a tool
+#: that takes origin may not declare it in ``parameters``, so the model can never set it.
+ORIGIN_ARGUMENT = "origin"
 
 #: JSON Schema primitives this validator understands. Deliberately small — see
 #: ``_validate_arguments``.
@@ -209,6 +215,12 @@ class Tool:
     #: attribute a write to the other household member — so the value arrives
     #: from the caller and the model is not asked.
     takes_attribution: bool = False
+    #: Whether this tool's handler is passed an ``OriginContext`` (which exchange produced the
+    #: call: conversation, triggering message, call id, the messages in context). Declared, never
+    #: inferred, and never model-settable: ``__post_init__`` refuses ``origin`` in ``parameters``.
+    #: It stays out of the recorded arguments and the trace, and a tool that does not declare it
+    #: is dispatched exactly as before it existed. See ``program/origin.py``.
+    takes_origin: bool = False
     #: Whether this capability exists right now (decision #12's first axis). A
     #: **call-time predicate**, not a boolean, so the answer comes from config when
     #: the registry is built rather than from whatever it was at import. ``None``
@@ -234,6 +246,12 @@ class Tool:
                 f"parameters. Attribution comes from the caller, never from the "
                 f"model — a model that could set it could attribute a write to "
                 f"the other household member."
+            )
+        if self.takes_origin and ORIGIN_ARGUMENT in (self.parameters.get("properties") or {}):
+            raise ToolError(
+                f"tool {self.name!r} declares {ORIGIN_ARGUMENT!r} in its parameters. Origin "
+                f"comes from the caller, never from the model: a model that could set it "
+                f"could point a proposal at an exchange that did not produce it."
             )
         if not _NAME.match(self.name):
             raise ToolError(
@@ -524,6 +542,7 @@ class ToolRegistry:
         arguments: Mapping[str, Any] | None = None,
         timeout_seconds: float | None = None,
         attribution: AttributionContext | None = None,
+        origin: OriginContext | None = None,
     ) -> ToolResult:
         """Invoke a tool by name. Always returns; never raises for the
         model-facing failure modes. See the module docstring for the contract.
@@ -532,7 +551,10 @@ class ToolRegistry:
         ``takes_attribution``, and only ever as a handler keyword — it never joins
         the model's arguments, never appears in the trace, and never reaches a
         tool that did not ask for it. So the three Phase 2 tools are dispatched
-        exactly as they were before it existed.
+        exactly as they were before it existed. ``origin`` is the same: passed only
+        to a tool declaring ``takes_origin``, as a handler keyword, with ``call_id``
+        filled in here (a copy; the caller's object is not changed), and never in
+        the recorded arguments or the trace.
 
         ``timeout_seconds`` overrides the tool's own declared timeout for this
         one call. The agent loop passes the turn's *remaining* tool budget, so
@@ -597,6 +619,16 @@ class ToolRegistry:
                     f"so there is no honest value to substitute here."
                 )
             call_kwargs[ATTRIBUTION_ARGUMENT] = attribution
+        if tool.takes_origin:
+            if origin is None:
+                raise ToolError(
+                    f"tool {name!r} takes origin and none was supplied. This is a wiring "
+                    f"bug, not a model error: the caller knows which exchange this call "
+                    f"belongs to and the model does not, so there is no honest value to "
+                    f"substitute here."
+                )
+            # Only dispatch knows the call id, so it fills it into a copy.
+            call_kwargs[ORIGIN_ARGUMENT] = dataclasses.replace(origin, call_id=call_id)
 
         limit = (
             float(timeout_seconds)
@@ -750,8 +782,9 @@ def dispatch(
     arguments: Mapping[str, Any] | None = None,
     timeout_seconds: float | None = None,
     attribution: AttributionContext | None = None,
+    origin: OriginContext | None = None,
 ) -> ToolResult:
     """Dispatch against the default registry."""
     return default_registry().dispatch(
-        name, arguments, timeout_seconds, attribution=attribution
+        name, arguments, timeout_seconds, attribution=attribution, origin=origin
     )

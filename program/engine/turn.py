@@ -111,6 +111,7 @@ from program.engine import situation as situation_block
 from program.integrity import corrections, gate
 from program.memory import db, retrieval
 from program.memory.retrieval import RetrievalResult
+from program.origin import OriginContext
 from program.settings.permissions import Actor
 from program.tools.registry import ToolRegistry
 
@@ -344,6 +345,40 @@ def _unless_person_took_it(
     return None
 
 
+def _build_origin(
+    conversation_id: str,
+    user_message_id: str,
+    history,
+    retrieved: RetrievalResult | None,
+) -> OriginContext:
+    """Which exchange this turn is, for a tool that declares it takes origin (Notes piece 2).
+
+    ``context_message_ids`` is the conversation's own messages (a superset of what the window
+    sends, since the loop's window holds normalised dicts with no ids) **plus the messages behind
+    the passive retrieval's chunks**. It is built here, before the loop runs, so it **cannot hold
+    what a ``memory_search`` call returns during the turn**: a recorded gap (N18), not an oversight.
+
+    A failure reading the chunks' messages degrades to the conversation's alone, with a warning:
+    this only widens a *preference* tier for quote resolution, so losing it must not fail a turn.
+    """
+    ids = {row["id"] for row in history}
+    chunk_ids = [hit.chunk_id for hit in retrieved.results] if retrieved else []
+    if chunk_ids:
+        try:
+            ids.update(row["id"] for row in db.get_messages_in_chunks(chunk_ids))
+        except Exception as exc:  # noqa: BLE001 - degrades; it must never fail the turn
+            logger.warning(
+                "origin: could not read the messages behind %d retrieved chunk(s) (%s: %s); "
+                "context_message_ids holds the conversation's messages only",
+                len(chunk_ids), type(exc).__name__, exc,
+            )
+    return OriginContext(
+        conversation_id=conversation_id,
+        user_message_id=user_message_id,
+        context_message_ids=frozenset(ids),
+    )
+
+
 def _build_situation(actor: Actor, user_message_id: str) -> str:
     """The current-situation block for this turn (decision #5).
 
@@ -405,8 +440,9 @@ def handle_user_message(
         situation = _build_situation(actor, user_message_id)
 
     retrieved = _retrieve(content)
+    history = db.get_conversation_messages(conversation_id)
     result = loop.run_turn(
-        db.get_conversation_messages(conversation_id),
+        history,
         situation,
         retrieved,
         registry=registry,
@@ -415,6 +451,9 @@ def handle_user_message(
         # actor's role is deliberately not carried across (see
         # `program/attribution.py`), so nothing downstream can gate on it.
         attribution=AttributionContext(user_id=actor.user_id),
+        # Which exchange this is, for a tool that declares it takes origin. Passed through the
+        # loop unread; it reaches no tool built before Notes.
+        origin=_build_origin(conversation_id, user_message_id, history, retrieved),
     )
 
     if not result.text.strip():

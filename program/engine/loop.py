@@ -91,6 +91,7 @@ from program import config
 from program.attribution import AttributionContext
 from program.engine import ollama, prompt
 from program.memory.retrieval import RetrievalResult
+from program.origin import OriginContext
 from program.tools import registry as tools
 from program.tools.registry import ToolRegistry, ToolResult
 
@@ -227,6 +228,7 @@ def _dispatch_call(
     call: Mapping[str, Any],
     seconds_left: float,
     attribution: AttributionContext | None = None,
+    origin: OriginContext | None = None,
 ) -> ToolResult:
     """One tool call, bounded by whatever is left of the turn's budget."""
     name = _call_name(call)
@@ -242,7 +244,7 @@ def _dispatch_call(
     tool = registry.get(name) if registry.has(name) else None
     limit = min(tool.resolved_timeout(), seconds_left) if tool else seconds_left
     return registry.dispatch(
-        name, arguments, timeout_seconds=limit, attribution=attribution
+        name, arguments, timeout_seconds=limit, attribution=attribution, origin=origin
     )
 
 
@@ -258,6 +260,7 @@ def run_turn(
     options: dict[str, Any] | None = None,
     soul_text: str | None = None,
     attribution: AttributionContext | None = None,
+    origin: OriginContext | None = None,
 ) -> TurnResult:
     """Run one turn to a terminal answer.
 
@@ -266,6 +269,10 @@ def run_turn(
     tools that declare they take it — no tool built before Phase 4 sees it, and
     nothing in this module reads it. It is **not** an authorization object: see
     ``program/attribution.py``.
+
+    ``origin`` says which exchange this turn is (Notes piece 2): passed straight through to
+    dispatch like ``attribution``, reaching only tools that declare ``takes_origin``, and **read
+    by nothing in this module**. See ``program/origin.py``.
 
     ``messages`` is the conversation so far, **including the user message being
     answered** — which the caller has already persisted (task 2.2's obligation
@@ -380,7 +387,7 @@ def run_turn(
 
         for call in calls:
             result = _dispatch_call(
-                registry, call, budget - spent, attribution=attribution
+                registry, call, budget - spent, attribution=attribution, origin=origin
             )
             spent += result.duration_seconds
             trace.append({"iteration": iteration, **result.to_trace_entry()})
