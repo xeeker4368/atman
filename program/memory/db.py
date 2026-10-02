@@ -32,6 +32,7 @@ operator, and background processes.
 from __future__ import annotations
 
 import functools
+import json
 import logging
 import random
 import sqlite3
@@ -1058,6 +1059,64 @@ def insert_artifact(
              storage_path, artifact_type, extraction_status, extracted_text,
              extraction_note, integrity_check, now_iso()),
         )
+
+
+# ---------------------------------------------------------------------------
+# The approval log (Notes, migration 8). Design of record: docs/NOTES_DESIGN.md N10.
+# ---------------------------------------------------------------------------
+
+#: The decisions each capability may record. **The vocabulary lives here, not in the
+#: schema** (ruling of 2026-10-02): ``approval_log`` is shared across capabilities, so a
+#: ``CHECK`` on it would need a migration for every capability's new decision. Keyed by
+#: capability so one capability's decision is never accepted for another.
+APPROVAL_DECISIONS: dict[str, frozenset[str]] = {
+    "notes": frozenset({
+        "approved", "edited", "rejected", "applied_without_review",
+        "operator_add", "operator_revise", "operator_retire",
+        "approval_required_on", "approval_required_off",
+    }),
+}
+
+
+def record_approval(
+    conn: sqlite3.Connection,
+    *,
+    capability: str,
+    subject_kind: str,
+    subject_id: str,
+    decision: str,
+    decided_by: str,
+    detail: dict[str, Any] | None = None,
+) -> str:
+    """Append one row to ``approval_log`` **inside the caller's transaction**.
+
+    Takes the connection because every decision is written in the same transaction as
+    the change it records (N10): if the log row cannot be written, the change must not
+    happen. Hence it opens no transaction of its own and carries no retry; the caller's
+    transaction does, like ``_insert_chunk_row``. An unknown capability or a decision the
+    capability does not allow raises ``ValueError`` before anything is written.
+    """
+    allowed = APPROVAL_DECISIONS.get(capability)
+    if allowed is None:
+        raise ValueError(
+            f"{capability!r} has no registered approval decisions; add them to "
+            f"db.APPROVAL_DECISIONS in the change that introduces the capability"
+        )
+    if decision not in allowed:
+        raise ValueError(
+            f"{decision!r} is not a decision {capability!r} may record. "
+            f"Allowed: {', '.join(sorted(allowed))}"
+        )
+    log_id = new_id()
+    conn.execute(
+        """INSERT INTO approval_log
+               (id, capability, subject_kind, subject_id, decision, decided_by, detail,
+                created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+        (log_id, capability, subject_kind, subject_id, decision, decided_by,
+         json.dumps(detail or {}), now_iso()),
+    )
+    return log_id
 
 
 def get_artifact(artifact_id: str) -> sqlite3.Row | None:

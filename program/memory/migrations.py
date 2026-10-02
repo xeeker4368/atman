@@ -421,6 +421,250 @@ def _v7_artifact_integrity_check(conn: sqlite3.Connection) -> None:
     conn.execute("ALTER TABLE artifacts ADD COLUMN integrity_check TEXT")
 
 
+def _v8_notes(conn: sqlite3.Connection) -> None:
+    """Version 8 — Notes. Design of record: ``docs/NOTES_DESIGN.md`` (revision 4, approved
+    2026-10-01) N13; build plan ``docs/NOTES_BUILD_PLAN.md``, piece 1.
+
+    Three tables, a view and an FTS index, all in ``working.db`` (nothing in the archive, on
+    this module's rule), in **one migration** run through ``_execute_script`` inside the
+    runner's transaction (B3). **Nothing in ``working.sql``.**
+
+    Rulings of 2026-10-01/02 that shape it:
+
+    * ``note_proposals.status`` is ``pending | approved | edited | rejected |
+      applied_without_review`` (N17 #22).
+    * **A proposal is always inserted ``pending`` and decided by an UPDATE in the same
+      transaction, auto-apply included**, so nothing needs an insert exception: a
+      ``BEFORE INSERT`` trigger refuses any other starting status (approved), and **every
+      column of a decided proposal is frozen** by a ``BEFORE UPDATE`` trigger (approved at
+      review; it also holds N17 #21's one-way status rule, which it subsumes).
+    * ``approval_log`` is append-only in the schema: ``BEFORE UPDATE`` and ``BEFORE DELETE``
+      raise (approved).
+    * **Deletes (ruling of 2026-10-02):** a decided proposal cannot be deleted (a pending one
+      may be), and **nothing can be deleted from ``notes``**: retiring and superseding change
+      ``status`` and keep the text. So there is no ``AFTER DELETE`` FTS trigger: it could never
+      fire.
+    * ``resulting_note_id`` is **the note the proposal created or changed** (for a retire, the
+      retired note's id) and is non-null exactly when ``status`` is ``approved``, ``edited`` or
+      ``applied_without_review``. The note row therefore exists before the proposal is flipped,
+      in the same transaction.
+    * **``approval_log.decision`` is NOT closed in the schema**: the table is shared across
+      capabilities, so the vocabulary is validated in code (``db.APPROVAL_DECISIONS`` and
+      ``db.record_approval``), where a new capability can add its own without a migration.
+    * No ``reason`` column on proposals; a reviewer's reason lives in
+      ``approval_log.detail``.
+    * ``evidence`` is ``NOT NULL`` and must be a **non-empty JSON array** (CHECK).
+    * **REPLACE cannot get round the guards** (found by testing, 2026-10-02): SQLite skips
+      DELETE triggers for the row an ``INSERT OR REPLACE`` or ``UPDATE OR REPLACE`` removes
+      unless ``recursive_triggers`` is on, so those statements overwrote rows the delete guards
+      protect. ``BEFORE INSERT`` triggers refuse an existing id (or explicit rowid) on all three
+      tables, and ``BEFORE UPDATE`` triggers refuse changing an id or rowid on ``notes`` and
+      ``note_proposals`` (``approval_log`` refuses every update). No connection pragma is
+      changed.
+
+    **The FTS index is external content over a VIEW of the active notes, not over ``notes``.**
+    Found while building: with the content table being ``notes`` itself and triggers indexing
+    only ``status = 'active'`` rows, FTS5's content-comparing check
+    (``INSERT INTO notes_fts(notes_fts, rank) VALUES('integrity-check', 1)``) reports
+    "database disk image is malformed" as soon as one note is retired, because the index
+    legitimately lacks a row the table has. Over ``active_notes`` the comparison is exact, and a
+    deliberately drifted index is detected (both measured, SQLite 3.53.1). That check is what
+    ``scripts.note check`` needs, so this departs from N13's "over notes(subject, text)" in
+    the table named, not in the behaviour.
+
+    **Constraints beyond N13's list, flagged for the schema review rather than assumed:**
+    the ``action``/``target_note_id`` consistency CHECK (add has no target and needs text;
+    revise needs both; retire needs a target), ``json_valid`` on every JSON column, and
+    ``decided_at`` set exactly when the proposal is no longer pending.
+    **Rowids.** ``notes`` has a ``TEXT`` primary key, so its rowid is implicit, exactly as
+    ``chunks``' is under ``chunks_fts``. An implicit rowid is not guaranteed stable across a
+    ``VACUUM``, which could silently re-pair index entries with the wrong rows, so **nothing in
+    this build runs ``VACUUM``** (a test scans for it).
+    """
+    _execute_script(conn, """
+        CREATE TABLE notes (
+            id                 TEXT PRIMARY KEY,
+            subject_kind       TEXT NOT NULL
+                CHECK (subject_kind IN ('person', 'topic', 'project')),
+            subject            TEXT NOT NULL,
+            subject_user_id    TEXT REFERENCES users(id),
+            text               TEXT NOT NULL,
+            status             TEXT NOT NULL
+                CHECK (status IN ('active', 'superseded', 'retired')),
+            version            INTEGER NOT NULL CHECK (version >= 1),
+            previous_note_id   TEXT REFERENCES notes(id),
+            origin             TEXT NOT NULL CHECK (origin IN ('entity', 'operator')),
+            created_at         TEXT NOT NULL,
+            last_confirmed_at  TEXT NOT NULL,
+            retired_at         TEXT
+        );
+        CREATE INDEX idx_notes_status ON notes(status);
+        CREATE INDEX idx_notes_subject_user ON notes(subject_user_id);
+        CREATE INDEX idx_notes_previous ON notes(previous_note_id);
+
+        CREATE TABLE note_proposals (
+            id                 TEXT PRIMARY KEY,
+            action             TEXT NOT NULL CHECK (action IN ('add', 'revise', 'retire')),
+            target_note_id     TEXT REFERENCES notes(id),
+            subject_kind       TEXT NOT NULL
+                CHECK (subject_kind IN ('person', 'topic', 'project')),
+            subject            TEXT NOT NULL,
+            subject_user_id    TEXT REFERENCES users(id),
+            text               TEXT,
+            -- A non-empty JSON array: an entity proposal always has evidence (N4).
+            -- json_array_length is 0 for anything that is not an array (an object, null, a
+            -- scalar), so one test covers both; the CASE keeps it from running on non-JSON.
+            evidence           TEXT NOT NULL CHECK (
+                CASE WHEN json_valid(evidence) THEN json_array_length(evidence) >= 1
+                     ELSE 0 END
+            ),
+            conversation_id    TEXT NOT NULL REFERENCES conversations(id),
+            user_message_id    TEXT NOT NULL REFERENCES messages(id),
+            call_id            TEXT,
+            user_id            TEXT NOT NULL REFERENCES users(id),
+            status             TEXT NOT NULL
+                CHECK (status IN ('pending', 'approved', 'edited', 'rejected',
+                                  'applied_without_review')),
+            untrusted_context  TEXT
+                CHECK (untrusted_context IS NULL OR json_valid(untrusted_context)),
+            integrity_check    TEXT
+                CHECK (integrity_check IS NULL OR json_valid(integrity_check)),
+            created_at         TEXT NOT NULL,
+            decided_at         TEXT,
+            resulting_note_id  TEXT REFERENCES notes(id),
+            CHECK (
+                (action = 'add' AND target_note_id IS NULL AND text IS NOT NULL)
+                OR (action = 'revise' AND target_note_id IS NOT NULL AND text IS NOT NULL)
+                OR (action = 'retire' AND target_note_id IS NOT NULL)
+            ),
+            CHECK ((status = 'pending') = (decided_at IS NULL)),
+            CHECK ((status IN ('approved', 'edited', 'applied_without_review'))
+                   = (resulting_note_id IS NOT NULL))
+        );
+        CREATE INDEX idx_note_proposals_status ON note_proposals(status);
+        CREATE INDEX idx_note_proposals_target ON note_proposals(target_note_id);
+        CREATE INDEX idx_note_proposals_conversation ON note_proposals(conversation_id);
+
+        CREATE TABLE approval_log (
+            id            TEXT PRIMARY KEY,
+            capability    TEXT NOT NULL,
+            subject_kind  TEXT NOT NULL,
+            subject_id    TEXT NOT NULL,
+            decision      TEXT NOT NULL,
+            decided_by    TEXT NOT NULL,
+            detail        TEXT NOT NULL CHECK (json_valid(detail)),
+            created_at    TEXT NOT NULL
+        );
+        CREATE INDEX idx_approval_log_capability ON approval_log(capability, created_at);
+        CREATE INDEX idx_approval_log_subject ON approval_log(subject_kind, subject_id);
+
+        CREATE VIEW active_notes AS
+            SELECT rowid AS rid, subject, text FROM notes WHERE status = 'active';
+
+        CREATE VIRTUAL TABLE notes_fts USING fts5(
+            subject,
+            text,
+            content = 'active_notes',
+            content_rowid = 'rid',
+            tokenize = 'unicode61 remove_diacritics 2'
+        );
+
+        CREATE TRIGGER notes_fts_insert AFTER INSERT ON notes
+        WHEN new.status = 'active'
+        BEGIN
+            INSERT INTO notes_fts(rowid, subject, text)
+                VALUES (new.rowid, new.subject, new.text);
+        END;
+
+        CREATE TRIGGER notes_fts_update AFTER UPDATE ON notes
+        BEGIN
+            INSERT INTO notes_fts(notes_fts, rowid, subject, text)
+                SELECT 'delete', old.rowid, old.subject, old.text WHERE old.status = 'active';
+            INSERT INTO notes_fts(rowid, subject, text)
+                SELECT new.rowid, new.subject, new.text WHERE new.status = 'active';
+        END;
+
+        CREATE TRIGGER notes_no_delete BEFORE DELETE ON notes
+        BEGIN
+            SELECT RAISE(ABORT, 'notes are never deleted: retire or supersede them');
+        END;
+
+        CREATE TRIGGER note_proposals_decided_no_delete BEFORE DELETE ON note_proposals
+        WHEN old.status <> 'pending'
+        BEGIN
+            SELECT RAISE(ABORT, 'a decided note proposal is final and is not deleted');
+        END;
+
+        CREATE TRIGGER note_proposals_insert_pending BEFORE INSERT ON note_proposals
+        WHEN new.status <> 'pending'
+        BEGIN
+            SELECT RAISE(
+                ABORT,
+                'a note proposal is inserted pending and decided by an update in the same '
+                || 'transaction'
+            );
+        END;
+
+        CREATE TRIGGER note_proposals_decided_is_final BEFORE UPDATE ON note_proposals
+        WHEN old.status <> 'pending'
+        BEGIN
+            SELECT RAISE(
+                ABORT,
+                'a decided note proposal is final: a change of mind is a new proposal'
+            );
+        END;
+
+        -- REPLACE bypasses the delete triggers above: with recursive_triggers off (SQLite's
+        -- default, and this build changes no connection pragma), a row deleted to resolve an
+        -- INSERT OR REPLACE, REPLACE INTO or UPDATE OR REPLACE conflict fires no DELETE trigger.
+        -- Measured: it overwrote a row guarded by a BEFORE DELETE trigger. These close it: an
+        -- insert may not reuse an existing id (or an explicit existing rowid; ``new.rowid`` is -1
+        -- when none was given), and an update may not change an id or rowid.
+        CREATE TRIGGER notes_no_replace BEFORE INSERT ON notes
+        WHEN EXISTS (SELECT 1 FROM notes WHERE id = new.id)
+          OR (new.rowid <> -1 AND EXISTS (SELECT 1 FROM notes WHERE rowid = new.rowid))
+        BEGIN
+            SELECT RAISE(ABORT, 'a note is never replaced: its id or rowid exists');
+        END;
+
+        CREATE TRIGGER notes_id_is_final BEFORE UPDATE ON notes
+        WHEN new.id <> old.id OR new.rowid <> old.rowid
+        BEGIN
+            SELECT RAISE(ABORT, 'a note keeps its id and rowid');
+        END;
+
+        CREATE TRIGGER note_proposals_no_replace BEFORE INSERT ON note_proposals
+        WHEN EXISTS (SELECT 1 FROM note_proposals WHERE id = new.id)
+          OR (new.rowid <> -1 AND EXISTS (SELECT 1 FROM note_proposals WHERE rowid = new.rowid))
+        BEGIN
+            SELECT RAISE(ABORT, 'a note proposal is never replaced: its id or rowid exists');
+        END;
+
+        CREATE TRIGGER note_proposals_id_is_final BEFORE UPDATE ON note_proposals
+        WHEN new.id <> old.id OR new.rowid <> old.rowid
+        BEGIN
+            SELECT RAISE(ABORT, 'a note proposal keeps its id and rowid');
+        END;
+
+        CREATE TRIGGER approval_log_no_replace BEFORE INSERT ON approval_log
+        WHEN EXISTS (SELECT 1 FROM approval_log WHERE id = new.id)
+          OR (new.rowid <> -1 AND EXISTS (SELECT 1 FROM approval_log WHERE rowid = new.rowid))
+        BEGIN
+            SELECT RAISE(ABORT, 'an approval_log row is never replaced: its id (or rowid) exists');
+        END;
+
+        CREATE TRIGGER approval_log_append_only_update BEFORE UPDATE ON approval_log
+        BEGIN
+            SELECT RAISE(ABORT, 'approval_log is append-only');
+        END;
+
+        CREATE TRIGGER approval_log_append_only_delete BEFORE DELETE ON approval_log
+        BEGIN
+            SELECT RAISE(ABORT, 'approval_log is append-only');
+        END;
+    """)
+
+
 MIGRATIONS: list[Migration] = [
     Migration(version=2, name="artifacts_and_chunk_link", apply=_v2_artifacts),
     Migration(version=3, name="message_integrity_check", apply=_v3_integrity_check),
@@ -428,6 +672,7 @@ MIGRATIONS: list[Migration] = [
     Migration(version=5, name="supersedes_by_message", apply=_v5_supersedes_by_message),
     Migration(version=6, name="supersedes_replacement", apply=_v6_supersedes_replacement),
     Migration(version=7, name="artifact_integrity_check", apply=_v7_artifact_integrity_check),
+    Migration(version=8, name="notes", apply=_v8_notes),
 ]
 
 

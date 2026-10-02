@@ -3005,6 +3005,16 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
     trace outcome. Arguments are never rendered.
   - `tests/test_no_person_present.py` is updated deliberately: `reflection` is no longer a
     forbidden stem, and the package may hold only `journal`.
+- `[built]` **`write_journal --show-records DATE`** (2026-10-02, Tier 1; J7). Read-only, no model
+  call: prints the day's records exactly as the entity was given them (byte-identical to
+  `prepare(...)`'s records section, tested), under a `# ` heading of the counts,
+  `messages_omitted` and `messages_clipped`. Refuses today and future days; says so for an empty
+  day; the closing text after a write points at it. It exists because the gate checks no counts,
+  names or event claims, and those are the errors entries make. **Phase 6 must never auto-index**
+  (recorded in J7): the unsupported-claim rate was 7/24, 6/24 and 4/24, lower bounds. A flag-only
+  "specifics" check was **costed and declined** (review, 2026-10-02): on the 72 real entries it
+  flags none of the 17 known errors, which are token relations (who said it) or invented common
+  words, not absent numbers, names or quotes. 52 tests in `tests/test_journal.py`; seven mutations killed.
 - `[built]` **The live run was made** (2026-10-01; `changelog/2026-10-01-journal-live-run.md`):
   48 real entries on a copy of the soak store, 24 per arm, interleaved with a fresh shuffle each
   pass, nothing stored, the real store checked untouched by fingerprint. Hand-read: **0/24
@@ -3032,6 +3042,49 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   "claims not in the records" column is the softest; *"four distinct conversations"* is a
   repeatable miscount on the quiet day. `check_identity` measured a wash on 43 hand-built cases
   (`changelog/2026-10-01-j8-revised-block-measurement.md`).
+
+### Notes (Phase 5), piece 1 of `docs/NOTES_BUILD_PLAN.md`
+
+- `[built]` **Migration 8: the Notes schema** (2026-10-02, Tier 3, reviewed before commit; design of
+  record `docs/NOTES_DESIGN.md` N13 and the rulings of 2026-10-01/02). **Nothing reads or writes
+  it yet**; `notes.enabled` does not exist and no tool is offered. Not in `working.sql`; one
+  migration through `_execute_script`, so a failure leaves nothing (forced-failure tested at two
+  points). Objects: `notes`, `note_proposals`, `approval_log`, the `active_notes` view and
+  `notes_fts`, with these guards **held in the schema, proven against direct SQL**:
+  - a proposal is **always inserted `pending`** and decided by an UPDATE in the same transaction
+    (a `BEFORE INSERT` trigger refuses any other start), and **every column of a decided
+    proposal is frozen**;
+  - **a decided proposal cannot be deleted** (a pending one may), and **nothing is ever deleted
+    from `notes`**;
+  - `resulting_note_id` is the note the proposal created or changed (a retire's is the retired
+    note) and is non-null **exactly when** `status` is `approved`, `edited` or
+    `applied_without_review`;
+  - `approval_log` is append-only (update and delete raise). Its `decision` vocabulary is **not**
+    closed in the schema (the table is shared across capabilities): `db.APPROVAL_DECISIONS` and
+    `db.record_approval(conn, …)` validate it in code, inside the caller's transaction.
+- `[built]` **`notes_fts` is external content over the `active_notes` view, not over `notes`**
+  (approved at review). With `notes` as the content table and only active rows indexed, FTS5's
+  content-comparing check fails once any note is retired; over the view it is exact and detects a
+  drifted index. `rebuild` and both integrity checks are tested after retire, supersede and edit
+  sequences, and a drifted index is detected then repaired by `rebuild`.
+- `[built]` **`chunks_fts` and `notes_fts` use the same implicit-rowid approach** (a `TEXT` primary
+  key, `content_rowid = 'rowid'` / `'rid'`), and **nothing runs `VACUUM`**, which can renumber an
+  implicit rowid and silently re-pair index entries. A test scans `program/`, `scripts/` and
+  `ops/` for a `VACUUM` statement; planting one fails it.
+- `[built]` **Constraints beyond N13, kept at review:** `action`/`target_note_id`/`text`
+  consistency, `json_valid` on the JSON columns, `decided_at` set exactly when not pending.
+  `evidence` is `NOT NULL` and a **non-empty JSON array** (CHECK).
+- `[built]` **REPLACE cannot overwrite a guarded row** (found by testing at review, 2026-10-02).
+  SQLite fires no DELETE trigger for the row an `INSERT OR REPLACE`, `REPLACE INTO` or `UPDATE OR
+  REPLACE` removes while `recursive_triggers` is off, so those statements overwrote rows the delete
+  guards protect (measured on a bare table). `BEFORE INSERT` guards refuse a reused id **or
+  explicit rowid** on `notes`, `note_proposals` and `approval_log`; `BEFORE UPDATE` guards refuse
+  changing an id or rowid on the first two. **No connection pragma was changed**; the pragma option
+  (`recursive_triggers = ON`, per connection, database-wide semantics) is reported, not taken.
+  105 tests in `tests/test_notes_schema.py`; every guard proven to bite by neutering it while
+  keeping its name, plus removing it.
+- `[unverified]` **No guard on a `notes` row's text** (it can be edited by direct SQL); the design
+  puts that discipline in the tools and `scripts.note`, which do not exist yet.
 
 ## Correction / supersession
 

@@ -244,6 +244,38 @@ written in the same insert as the row. The same semantics as
 never clean.** Only kinds that run the gate write it; its first writer is the
 reflection journal. Uploads, images and creative writing leave it NULL.
 
+### Notes — migration 8 (`docs/NOTES_DESIGN.md` N13, `docs/NOTES_BUILD_PLAN.md` piece 1)
+Not in `working.sql`. **No code writes any of it yet**; the tables are the schema for a
+build whose tools ship dark.
+
+- **`notes`**: a reviewed statement about a `person`, `topic` or `project` (there is no `self`
+  kind). A revision is a new row (`version`, `previous_note_id`) and the old row becomes
+  `superseded`; retiring flips `status` to `retired`. Text is never deleted.
+- **`note_proposals`**: what the entity proposes. **Always inserted `pending` and decided by an
+  UPDATE in the same transaction** (auto-apply too), so the guards need no insert exception:
+  a `BEFORE INSERT` trigger refuses any other starting status, and a `BEFORE UPDATE` trigger
+  makes **every column of a decided proposal final**. `status` is `pending | approved | edited |
+  rejected | applied_without_review`. `evidence` is JSON (per quote: the resolved message id, its
+  tier, a duplicate count). No `reason` column: a reviewer's reason lives in
+  `approval_log.detail`. CHECKs tie `action` to `target_note_id`/`text`, `decided_at` to
+  `status`, and **`resulting_note_id` (the note the proposal created or changed; a retire's is
+  the retired note) to the statuses in which it took effect**. A decided proposal cannot be
+  deleted; a pending one may be. **Nothing is ever deleted from `notes`.** `evidence` is a
+  non-empty JSON array. **REPLACE cannot get round these:** SQLite fires no DELETE trigger for a
+  row an `INSERT OR REPLACE` / `UPDATE OR REPLACE` removes (with `recursive_triggers` off, as
+  here), so `BEFORE INSERT` triggers refuse a reused id or explicit rowid on all three tables and
+  `BEFORE UPDATE` triggers refuse changing an id or rowid on `notes` and `note_proposals`.
+- **`approval_log`**: shared across capabilities (keyed by `capability`), **append-only in the
+  schema** (update and delete raise). `decision` is **not** closed in the schema: the vocabulary
+  is validated in code, `db.APPROVAL_DECISIONS` and `db.record_approval`, so a new capability
+  adds its own without a migration.
+- **`notes_fts`** is FTS5 external content over the **`active_notes` view**, kept in step by
+  insert, update and delete triggers that index only active rows. It is over a view, not over
+  `notes`, because FTS5's content-comparing check fails once any non-active note exists when
+  the content table is `notes` itself (measured; pinned by a test). Over the view,
+  `INSERT INTO notes_fts(notes_fts, rank) VALUES ('integrity-check', 1)` compares the index with
+  the active set and detects a drifted index.
+
 ---
 
 ## Changing the schema

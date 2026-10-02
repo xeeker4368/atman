@@ -412,7 +412,7 @@ def test_migration_seven_failing_after_its_alter_rolls_back_completely(
     monkeypatch.setattr(migrations, "MIGRATIONS", real)
     assert str(db.working_path()).startswith(str(isolated_data_dir)), "left the temp store"
     migrations.run_working_migrations()
-    assert migrations.current_version() == 7
+    assert migrations.current_version() == max(m.version for m in real)
     assert db.get_artifact("a1")["integrity_check"] is None, (
         "an artifact that existed before the gate ran must read 'no verdict', not a value")
 

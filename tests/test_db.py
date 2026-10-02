@@ -52,10 +52,13 @@ def test_working_has_the_expected_tables(store):
             for row in conn.execute(
                 "SELECT name FROM main.sqlite_master "
                 "WHERE type='table' AND name NOT LIKE 'sqlite_%' "
-                "AND name NOT LIKE 'chunks_fts%'"
+                "AND name NOT LIKE 'chunks_fts%' AND name NOT LIKE 'notes_fts%'"
             )
         }
     assert names == {
+        "approval_log",
+        "note_proposals",
+        "notes",
         "artifacts",
         "schema_version",
         "users",
