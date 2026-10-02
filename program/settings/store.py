@@ -121,7 +121,16 @@ SETTINGS: tuple[SettingSpec, ...] = (
         "model_options.think", "model_options", "think", "bool",
         "Whether to request the model's thinking block.",
     ),
+    SettingSpec(
+        "notes.approval_required", "notes", "approval_required", "bool",
+        "Whether a note proposal waits for a person. Written only by `scripts.note approval`.",
+    ),
 )
+
+#: Settings whose ONLY writer is a purpose-built operator command that writes the setting and its
+#: log row in one transaction (:func:`write_in_transaction`). ``set`` and ``clear`` refuse them,
+#: so no other path (a panel, a script, a future caller) can change one without the log knowing.
+LOGGED_WRITER_ONLY = frozenset({"notes.approval_required"})
 
 _BY_NAME = {spec.name: spec for spec in SETTINGS}
 _BY_CONFIG = {(spec.section, spec.key): spec for spec in SETTINGS}
@@ -196,6 +205,12 @@ def _encode(value: Any, spec: SettingSpec) -> str:
             )
         return repr(float(value))
     return str(value)
+
+
+def decode(name: str, raw: Any) -> Any:
+    """A stored value for a registered setting, typed. For a reader that holds a raw row and its
+    own connection (the approval decision reads inside its transaction)."""
+    return _decode(str(raw), spec_for(name))
 
 
 def _decode(raw: str, spec: SettingSpec) -> Any:
@@ -503,6 +518,38 @@ def describe_all(actor: Actor) -> list[EffectiveSetting]:
 # ---------------------------------------------------------------------------
 
 
+class LoggedWriterOnlyError(PermissionError):
+    """A setting that is written only together with its approval-log row was written alone."""
+
+
+def _refuse_if_logged_only(name: str) -> None:
+    if name in LOGGED_WRITER_ONLY:
+        raise LoggedWriterOnlyError(
+            f"{name} is written only by `python -m scripts.note approval on|off`, which writes it "
+            f"and an approval_log row in one transaction."
+        )
+
+
+def write_in_transaction(conn: sqlite3.Connection, name: str, value: Any, actor: Actor) -> None:
+    """Write one setting **inside the caller's transaction**, so a caller can commit it together
+    with another row (the approval log). Validates and authorizes like :func:`set`, and does NOT
+    invalidate the cache: the caller must call :func:`invalidate` after its commit."""
+    from program.memory import db
+
+    require(actor, "settings.write")
+    spec = spec_for(name)
+    conn.execute(
+        """INSERT INTO settings (key, value, value_type, updated_at, updated_by)
+           VALUES (?, ?, ?, ?, ?)
+           ON CONFLICT(key) DO UPDATE SET
+               value = excluded.value,
+               value_type = excluded.value_type,
+               updated_at = excluded.updated_at,
+               updated_by = excluded.updated_by""",
+        (spec.name, _encode(value, spec), spec.value_type, db.now_iso(), actor.name),
+    )
+
+
 @retry_on_locked
 def set(name: str, value: Any, actor: Actor) -> None:
     """Write one setting and invalidate the cache. Takes effect immediately.
@@ -516,6 +563,7 @@ def set(name: str, value: Any, actor: Actor) -> None:
     """
     from program.memory import db
 
+    _refuse_if_logged_only(name)
     require(actor, "settings.write")
     spec = spec_for(name)
     encoded = _encode(value, spec)
@@ -546,6 +594,7 @@ def clear(name: str, actor: Actor) -> bool:
     """
     from program.memory import db
 
+    _refuse_if_logged_only(name)
     require(actor, "settings.write")
     spec = spec_for(name)
     with db.transaction() as conn:

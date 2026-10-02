@@ -481,6 +481,14 @@ max_results = 5
 # config/local.toml or ANAM_NOTES_ENABLED. A disabled tool is not offered to the model.
 enabled = false
 
+# Whether a note_propose needs a person's decision before anything changes (decision #12's second
+# axis). SETTINGS-BACKED and the one Notes key that is not bootstrap: its only writer is
+# `python -m scripts.note approval on|off`, which writes the setting and an approval_log row in
+# one transaction. THIS VALUE IS NOT USED TO DECIDE ANYTHING. The decision path reads the
+# settings row fresh and, with no row or an unreadable one, requires approval: a TOML edit is
+# not a logged event and cannot switch approval off. It is here so the registry has a seed to show.
+approval_required = true
+
 # Notes returned by one note_search. JUDGMENT VALUE, like retrieval.top_k.
 max_results = 5
 
@@ -493,7 +501,7 @@ max_subject_chars = 60
 #   header  + 5 x (framing + text) + separators  <=  4,000
 # tests/test_notes_tools.py recomputes it, and fails if this number is not the largest that fits.
 # A note that needs more is two notes: a note is a fact, not an essay.
-max_text_chars = 650
+max_text_chars = 639
 
 # The shortest quote that can identify one message (N4 step 2): after normalising, at least this
 # many characters and this many words. JUDGMENT VALUES.

@@ -24,12 +24,12 @@ class NoteRefused(Exception):
 #: What an empty search says. N6: it separates "no note" from "never discussed", because
 #: conflating them is a false claim about the record.
 NO_MATCH = (
-    "No note matches that. Notes hold only what was proposed and approved, so this says "
+    "No note matches that. Notes hold only what was written down as a note, so this says "
     "nothing about whether it was ever talked about; memory_search covers conversations."
 )
 
 HEADER = (
-    "Notes: reviewed statements about people, topics and projects in this household. "
+    "Notes: statements about people, topics and projects in this household. "
     "They are not conversation records, and a note is only as current as its age says."
 )
 
@@ -48,6 +48,13 @@ PENDING_CHANGE = (
     "Proposed. A person will review it before anything changes. "
     "The note stays as it is until then."
 )
+
+#: The results when approval is off and the proposal was applied at once. They say what happened
+#: and that no one reviewed it. (Which of the two modes applies is decided in the database at the
+#: moment of the call, not by the tool's description, which is the same in both.)
+APPLIED_ADD = "Added. The note now exists. No one reviewed it."
+APPLIED_CHANGE = "Done. The note was changed as proposed. No one reviewed it."
+APPLIED_RETIRE = "Done. The note was retired as proposed. No one reviewed it."
 
 # --- note_propose: refusals (each reaches the model as TOOL_ERROR) ----------------------------
 

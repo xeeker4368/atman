@@ -3181,7 +3181,35 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
     origin, each quote verbatim with the speaker's name, tier and duplicate count, the gate verdict as a
     noisy aid, and the entity's own reply found by parsing stored traces for the call id.
   - 77 tests; 42 mutations killed (three first survived and were closed).
-  - `[unverified]` The review prints "Nothing is saved until you approve it" even for a decided proposal.
+  - *The closing line of a review follows the proposal's status (set K2); an earlier version printed "pending" for every proposal.*
+- `[built]` **Notes piece 5: receipts generalised to records of a kind** (2026-10-02, Tier 3,
+  gate-adjacent, reviewed and approved, c20f2f4; `changelog/2026-10-02-notes-piece-5-receipts.md`,
+  which holds every receipt text verbatim). N8 option A.
+  - **The trace key is `records: [{"kind","id"}]`**, replacing `artifact_ids`. `registry.Record`
+    refuses an unknown kind or an empty id; `ToolOutput` keeps `artifact_ids` and gains `records`, so
+    the three existing handlers are not edited. `receipts.READERS` reads each kind from its own row
+    (`artifact`; `note_proposal` through `db.get_note_proposals_by_ids`) and is tested equal to
+    `registry.RECORD_KINDS`. `receipts.records_of` is the one reader of old and new traces.
+  - **A proposal's receipt is its row's CURRENT status**: `proposed` ("Proposed, awaiting a person's
+    review."), `accepted` (approved or edited: "Reviewed and accepted."), `declined` ("Reviewed and not
+    accepted."), `applied_without_review` ("Applied without review."), `not_proposed`, `unknown`. A
+    missing row or a failed lookup is `unknown`, never inferred from the trace; each kind's lookup
+    fails alone. No pending receipt implies a note exists.
+  - **Artifact receipts are unchanged**, and traces stored before the change keep rendering them:
+    HEAD's `receipts.py` against the new module over a copy of the soak store, 17 traces, 36
+    receipts, 51 variants, all identical. Those stored traces predate O23, so the variants (with
+    `artifact_ids` added) are what exercise `saved`.
+  - **The gate is untouched, proven again:** verdicts, advisory notes and classifier prompts
+    byte-identical over every frozen case with artifact records, proposal records and neither;
+    `c3a01db6…ad488` and the piece-2 turn digest `e5c92a42…806762` pass (the latter's scrub now reads
+    `records` back into the old shape).
+  - **31 mutations, each killed**; two first survived and were closed. 40 tests in
+    `tests/test_receipts_records.py`.
+  - **`note_propose` builds its result before the insert** (set K2), so nothing fallible runs after
+    the row is committed: a `tool_error` with a row present would have produced a false "Nothing was
+    recorded" receipt. Pinned by a test that makes the build fail and finds no row, and by an AST test
+    that the insert is the last statement before the return.
+  - `[unverified]` Nothing renders a receipt yet (Phase 9).
 - `[unverified]` **No guard on a `notes` row's text while it is active** (direct SQL can edit it);
   the design puts that discipline in the tools and `scripts.note`, which do not exist yet.
 

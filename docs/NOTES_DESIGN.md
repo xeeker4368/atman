@@ -426,9 +426,51 @@ for the renamed key.
   **in the same transaction** as the note change and the proposal's status flip. If
   the log row cannot be written, the note is not changed. There is no route by which
   a note changes and the log does not know. Tested by forcing the log insert to fail
-  and asserting the note and the proposal are untouched. The receipt reads `active`,
-  and the review command lists auto-applied proposals separately, so they can still
-  be read after the fact.
+  and asserting the note and the proposal are untouched. The receipt reads *Applied without
+  review* from the row (amended at piece 6; it was `active`), and the review command lists
+  auto-applied proposals separately (`review --applied`), so they can still be read after the fact.
+
+### N10 piece 6 — rulings built (2026-10-02)
+
+- **Read fresh, at the moment of decision.** `store`'s cache is invalidated only by `store.set` /
+  `store.clear` **in the same process**; a write from another process invalidates nothing. The
+  operator command runs in another process, so a cached *off* in a running server would keep
+  applying proposals after approval was switched back on. `notes.approval_required_in(conn)` therefore
+  never touches the cache: it reads the settings row **on the connection of the transaction it
+  governs**, so a toggle cannot fall between the decision and the write. Tested in both
+  directions with the cache warm and the row changed through a separate connection, and through a
+  real second process (`scripts.note approval`).
+- **Fails closed, and the seed is not consulted.** No row, an unreadable table, an undecodable value or
+  any error means approval is required. The TOML value `notes.approval_required` exists so the registry
+  has a seed to show; the decision path ignores it, because a file edit is not a logged event.
+- **One writer.** `store.set` and `store.clear` refuse the setting (`LOGGED_WRITER_ONLY`); the only
+  caller of `store.write_in_transaction` is `note_admin.set_approval_required`, which writes the
+  setting and its `approval_required_on|off` row in one transaction (a test scans for callers).
+- **Pending proposals stay pending when approval is switched off.** They are not applied
+  retroactively; the command says so, and `review` prints a banner while approval is off. A person
+  decides them with `approve`, `edit` or `reject`.
+- **The untrusted-context flag cannot stop an auto-apply, and cannot be written onto it.**
+  `untrusted_context` is known only after the loop (it is derived from the whole turn's trace), but
+  the proposal is applied inside the tool call. So **with approval off, a proposal made after an
+  untrusted read is applied anyway.** And a decided proposal is frozen in every column, so the flag
+  cannot be recorded on the row afterwards either: it is **appended to the approval log**
+  (`untrusted_context_recorded`, once per proposal) and `review` reads it from there. An alternative
+  that needs a migration (relaxing the freeze for that one column on applied rows) is declined; if
+  the log annotation proves awkward, that is the next option.
+- **The tool tells the truth in both modes.** `note_propose`'s description is static and says nothing
+  about review (the setting is not static); **the result text** says which happened: the pending texts
+  (*"Proposed. A person will review it before anything changes. No note exists yet because of this."*)
+  or the applied ones (*"Added. The note now exists. No one reviewed it."* and the change and retire
+  forms). A note no person reviewed is never shown as confirmed: `note_search` frames it
+  *"added without review N days ago"* / *"changed without review N days ago"*, found by a **join to the
+  proposal row**, no schema change. The wording changes that follow: `note_search`'s description, its
+  header and the empty-search sentence no longer say "reviewed" or "approved", and the derived
+  `notes.max_text_chars` falls from 650 to 639 because the longest framing is longer.
+- **Receipt:** an auto-applied proposal's receipt reads *"Applied without review."* from the row
+  (N8), not `active`.
+- **`review --applied`** lists proposals applied without review, newest first, each in the view a
+  pending one gets plus the resulting note's current state. It is read-only and is where the data on
+  whether approval could stay off comes from.
 
 ## N11 — The note text cap, derived
 

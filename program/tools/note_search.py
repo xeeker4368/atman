@@ -10,9 +10,11 @@ What it returns is bounded by construction: at most ``notes.max_results`` notes,
 ``notes.max_text_chars`` (derived, N11), so a full page renders under
 ``agent.max_tool_result_chars`` and the loop never has to cut a note mid-sentence.
 
-Each note is shown with its age since last confirmed (*"confirmed 12 days ago"*), so an old note
-reads as old (N5), and by the first 8 characters of its id, which the entity passes back to
-``note_propose`` to revise or retire it.
+Each note is shown with its age (*"confirmed 12 days ago"*), so an old note reads as old (N5), and
+by the first 8 characters of its id, which the entity passes back to ``note_propose`` to revise or
+retire it. **A note no person reviewed is never shown as confirmed**: one applied while approval was
+off reads *"added without review 12 days ago"* (or *"changed without review"*), found by a join to
+the proposal row, not a column.
 """
 
 from __future__ import annotations
@@ -43,15 +45,26 @@ def age_phrase(confirmed_at: str, now: datetime | None = None) -> str:
     return "1 day ago" if days == 1 else f"{days} days ago"
 
 
-def framing(note_id: str, kind: str, subject: str, age: str) -> str:
-    return f"[note {note_id[:ID_PREFIX_CHARS]} · {kind} · {subject} · confirmed {age}]"
+#: What precedes the age, by how the note came to be: a person's decision, or none.
+_CONFIRMED = "confirmed"
+_APPLIED_WORDS = {"add": "added without review", "revise": "changed without review"}
+#: The longest lead-in, for the worst-case size (N11).
+_WORST_LEAD = max([_CONFIRMED, *_APPLIED_WORDS.values()], key=len)
+
+
+def framing(note_id: str, kind: str, subject: str, age: str, applied: str | None = None) -> str:
+    """``applied`` is the proposal action of a note applied without review, else ``None``."""
+    lead = _APPLIED_WORDS.get(applied, _CONFIRMED) if applied else _CONFIRMED
+    return f"[note {note_id[:ID_PREFIX_CHARS]} · {kind} · {subject} · {lead} {age}]"
 
 
 def render_notes(rows, now: datetime | None = None) -> str:
     entries = []
     for r in rows:
         age = age_phrase(r["last_confirmed_at"], now)
-        entries.append(f"{framing(r['id'], r['subject_kind'], r['subject'], age)}\n{r['text']}")
+        applied = r["applied_action"] if "applied_action" in r.keys() else None
+        entries.append(
+            f"{framing(r['id'], r['subject_kind'], r['subject'], age, applied)}\n{r['text']}")
     return texts.HEADER + _SEPARATOR + _SEPARATOR.join(entries)
 
 
@@ -59,7 +72,9 @@ def worst_case_render(text_chars: int, results: int | None = None) -> str:
     """A full page of the largest notes the tool can render, for the derivation (N11)."""
     n = results if results is not None else config.notes_max_results()
     subject = "S" * config.notes_max_subject_chars()
-    entry = f"{framing('0' * 36, 'project', subject, _WORST_AGE)}\n{'T' * text_chars}"
+    lead = framing('0' * 36, 'project', subject, _WORST_AGE, 'revise')
+    assert _WORST_LEAD in lead, "the worst-case framing must use the longest lead-in"
+    entry = f"{lead}\n{'T' * text_chars}"
     return texts.HEADER + _SEPARATOR + _SEPARATOR.join([entry] * n)
 
 
@@ -91,7 +106,7 @@ def search_notes(query: str) -> str:
 NOTE_SEARCH = Tool(
     name="note_search",
     description=(
-        "Search reviewed notes about people, topics and projects in this household. "
+        "Search notes about people, topics and projects in this household. "
         "Not conversation memory (use memory_search)."
     ),
     parameters={

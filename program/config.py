@@ -95,9 +95,10 @@ _FALLBACK: dict[str, Any] = {
     },
     "notes": {
         "enabled": False,
+        "approval_required": True,  # settings-backed; the decision path ignores this seed
         "max_results": 5,
         "max_subject_chars": 60,
-        "max_text_chars": 650,      # derived; see config/defaults.toml
+        "max_text_chars": 639,      # derived; see config/defaults.toml
         "min_quote_chars": 24,
         "min_quote_words": 4,
     },
@@ -796,8 +797,10 @@ MOLTBOOK_HOST = "www.moltbook.com"
 # --- Notes (Phase 5; docs/NOTES_DESIGN.md, docs/NOTES_BUILD_PLAN.md) ------------
 #
 # Every key here is BOOTSTRAP-ONLY (ruling of 2026-10-02): `notes.enabled` is read like
-# `moltbook.enabled`, so changing it needs a restart. Only `approval_required`, built in a later
-# piece, is settings-backed.
+# `moltbook.enabled`, so changing it needs a restart. Only `approval_required` is settings-backed
+# (piece 6): its one writer is `scripts.note approval on|off`, and the decision path reads it
+# fresh from the database (`notes.approval_required_in`), never through a cached accessor, so
+# there is deliberately NO `config.notes_approval_required()`.
 
 
 def notes_enabled() -> bool:

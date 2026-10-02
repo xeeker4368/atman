@@ -30,8 +30,10 @@ from typing import Any
 
 from program import config
 from program.memory import db
+from program.memory import notes as notes_db
 from program.memory.db import retry_on_locked
-from program.settings.permissions import OPERATOR_ID
+from program.settings import store
+from program.settings.permissions import OPERATOR_ID, Actor
 from program.tools import note_texts
 
 CAPABILITY = "notes"
@@ -150,19 +152,6 @@ def _check_note_fields(
     return subject, text
 
 
-def _insert_note(conn: sqlite3.Connection, *, kind, subject, subject_user_id, text, origin,
-                 version=1, previous_note_id=None) -> str:
-    note_id = db.new_id()
-    now = _now()
-    conn.execute(
-        "INSERT INTO notes (id, subject_kind, subject, subject_user_id, text, status, version, "
-        "previous_note_id, origin, created_at, last_confirmed_at) "
-        "VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?)",
-        (note_id, kind, subject, subject_user_id, text, version, previous_note_id, origin, now,
-         now))
-    return note_id
-
-
 def _require_active(conn: sqlite3.Connection, note_prefix: str) -> sqlite3.Row:
     note = _by_prefix(conn, "notes", note_prefix, "note")
     if note["status"] != "active":
@@ -193,8 +182,8 @@ def operator_add(kind: str, subject: str, text: str, *, subject_user: str | None
     with db.transaction() as conn:
         user_id = _resolve_subject_user(conn, subject_user)
         evidence_ids = _check_evidence_ids(conn, evidence or [])
-        note_id = _insert_note(conn, kind=kind, subject=subject, subject_user_id=user_id,
-                               text=text, origin="operator")
+        note_id = notes_db.insert_note(conn, kind=kind, subject=subject, subject_user_id=user_id,
+                                   text=text, origin="operator")
         db.record_approval(conn, capability=CAPABILITY, subject_kind="note", subject_id=note_id,
                            decision="operator_add", decided_by=OPERATOR_ID,
                            detail={"note_id": note_id, "evidence_message_ids": evidence_ids})
@@ -211,7 +200,7 @@ def operator_revise(note_prefix: str, text: str, *, subject: str | None = None,
         user_id = (_resolve_subject_user(conn, subject_user)
                    if subject_user is not None else old["subject_user_id"])
         conn.execute("UPDATE notes SET status = 'superseded' WHERE id = ?", (old["id"],))
-        new_id = _insert_note(conn, kind=old["subject_kind"], subject=new_subject,
+        new_id = notes_db.insert_note(conn, kind=old["subject_kind"], subject=new_subject,
                               subject_user_id=user_id, text=text, origin="operator",
                               version=old["version"] + 1, previous_note_id=old["id"])
         db.record_approval(conn, capability=CAPABILITY, subject_kind="note", subject_id=new_id,
@@ -305,30 +294,13 @@ def decide(proposal_prefix: str, decision: str, *, text: str | None = None,
             match = household_match(conn, proposal["subject"])
             suggestion = match["name"] if match else None
 
-        if proposal["action"] == "retire":
-            conn.execute("UPDATE notes SET status = 'retired', retired_at = ? WHERE id = ?",
-                         (_now(), target["id"]))
-            result_id = target["id"]
-            detail: dict[str, Any] = {"action": "retire", "note_id": result_id}
-        else:
+        if proposal["action"] != "retire":
             _, final_text = _check_note_fields(proposal["subject_kind"], proposal["subject"],
                                                final_text, need_text=True)
-            if proposal["action"] == "add":
-                result_id = _insert_note(
-                    conn, kind=proposal["subject_kind"], subject=proposal["subject"],
-                    subject_user_id=user_id, text=final_text, origin="entity")
-                detail = {"action": "add", "note_id": result_id}
-            else:
-                conn.execute("UPDATE notes SET status = 'superseded' WHERE id = ?",
-                             (target["id"],))
-                result_id = _insert_note(
-                    conn, kind=proposal["subject_kind"], subject=proposal["subject"],
-                    subject_user_id=(user_id if subject_user is not None
-                                     else target["subject_user_id"]),
-                    text=final_text, origin="entity", version=target["version"] + 1,
-                    previous_note_id=target["id"])
-                detail = {"action": "revise", "note_id": result_id,
-                          "previous_note_id": target["id"]}
+        result_id, detail = notes_db.apply_change(
+            conn, action=proposal["action"], kind=proposal["subject_kind"],
+            subject=proposal["subject"], target=target, text=final_text,
+            subject_user_id=user_id, carry_link=(subject_user is None))
         detail["subject_user_id"] = user_id
         if decision == "edited":
             detail["before"], detail["after"] = entity_text, final_text
@@ -340,6 +312,51 @@ def decide(proposal_prefix: str, decision: str, *, text: str | None = None,
     note = (f"{verb}: proposal {pid[:8]} -> note {result_id[:8]} "
             f"({'retired' if proposal['action'] == 'retire' else 'active'}).")
     return Decision(decision, pid, result_id, note, suggestion)
+
+
+# --- the approval toggle ---------------------------------------------------------------------
+
+
+def pending_count() -> int:
+    with db.connection() as conn:
+        return conn.execute(
+            "SELECT COUNT(*) FROM note_proposals WHERE status = 'pending'").fetchone()[0]
+
+
+@dataclass(frozen=True)
+class Toggle:
+    required: bool
+    previous: bool
+    pending: int
+    message: str
+
+
+@retry_on_locked
+def set_approval_required(required: bool) -> Toggle:
+    """Switch approval on or off. **The only writer of ``notes.approval_required``**
+    (``store.set`` and ``store.clear`` refuse it): the setting and its ``approval_required_on`` /
+    ``approval_required_off`` log row are written in ONE transaction, so there is no change of it
+    the log does not know about. Pending proposals are not touched either way (N10, piece 6)."""
+    with db.transaction() as conn:
+        previous = notes_db.approval_required_in(conn)
+        store.write_in_transaction(conn, notes_db.APPROVAL_SETTING, required, Actor.operator())
+        db.record_approval(
+            conn, capability=CAPABILITY, subject_kind="setting",
+            subject_id=notes_db.APPROVAL_SETTING,
+            decision="approval_required_on" if required else "approval_required_off",
+            decided_by=OPERATOR_ID, detail={"before": previous, "after": required})
+    store.invalidate()      # this process's cache; another process reads fresh regardless
+    pending = pending_count()
+    if required:
+        message = ("approval is now REQUIRED: every proposal waits for a person.")
+    else:
+        message = ("approval is now OFF: a proposal the entity makes is applied at once, with no "
+                   "one reviewing it, and logged as applied_without_review. Read them with "
+                   "`review --applied`.")
+    if pending:
+        message += (f"\n{pending} pending proposal(s) stay pending in either state: switching "
+                    f"approval off does not apply them. Decide them with approve, edit or reject.")
+    return Toggle(required, previous, pending, message)
 
 
 # --- reading ----------------------------------------------------------------------------------
@@ -403,7 +420,21 @@ def review_view(proposal_prefix: str) -> dict[str, Any]:
                               (p["target_note_id"],)).fetchone() if p["target_note_id"] else None
         match = household_match(conn, p["subject"])
         made_for = conn.execute("SELECT name FROM users WHERE id = ?", (p["user_id"],)).fetchone()
+        result_note = conn.execute("SELECT * FROM notes WHERE id = ?",
+                                   (p["resulting_note_id"],)).fetchone() \
+            if p["resulting_note_id"] else None
+        untrusted = p["untrusted_context"]
+        if untrusted is None and p["status"] == "applied_without_review":
+            # a decided proposal is frozen, so its context was appended to the log instead
+            logged = conn.execute(
+                "SELECT detail FROM approval_log WHERE capability = 'notes' AND subject_id = ? "
+                "AND decision = 'untrusted_context_recorded' ORDER BY created_at LIMIT 1",
+                (p["id"],)).fetchone()
+            if logged:
+                untrusted = json.dumps(json.loads(logged["detail"])["tools"])
         return {
+            "untrusted_raw": untrusted,
+            "result_note": dict(result_note) if result_note else None,
             "proposal": p,
             "conversation": dict(conversation) if conversation else None,
             "trigger": _message_view(conn, p["user_message_id"]),
@@ -418,6 +449,15 @@ def review_view(proposal_prefix: str) -> dict[str, Any]:
             "made_for": made_for["name"] if made_for else None,
             "reply": _reply_for(conn, p["conversation_id"], p["call_id"]),
         }
+
+
+def list_applied(limit: int = 50) -> list[sqlite3.Row]:
+    """Proposals applied without review, newest first: where graduation data comes from."""
+    with db.connection() as conn:
+        return conn.execute(
+            "SELECT p.*, u.name AS made_for FROM note_proposals p "
+            "LEFT JOIN users u ON u.id = p.user_id WHERE p.status = 'applied_without_review' "
+            "ORDER BY p.decided_at DESC, p.created_at DESC LIMIT ?", (limit,)).fetchall()
 
 
 def misses(limit: int = 50) -> list[dict[str, Any]]:

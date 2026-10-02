@@ -28,7 +28,12 @@ the gate's verdicts over every frozen case are byte-identical regardless.
 
 **Receipts (piece 5, N8):** the call reports its proposal as a ``note_proposal`` record, and the
 receipt reads that row's current status, so it says *proposed, awaiting a person's review* until a
-person decides it. The model-facing text below is unchanged.
+person decides it, or *applied without review* when approval was off.
+
+**Approval (piece 6).** The description is static and says nothing about review, because the setting
+is not: `notes.approval_required` is read fresh, inside the insert's transaction, and the **result
+text** says which happened (`PENDING_*` or `APPLIED_*`). With approval off the note change, the
+proposal's flip to `applied_without_review` and the log row are one transaction.
 """
 
 from __future__ import annotations
@@ -114,7 +119,20 @@ def propose_note(
 
     verdict = gate.check_identity(text) if text else None
     proposal_id = db.new_id()
-    notes.insert_pending_proposal(
+    # Everything fallible is done BEFORE the insert. The row is the last thing this function does
+    # that can fail: if anything after it raised, the call would be a `tool_error` with a proposal
+    # row present, and the receipt would say "Nothing was recorded" about a record that exists.
+    records = (Record("note_proposal", proposal_id),)
+    results = {
+        "pending": ToolOutput(
+            texts.PENDING_ADD if action == "add" else texts.PENDING_CHANGE, records=records),
+        "applied": ToolOutput(
+            {"add": texts.APPLIED_ADD, "revise": texts.APPLIED_CHANGE,
+             "retire": texts.APPLIED_RETIRE}[action], records=records),
+    }
+    logger.info("note proposal (%s, %s) recording, call %s", action, subject_kind,
+                (origin.call_id or "")[:8])
+    outcome = notes.record_proposal(
         proposal_id=proposal_id,
         action=action,
         target_note_id=target_id,
@@ -128,18 +146,14 @@ def propose_note(
         user_id=attribution.user_id,
         integrity_check=verdict.to_json() if verdict is not None else None,
     )
-    logger.info("note proposal (%s, %s) recorded pending, call %s", action, subject_kind,
-                (origin.call_id or "")[:8])
-    return ToolOutput(
-        texts.PENDING_ADD if action == "add" else texts.PENDING_CHANGE,
-        records=(Record("note_proposal", proposal_id),))
+    return results[outcome]
 
 
 NOTE_PROPOSE = Tool(
     name="note_propose",
     description=(
-        "Propose a note about a person, topic or project, or a change to one. Only a "
-        "proposal: a person reviews it first. One short fact per note."
+        "Propose a note about a person, topic or project, or a change to one. "
+        "The result says what happened. One short fact per note."
     ),
     parameters={
         "type": "object",

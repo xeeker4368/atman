@@ -155,7 +155,7 @@ def _all_texts():
               texts.NOTE_ID_AMBIGUOUS, texts.QUOTES_REQUIRED, texts.QUOTE_NOT_A_PERSONS_WORDS,
               texts.QUOTE_NO_MATCH, NOTE_SEARCH.description, NOTE_PROPOSE.description]
     built = [texts.bad_action("x"), texts.bad_subject_kind("x"), texts.subject_too_long(99, 60),
-             texts.text_too_long(999, 650), texts.note_not_found("abc"), texts.quote_not_text(2),
+             texts.text_too_long(999, 639), texts.note_not_found("abc"), texts.quote_not_text(2),
              texts.quote_too_short(24, 4), texts.quote_ambiguous(3)]
     return simple + built
 
@@ -172,8 +172,11 @@ def test_the_result_texts_are_pinned_verbatim():
     assert texts.PENDING_CHANGE == ("Proposed. A person will review it before anything changes. "
                                     "The note stays as it is until then.")
     assert texts.NO_MATCH == (
-        "No note matches that. Notes hold only what was proposed and approved, so this says "
+        "No note matches that. Notes hold only what was written down as a note, so this says "
         "nothing about whether it was ever talked about; memory_search covers conversations.")
+    assert texts.APPLIED_ADD == "Added. The note now exists. No one reviewed it."
+    assert texts.APPLIED_CHANGE == "Done. The note was changed as proposed. No one reviewed it."
+    assert texts.APPLIED_RETIRE == "Done. The note was retired as proposed. No one reviewed it."
     for claim in ("saved", "noted", "remember", "recorded", "stored"):
         assert claim not in (texts.PENDING_ADD + texts.PENDING_CHANGE).lower()
 
@@ -537,9 +540,13 @@ def test_a_proposal_never_creates_or_changes_a_note_and_has_no_path_to_a_decided
     assert [tuple(r) for r in rows("notes")] == before
     assert {r["status"] for r in rows("note_proposals")} == {"pending"}
     assert rows("approval_log") == []
-    source = inspect.getsource(notes)
-    assert "approved" not in source and "applied" not in source and "UPDATE notes" not in source
-    assert "INSERT INTO notes " not in source
+    # With approval on (the default) nothing changes. The tool module itself holds no way to write
+    # a note or decide a proposal: the only code that does is `notes.record_proposal`, reached only
+    # through the in-transaction approval read (tests/test_notes_approval.py).
+    from program.tools import note_propose
+    source = inspect.getsource(note_propose)
+    assert "UPDATE notes" not in source and "INSERT INTO notes" not in source
+    assert "UPDATE note_proposals" not in source
 
 
 def test_a_revise_and_a_retire_target_the_active_note_by_its_short_id(world):

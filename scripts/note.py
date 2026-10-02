@@ -26,6 +26,9 @@ guarantees:
     version 8 (the real store is at version 6 until the server's first startup applies
     migrations 7 and 8). Migrations run only at server startup.
   * a proposal is decided once. A change of mind is a new proposal.
+  * `approval off` lets the entity's proposals take effect with no one reviewing them. It is logged
+    (approval_required_off), read fresh on every proposal (a running server sees it at once), and
+    it does NOT apply proposals already pending. `review --applied` lists what it let through.
   * subject_user_id is set only by --subject-user. A household member's name in the subject is
     suggested, never applied.
   * the identity gate's verdict shown in `review` is a noisy aid, NOT a control: the control is you
@@ -69,6 +72,9 @@ def build_parser() -> argparse.ArgumentParser:
         "review", help="with no id, list pending proposals; with an id, show everything a "
                        "reviewer needs to decide it")
     review.add_argument("proposal_id", nargs="?")
+    review.add_argument("--applied", action="store_true",
+                        help="show proposals applied WITHOUT review, each in full (read-only)")
+    review.add_argument("--limit", type=int, default=20, help="with --applied: how many")
 
     approve = sub.add_parser("approve", help="approve a pending proposal as proposed")
     approve.add_argument("proposal_id")
@@ -83,6 +89,10 @@ def build_parser() -> argparse.ArgumentParser:
     reject = sub.add_parser("reject", help="reject a pending proposal")
     reject.add_argument("proposal_id")
     reject.add_argument("--reason", help="kept in the approval log")
+
+    approval = sub.add_parser(
+        "approval", help="switch approval on or off, or show it (the only way to change it)")
+    approval.add_argument("state", choices=("on", "off", "status"))
 
     misses = sub.add_parser("misses", help="searches that found no note, newest first (read-only)")
     misses.add_argument("--limit", type=int, default=50)
@@ -130,6 +140,22 @@ def verdict_lines(raw: str | None, indent: str = "  ") -> list[str]:
     return lines
 
 
+#: What happened to the proposal the entity's reply is about, by the row's own status.
+#: Never says "pending" for a decided one, and never says a note exists for a pending one.
+OUTCOME_LINES = {
+    "pending": "This proposal is pending. Nothing is saved until you approve it.",
+    "approved": "This proposal was approved. The note was saved.",
+    "edited": "This proposal was approved with changed text. The note was saved with that text.",
+    "rejected": "This proposal was rejected. Nothing was saved.",
+    "applied_without_review": "This proposal was applied without review. The note was saved "
+                              "and no person reviewed it.",
+}
+
+
+def outcome_line(status: str) -> str:
+    return OUTCOME_LINES.get(status, f"This proposal's status is {status!r}.")
+
+
 def render_review(view: dict) -> str:
     p = view["proposal"]
     out: list[str] = []
@@ -139,7 +165,7 @@ def render_review(view: dict) -> str:
         f"    made on behalf of: {view['made_for'] or p['user_id']}")
     add("")
     add("UNTRUSTED CONTEXT (read this first)")
-    add(f"  {untrusted_line(p['untrusted_context'])}")
+    add(f"  {untrusted_line(view['untrusted_raw'])}")
     add("")
     add("ORIGIN")
     conv = view["conversation"] or {}
@@ -170,7 +196,7 @@ def render_review(view: dict) -> str:
             state = "active" if view["target_is_active"] else target["status"].upper()
             add(f"  target note: {target['id']}  version {target['version']}  [{state}]")
             add(f"    the note now says: {target['text']}")
-            if not view["target_is_active"]:
+            if not view["target_is_active"] and p["status"] == "pending":
                 add("    ** the note changed since this was proposed: approving will be refused "
                     "and recorded as rejected **")
         if view["diff"]:
@@ -192,6 +218,13 @@ def render_review(view: dict) -> str:
             add("     (found only outside this turn's context: nothing in the conversation "
                 "showed it to the entity)")
     add("")
+    result = view.get("result_note")
+    if result is not None:
+        add("RESULT")
+        add(f"  note {result['id']}  version {result['version']}  [{result['status']}]  "
+            f"origin {result['origin']}")
+        add(f"    text now: {result['text']}")
+        add("")
     add("IDENTITY GATE on the proposed text (flag-only; a noisy aid, NOT a control: it misses "
         "lived-through claims with no time marker and flags some accurate sentences; read the "
         "proposal yourself)")
@@ -208,7 +241,7 @@ def render_review(view: dict) -> str:
         if reply["integrity_advisory"]:
             for note in json.loads(reply["integrity_advisory"]):
                 add(f"    advisory: {note}")
-        add("  (A proposal is pending. Nothing is saved until you approve it.)")
+        add(f"  ({outcome_line(p['status'])})")
     add("")
     if p["status"] == "pending":
         short = p["id"][:8]
@@ -217,6 +250,18 @@ def render_review(view: dict) -> str:
     else:
         add(f"this proposal is {p['status']}; decisions are final.")
     return "\n".join(out)
+
+
+def render_applied(limit: int) -> str:
+    rows = admin.list_applied(limit)
+    if not rows:
+        return "No proposals have been applied without review."
+    parts = [f"{len(rows)} proposal(s) applied WITHOUT review, newest first (read-only). Each is "
+             f"shown as a pending one is: this is where you judge whether approval could stay off."]
+    for r in rows:
+        parts.append("=" * 100)
+        parts.append(render_review(admin.review_view(r["id"])))
+    return "\n".join(parts)
 
 
 def render_pending(rows) -> str:
@@ -265,9 +310,24 @@ def run(args) -> int:
         print(admin.operator_retire(args.note_id).message)
     elif c == "list":
         print(render_notes(admin.list_notes(args.all)))
+    elif c == "review" and args.applied:
+        print(render_applied(args.limit))
     elif c == "review":
-        print(render_pending(admin.list_pending()) if not args.proposal_id
-              else render_review(admin.review_view(args.proposal_id)))
+        if args.proposal_id:
+            print(render_review(admin.review_view(args.proposal_id)))
+        else:
+            if not admin.notes_db.approval_required_now():
+                print("NOTE: approval is OFF. New proposals are applied at once; the ones below "
+                      "stay pending until you decide them.\n")
+            print(render_pending(admin.list_pending()))
+    elif c == "approval":
+        if args.state == "status":
+            required = admin.notes_db.approval_required_now()
+            print("approval is REQUIRED." if required else
+                  "approval is OFF: proposals are applied without review.")
+            print(f"{admin.pending_count()} pending proposal(s).")
+        else:
+            print(admin.set_approval_required(args.state == "on").message)
     elif c in ("approve", "edit", "reject"):
         decision = {"approve": "approved", "edit": "edited", "reject": "rejected"}[c]
         result = admin.decide(args.proposal_id, decision,

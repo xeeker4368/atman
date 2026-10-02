@@ -486,6 +486,7 @@ def test_the_schema_does_not_close_the_decision_vocabulary(store):
 NOTES_DECISIONS = {
     "approved", "edited", "rejected", "applied_without_review", "operator_add",
     "operator_revise", "operator_retire", "approval_required_on", "approval_required_off",
+    "untrusted_context_recorded",
 }
 
 

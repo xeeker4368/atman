@@ -216,7 +216,7 @@ def test_add_records_evidence_message_ids_in_the_log_and_refuses_unknown_ones(wo
     (dict(kind="person", subject="  ", text="y"), "subject is empty"),
     (dict(kind="person", subject="S" * 61, text="y"), "limit is 60"),
     (dict(kind="person", subject="x", text=" "), "note text is empty"),
-    (dict(kind="person", subject="x", text="T" * 651), "limit is 650"),
+    (dict(kind="person", subject="x", text="T" * 640), "limit is 639"),
 ])
 def test_add_refuses_what_a_proposal_would_refuse(world, kwargs, message):
     with pytest.raises(admin.AdminError, match=message):
@@ -810,3 +810,84 @@ def test_the_pending_list_shows_not_recorded_none_and_a_flag_distinctly_in_one_l
     lines = [ln for ln in out.splitlines() if "[untrusted" in ln.lower() or "[UNTRUSTED" in ln]
     assert sorted(ln.split("[")[-1].rstrip("]") for ln in lines) == [
         "UNTRUSTED CONTEXT: web_fetch", "untrusted: none", "untrusted: not recorded"]
+
+
+# --- piece 5 follow-ups (set K2) ---------------------------------------------------------------
+
+
+@pytest.mark.parametrize("status, expected, forbidden", [
+    ("pending", "This proposal is pending. Nothing is saved until you approve it.", []),
+    ("approved", "This proposal was approved. The note was saved.", ["pending"]),
+    ("edited", "approved with changed text", ["pending"]),
+    ("rejected", "This proposal was rejected. Nothing was saved.", ["pending"]),
+    ("applied_without_review", "applied without review", ["pending"]),
+])
+def test_the_closing_line_of_a_review_follows_the_proposals_status(
+        world, capsys, status, expected, forbidden):
+    s = seed_review(world)
+    if status == "approved":
+        admin.decide(s.pid, "approved")
+    elif status == "edited":
+        admin.decide(s.pid, "edited", text="Changed text.")
+    elif status == "rejected":
+        admin.decide(s.pid, "rejected")
+    elif status == "applied_without_review":
+        nid = add_note("x")
+        with db.transaction() as conn:
+            conn.execute("UPDATE note_proposals SET status = 'applied_without_review', "
+                         "decided_at = 'x', resulting_note_id = ? WHERE id = ?", (nid, s.pid))
+    out = review(capsys, s.pid)
+    line = [ln for ln in out.splitlines() if ln.strip().startswith("(This proposal")][0]
+    assert expected in line
+    for word in forbidden:
+        assert word not in line
+
+
+def test_every_status_the_schema_allows_has_a_closing_line():
+    for status in ("pending", "approved", "edited", "rejected", "applied_without_review"):
+        assert status in cli.OUTCOME_LINES
+
+
+def test_note_propose_does_nothing_fallible_after_the_row_is_written(world, monkeypatch):
+    """A `tool_error` with a proposal row present would read as "Nothing was recorded" (piece 5's
+    receipt). So the result is built before the insert: if building it fails, no row exists."""
+    from program.tools import note_propose
+
+    def boom(*a, **k):
+        raise RuntimeError("injected")
+
+    monkeypatch.setattr(note_propose, "ToolOutput", boom)
+    result = world.reg.dispatch(
+        "note_propose", dict(
+            action="add", subject_kind="person", subject="Jodie", text="Takes oat milk.",
+            quotes=["Jodie takes her coffee with oat milk"]),
+        attribution=world.attribution, origin=world.origin)
+    assert result.outcome.value == "tool_error"
+    assert rows("note_proposals") == [], "a failed call left a proposal row behind"
+
+
+def test_the_insert_is_the_last_thing_note_propose_does_before_it_returns():
+    import ast
+    import inspect
+
+    from program.tools import note_propose
+
+    fn = ast.parse(inspect.getsource(note_propose.propose_note)).body[0]
+    last_two = fn.body[-2:]
+    # the write (which may also apply the note) is the last statement that can fail, and what is
+    # returned is looked up in results built BEFORE it
+    assert isinstance(last_two[0], ast.Assign) and "record_proposal" in ast.dump(last_two[0])
+    assert isinstance(last_two[1], ast.Return) and isinstance(last_two[1].value, ast.Subscript)
+
+
+def test_a_decided_revise_does_not_warn_that_its_target_changed(world, capsys):
+    """Found by reading the sample: the target of an applied or approved revise is superseded BY
+    that proposal, so "approving will be refused" was a false warning on a decided proposal."""
+    old = add_note("Takes milk.")
+    propose(world, action="revise", note_id=old[:8], text="Takes oat milk.")
+    pid = pending_id()
+    assert "approving will be refused" not in review(capsys, pid)     # still active, still pending
+    admin.decide(pid, "approved")
+    out = review(capsys, pid)
+    assert "[SUPERSEDED]" in out
+    assert "approving will be refused" not in out

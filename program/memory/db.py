@@ -1074,6 +1074,9 @@ APPROVAL_DECISIONS: dict[str, frozenset[str]] = {
         "approved", "edited", "rejected", "applied_without_review",
         "operator_add", "operator_revise", "operator_retire",
         "approval_required_on", "approval_required_off",
+        # Written after a turn's loop, for a proposal that was applied at once, because a decided
+        # proposal is frozen and its untrusted_context could not be recorded on the row.
+        "untrusted_context_recorded",
     }),
 }
 
