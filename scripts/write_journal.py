@@ -3,6 +3,7 @@
     python -m scripts.write_journal [--date YYYY-MM-DD] [--dry-run] [--with-clause]
     python -m scripts.write_journal --list-unindexed
     python -m scripts.write_journal --index ARTIFACT_ID
+    python -m scripts.write_journal --show-records DATE [--with-clause]
 
 Design of record: ``docs/REFLECTION_JOURNAL_DESIGN.md`` J1, J7. The default date is
 yesterday (local). Today and future days are refused. An existing entry for the date is
@@ -11,6 +12,8 @@ reported and nothing is done. A day with no messages writes nothing.
 **A run stores the entry and prints it with the gate's verdict. It does not index it.**
 The entry reaches memory only when you have read it and run ``--index``. The gate's
 verdict is **a noisy aid, not a control**: the control is you reading the entry.
+``--show-records DATE`` prints the day's records exactly as the entity was given them
+(read-only: no model call, nothing written), so the entry can be read against its source.
 ``--with-clause`` selects the prompt arm that includes *"and there was no thinking about
 it in between"*, which the live run is deciding about.
 """
@@ -35,6 +38,9 @@ What you can do with this entry, from here:
     some accurate sentences. Your reading is the control.
   - If a cited sentence really is a fabrication, report it. Nothing here records the
     judgment.
+  - Read it against its source:  python -m scripts.write_journal --show-records {date}
+    The gate checks no counts, names or event claims, and those are the errors entries
+    actually make.
   - Index it once you have read it:  python -m scripts.write_journal --index {id}
     Until then it is stored and is not in memory.
   - You cannot edit, delete or regenerate it from this command. A verdict changes
@@ -99,7 +105,34 @@ def cmd_write(args) -> int:
     print(f"artifact id: {result.entry.artifact_id}  (stored, NOT indexed)")
     print_verdict(result.verdict)
     print()
-    print(WHAT_YOU_CAN_DO.format(id=result.entry.artifact_id))
+    print(WHAT_YOU_CAN_DO.format(id=result.entry.artifact_id, date=day))
+    return 0
+
+
+def cmd_show_records(date_text: str, clause: bool) -> int:
+    """The records section of the prompt, byte for byte as the entity received it.
+
+    Read-only: ``prepare`` makes no model call and writes nothing. The heading lines are
+    prefixed ``# `` and end before the records, so everything from ``RECORDS OF`` on is the
+    entity's own text, unchanged.
+    """
+    try:
+        prepared = journal.prepare(date.fromisoformat(date_text), clause=clause)
+    except journal.DateRefused as exc:
+        print(f"refused: {exc}", file=sys.stderr)
+        return 2
+    except journal.JournalError as exc:
+        print(f"cannot render: {exc}", file=sys.stderr)
+        return 1
+    if prepared is None:
+        print(f"No messages on {date_text}.")
+        return 0
+    start = prepared.system.index("RECORDS OF")
+    print(f"# records for {date_text}, as the entity was given them ({prepared.prompt_revision})")
+    print(f"# {prepared.messages_in} messages in {prepared.conversations} conversation(s); "
+          f"{prepared.messages_omitted} omitted to fit; {prepared.messages_clipped} clipped")
+    print()
+    print(prepared.system[start:])
     return 0
 
 
@@ -149,8 +182,12 @@ def main() -> int:
     parser.add_argument("--index", metavar="ARTIFACT_ID",
                         help="index an entry you have read into memory")
     parser.add_argument("--list-unindexed", action="store_true")
+    parser.add_argument("--show-records", metavar="DATE",
+                        help="print the day's records as the entity saw them; no model call")
     args = parser.parse_args()
     db.init_databases()
+    if args.show_records:
+        return cmd_show_records(args.show_records, args.with_clause)
     if args.index:
         return cmd_index(args.index)
     if args.list_unindexed:

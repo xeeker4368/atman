@@ -652,6 +652,83 @@ def test_the_command_index_and_list_flags(world, monkeypatch, capsys):
     assert code == 1 and "refused" in out.err
 
 
+def test_show_records_prints_the_records_exactly_as_the_entity_was_given_them(
+        world, monkeypatch, capsys):
+    seed_day(world)
+    prepared = journal.prepare(DAY, now=NOW)
+    entity_saw = prepared.system[prepared.system.index("RECORDS OF"):]
+
+    code, out = run_cli(monkeypatch, capsys, "--show-records", "2026-09-21")
+
+    assert code == 0
+    assert out.out.endswith(entity_saw + "\n"), "the records are not byte-identical"
+    head = out.out[: out.out.index("RECORDS OF")]
+    assert head.startswith("# records for 2026-09-21")
+    assert "# 4 messages in 2 conversation(s); 0 omitted to fit; 0 clipped" in head
+    assert all(line.startswith("#") or not line for line in head.splitlines())
+
+
+def test_show_records_is_read_only_and_makes_no_model_call(world, monkeypatch, capsys):
+    seed_day(world)
+    rows = len(db.list_artifacts())
+
+    run_cli(monkeypatch, capsys, "--show-records", "2026-09-21")
+
+    assert world.model.calls == []
+    assert len(db.list_artifacts()) == rows
+    assert db.get_user_by_name(db.ENTITY_USER_NAME) is None   # not even the entity row
+
+
+def test_show_records_gives_the_same_records_under_either_arm(world, monkeypatch, capsys):
+    seed_day(world)
+    _, plain = run_cli(monkeypatch, capsys, "--show-records", "2026-09-21")
+    _, clause = run_cli(monkeypatch, capsys, "--show-records", "2026-09-21", "--with-clause")
+
+    body = lambda text: text[text.index("RECORDS OF"):]  # noqa: E731
+    assert body(plain.out) == body(clause.out)
+    assert "J4r2+clause" in clause.out and "J4r2)" in plain.out
+
+
+def test_show_records_states_what_was_omitted_and_clipped(world, monkeypatch, capsys):
+    monkeypatch.setattr(config, "model_options", lambda: {"num_ctx": 7000})
+    monkeypatch.setattr(config, "journal_max_message_chars", lambda: 900)
+    c = db.start_conversation(world.lyle)
+    for i in range(40):
+        say(world.lyle, "user", f"message-{i:02d} " + "w" * 1200,
+            f"2026-09-21T13:{i:02d}:00+00:00", c)
+
+    _, out = run_cli(monkeypatch, capsys, "--show-records", "2026-09-21")
+
+    omitted = journal.prepare(DAY, now=NOW).messages_omitted
+    assert omitted > 0
+    assert f"{omitted} omitted to fit; {40 - omitted} clipped" in out.out
+    assert f"The {omitted} earliest messages of the day are not shown" in out.out
+    assert "message-00 " not in out.out
+
+
+def test_show_records_refuses_a_day_that_is_not_over_and_says_so_for_an_empty_day(
+        world, monkeypatch, capsys):
+    from datetime import timedelta
+
+    tomorrow = (datetime.now(timezone.utc).astimezone(TZ).date() + timedelta(days=1)).isoformat()
+    code, out = run_cli(monkeypatch, capsys, "--show-records", tomorrow)
+    assert code == 2 and "refused" in out.err and out.out == ""
+
+    code, out = run_cli(monkeypatch, capsys, "--show-records", "2026-09-21")
+    assert code == 0 and "No messages on 2026-09-21" in out.out
+
+
+def test_the_closing_text_of_a_write_points_at_the_source(world, monkeypatch, capsys):
+    seed_day(world)
+    monkeypatch.setattr(journal, "datetime", type("D", (), {
+        "now": staticmethod(lambda tz=None: NOW), "combine": datetime.combine,
+        "fromisoformat": datetime.fromisoformat}))
+
+    _, out = run_cli(monkeypatch, capsys, "--date", "2026-09-21")
+
+    assert "--show-records 2026-09-21" in out.out
+
+
 def test_the_command_refuses_a_day_that_is_not_over(world, monkeypatch, capsys):
     monkeypatch.setattr(journal, "datetime", type("D", (), {
         "now": staticmethod(lambda tz=None: NOW), "combine": datetime.combine,

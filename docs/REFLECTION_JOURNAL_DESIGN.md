@@ -403,8 +403,44 @@ event or speaker **7/24 against 6/24, no improvement** (corrected after a rechec
 invent "specific pour-over gear brands", which the soak turn never names); gate 1/24, a false positive
 (`changelog/2026-10-02-journal-counts-and-decisions.md`).
 
-**Can the review step show the day's messages as the entity saw them? Not built; proposed as a
-small addition to step 3 (2026-10-02).** The gate checks no speaker attributions, counts or event
+**Phase 6 must never auto-index a journal entry (ruling 2026-10-02).** When a scheduler runs
+the journal unattended, it writes and stores the entry and stops; `index_existing` is an operator
+act after reading, and nothing scheduled may call it. The reason is measured, not assumed: **the
+unsupported-claim rate on real model entries was 7/24, 6/24 and 4/24 across the three runs (each a
+lower bound, intervals 7–49%), and the identity gate does not check what those errors are**:
+wrong counts, speaker misattributions, invented specifics (*"pour-over gear brands"*). So the
+stage-1 reading control stays, in full, until something else replaces it. The prompt is **not**
+being tuned against these errors.
+
+**A flag-only "specifics" check, costed and not built (2026-10-02).** The idea: extract from an
+entry the numbers, capitalised names and quoted phrases, look each up in the day's records, and
+print the ones absent as a flag-only aid beside the gate's verdict. Cost: about 50 lines
+(`program/reflection/specifics.py`) plus tests and a line in the command's output; no model call,
+no schema change, nothing stored. **Measured with a throwaway prototype (not in the repo) on the 72
+real entries** against their records:
+- **It would have caught none of the known errors.** Of the 17 entries with a known unsupported
+  claim, 0 contain a flagged item that is the error. The errors are **relations between tokens
+  that are all present** (the correction made by *the entity* attributed to *Jodie*; the
+  shopping-list edits attributed to *Lyle*) or a **common word invented** (*"brands"*), not an
+  absent number, name or quote.
+- **It is noisy:** 24 of 72 entries flagged at least one item (0.72 per entry), almost all
+  markdown headings read as names (*"Science"*, *"Tasks"*) and quotations paraphrased in passing.
+  Tightened heuristics would cut that, at the price of more code per false positive removed.
+- **What it would catch**: an invented count or a fabricated quotation. The first is already
+  closed by the given counts (0/24 wrong counts), and no entry fabricated a quotation.
+- **Verdict on cost:** low to build, low value on this evidence. Not built. The check that would
+  address the observed errors is a **speaker/event attribution** check, which needs the records'
+  structure (who said what, which turn) and is a different, larger piece; it is named here, not
+  proposed.
+
+**Built 2026-10-02: `write_journal --show-records DATE`.** Read-only (no model call, nothing
+written); prints the day's records exactly as the entity was given them, under a `# ` heading of the
+counts, `messages_omitted` and `messages_clipped`; refuses today and future days; the closing text
+after a write names it. Tested: byte-identical to `prepare(...)`'s records section, no model call,
+no row (not even the entity's), the same records under either arm, omissions and clips stated.
+
+**Can the review step show the day's messages as the entity saw them? It can, as of 2026-10-02
+(built, see above); the proposal as first written follows.** The gate checks no speaker attributions, counts or event
 claims, and the live run's commonest errors were exactly those, so the operator's reading of an
 entry needs the source beside it. **Proposal: `python -m scripts.write_journal --show-records DATE`
 [`--with-clause`]**, read-only: it calls `journal.prepare` (no model call, nothing written) and prints
