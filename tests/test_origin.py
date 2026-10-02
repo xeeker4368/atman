@@ -405,3 +405,66 @@ def test_the_stored_trace_of_a_real_turn_carries_no_origin_and_its_call_id_match
     entry = json.loads(stored)[0]
     assert entry["call_id"] == got[0][0].call_id
     assert "origin" not in stored and conversation not in stored
+
+
+# --- built only when an offered tool declares it (review, 2026-10-02) ---------
+
+
+def _spy_origin_work(monkeypatch):
+    """Count what building an origin does: the builder itself, and chunk-message reads **made by
+    the builder**. (The correction path also reads those messages, on every turn, so a bare
+    count of reads would not isolate the origin's.)"""
+    import traceback
+
+    calls = {"chunk_read_by_origin": 0, "built": 0}
+    real_read, real_build = turn.db.get_messages_in_chunks, turn._build_origin
+
+    def read(chunk_ids):
+        if any(frame.name == "_build_origin" for frame in traceback.extract_stack()):
+            calls["chunk_read_by_origin"] += 1
+        return real_read(chunk_ids)
+
+    def build(*a, **k):
+        calls["built"] += 1
+        return real_build(*a, **k)
+
+    monkeypatch.setattr(turn.db, "get_messages_in_chunks", read)
+    monkeypatch.setattr(turn, "_build_origin", build)
+    return calls
+
+
+def test_a_turn_whose_tools_none_declare_origin_does_none_of_the_work(turn_world, monkeypatch):
+    """Notes dark: nothing offered takes origin, so the origin never reads the messages behind
+    the retrieved chunk and none is built. (Retrieval does return a chunk, so a read would show.)"""
+    calls = _spy_origin_work(monkeypatch)
+
+    run_turn_with(turn_world, monkeypatch, [[tool_call("probe_plain")]], [plain_tool([])])
+
+    assert calls == {"chunk_read_by_origin": 0, "built": 0}
+
+
+def test_the_default_registry_is_checked_when_none_is_passed(turn_world, monkeypatch):
+    """`handle_user_message(registry=None)` runs on the default registry, as the loop does. With
+    one that declares origin the origin is built and reaches the tool; with the real default
+    (nothing declares it today) it is not."""
+    from program.tools import registry as registry_module
+
+    assert not any(t.takes_origin for t in registry_module.default_registry()), (
+        "a tool in the default catalogue declares origin; Notes is meant to be dark")
+    calls = _spy_origin_work(monkeypatch)
+    sent = []
+    scripted(monkeypatch, [], sent)
+    conversation = db.start_conversation(turn_world.actor.user_id)
+    turn.handle_user_message(turn_world.actor, "Plain turn on the real default registry.",
+                             conversation, situation="")
+    assert calls == {"chunk_read_by_origin": 0, "built": 0}
+
+    got = []
+    declaring = ToolRegistry([origin_tool(got)])
+    monkeypatch.setattr(registry_module, "default_registry", lambda: declaring)
+    scripted(monkeypatch, [[tool_call("probe_ctx")]], [])
+    turn.handle_user_message(turn_world.actor, "Now with a default that declares it.",
+                             conversation, situation="")
+
+    assert calls["built"] == 1 and calls["chunk_read_by_origin"] == 1
+    assert got[0][0].conversation_id == conversation

@@ -3103,6 +3103,34 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   would skip `chunks_fts_delete` and leave the index pointing at a row that is gone, and **the
   archive has no triggers at all** (`archive.sql`), so its append-only rule is a convention a
   `REPLACE INTO messages` would break silently. Reported, not changed; closing it is a schema review.
+- `[built]` **Notes piece 2: `OriginContext`** (2026-10-02, Tier 2, diff-reviewed and approved;
+  `docs/NOTES_BUILD_PLAN.md`, N3 option (b)). **No tool takes origin yet; nothing is offered to the
+  model.** `program/origin.py` holds a frozen `OriginContext(conversation_id, user_message_id,
+  context_message_ids, call_id)` with no user, role or permission, so it is neither an `Actor` nor an
+  `AttributionContext` (whose single field is untouched, asserted). Attribution's four guards, each
+  proven to bite:
+  - **declared**: `Tool.takes_origin`; `dispatch(origin=)` hands it only to a declaring tool, and a
+    declaring tool with no origin raises `ToolError`;
+  - **never model-settable**: `origin` in a declaring tool's `parameters` is refused, a
+    model-supplied `origin` argument is refused (`INVALID_ARGUMENTS`) and the handler does not run,
+    and the schema the model sees never mentions it;
+  - **never in the recorded arguments or the trace**; `dispatch` fills `call_id` into a copy and the
+    caller's object is unchanged;
+  - **the loop passes it through unread**, checked on the code (no attribute of it is read in
+    `loop.py`).
+  `turn.py` builds it **only when a tool this turn offers declares `takes_origin`** (the registry in
+  use, or the default when none is passed, as the loop resolves it), so a turn with Notes dark builds
+  nothing. A turn already reads the messages behind the retrieved chunks for the correction
+  candidates, so a test isolates the origin's own read by call stack and asserts it never happens
+  when no tool declares it. `context_message_ids` is the conversation's messages plus the messages
+  behind the **passive** retrieval's chunks, built before the loop runs, so **it does not include what
+  a `memory_search` call surfaces during the turn** (a gap pinned by a test, in N18). A failure
+  reading those messages degrades to the conversation's alone, with a warning.
+  **The existing tools and turns are byte-identical**: a digest over three real turns (every model
+  call, the stored traces, every gate prompt, handler keyword names) was taken on the HEAD production
+  files before any edit and is unchanged after, `e5c92a42…806762`; its first pin changed hourly (a
+  minute-granular time in the correction prompt) and was re-taken. 20 tests in `tests/test_origin.py`;
+  every guard and the builder mutated and killed.
 - `[unverified]` **No guard on a `notes` row's text while it is active** (direct SQL can edit it);
   the design puts that discipline in the tools and `scripts.note`, which do not exist yet.
 

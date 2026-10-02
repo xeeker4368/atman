@@ -176,7 +176,9 @@ six external tools and the per-turn flag stored in `untrusted_context`, and the 
 - **Quote resolution, each proven to bite:** too short; no match (refused, so a fabricated
   quote cannot enter a proposal); ambiguous across different texts; identical duplicates
   (same user accepted with the count, **different users refused**); context tier preferred
-  over the store; normalisation (whitespace, curly quotes, case) and nothing looser.
+  over the store; normalisation (whitespace, curly quotes, case) and nothing looser; and
+  **(N4 amendment, 2026-10-02) a quote that appears only in the entity's own earlier reply is
+  refused as "not a person's words"**, with a test that the same words said by a person resolve.
 - **The result text** says pending and never claims a note exists (pinned verbatim); the
   **empty-search sentence is one constant**, imported by the tool and, in piece 4, by the
   misses report. Rewording it in one place fails the other's test.
@@ -205,7 +207,8 @@ the section at the end of this document.)
 
 **Builds.** `python -m scripts.note`: `add`, `revise`, `retire` (operator, immediate,
 `origin = operator`, logged); `review` (lists pending proposals with origin, the trigger
-message verbatim, every evidence message verbatim with its tier, the diff for a revise, the
+message verbatim, every evidence message verbatim with its tier **and its speaker (N4
+amendment, 2026-10-02)**, the diff for a revise, the
 gate verdict and, **first**, any untrusted-context flag) with `approve`, `edit`, `reject`;
 `misses`; `check`; `reindex`. Every decision writes `approval_log` **in the same transaction**
 as the note change and the status flip.
@@ -338,6 +341,12 @@ run at a time**.
 
 **Review it needs: a stop, and the decision is Lyle's.** Piece 8 ends with a report, not
 with `notes.enabled` switched on. Enabling is a separate, deliberate, logged act.
+
+**Enabling checklist** (read before `notes.enabled` is switched on):
+- **The real store is at schema version 6** (read-only `MAX(version)` on `data/working.db`,
+  2026-10-02), **so its first startup applies migrations 7 and 8**, and migration 8 has never run
+  on real data. Check `SELECT MAX(version) FROM schema_version` before and after, and read the
+  Notes objects back (`scripts.note check`, once it exists).
 
 ---
 

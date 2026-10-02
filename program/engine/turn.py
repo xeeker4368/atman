@@ -113,6 +113,7 @@ from program.memory import db, retrieval
 from program.memory.retrieval import RetrievalResult
 from program.origin import OriginContext
 from program.settings.permissions import Actor
+from program.tools import registry as tool_registry
 from program.tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
@@ -345,6 +346,17 @@ def _unless_person_took_it(
     return None
 
 
+def _offers_a_tool_that_takes_origin(registry: ToolRegistry | None) -> bool:
+    """Whether any tool this turn will offer declares ``takes_origin``.
+
+    Resolves the registry exactly as the loop does: the one passed in, or **the default when none
+    is** (``loop.run_turn`` does the same). With Notes dark nothing declares it, so the origin is
+    never built and a turn does none of its work: no read of the messages behind retrieved chunks.
+    """
+    active = registry if registry is not None else tool_registry.default_registry()
+    return any(tool.takes_origin for tool in active)
+
+
 def _build_origin(
     conversation_id: str,
     user_message_id: str,
@@ -451,9 +463,13 @@ def handle_user_message(
         # actor's role is deliberately not carried across (see
         # `program/attribution.py`), so nothing downstream can gate on it.
         attribution=AttributionContext(user_id=actor.user_id),
-        # Which exchange this is, for a tool that declares it takes origin. Passed through the
-        # loop unread; it reaches no tool built before Notes.
-        origin=_build_origin(conversation_id, user_message_id, history, retrieved),
+        # Which exchange this is, for a tool that declares it takes origin. Built only when a
+        # tool this turn offers declares it, so a turn with Notes dark does none of that work.
+        # Passed through the loop unread; it reaches no tool built before Notes.
+        origin=(
+            _build_origin(conversation_id, user_message_id, history, retrieved)
+            if _offers_a_tool_that_takes_origin(registry) else None
+        ),
     )
 
     if not result.text.strip():

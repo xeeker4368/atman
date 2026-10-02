@@ -174,6 +174,16 @@ So, in this order:
    exception applied. The review command prints each evidence message verbatim with
    its tier, so a quote found only outside the turn's context is visible as such.
 
+**Amendment, 2026-10-02 (N17 #23): quote evidence resolves only against `role = 'user'`
+messages in v1.** A quote is matched in every tier (context, then store) **only among messages a
+person wrote**. A quote that appears only in the entity's own earlier reply is refused: *"that
+quote is not a person's words; a note's evidence has to be something a person said"*. The reason:
+a note is a reviewed statement about a person, topic or project, and the entity's own earlier
+reply is its claim, not evidence for it (a note resting on the entity's reply would let the entity
+cite itself). The tier and uniqueness rules above are unchanged, applied to user messages only, and
+the stored evidence therefore always points at a person's message. **The review command prints the
+speaker of each quote** (the message's user), beside its tier and verbatim text.
+
 **Why not record every match** (revision 1 did): a short quote's matches are mostly
 unrelated, and a reviewer shown twelve messages for one quote learns nothing about
 which one the entity meant.
@@ -643,6 +653,9 @@ not an afterthought.
     hold in the schema as well as in code (N13; revision 4).
 22. **Whether to rename the `applied` status to `applied_without_review`** to match its
     log row (N13; revision 4).
+23. **Quote evidence resolves only against `role = 'user'` messages in v1** (N4, amendment of
+    2026-10-02): a quote of the entity's own earlier reply is refused as *"not a person's
+    words"*, and the review command prints the speaker of each quote.
 
 ## N18 — Known gaps
 

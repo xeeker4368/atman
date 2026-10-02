@@ -403,6 +403,30 @@ past older history is logged and marked in the trace.
   - (4) the reproduction scenarios become regression tests asserting the user's message is
     present on every call.
 
+**B22 — `archive.db` has no triggers, so its append-only rule is convention** (filed 2026-10-02,
+found by the REPLACE audit during Notes piece 1; **Tier 3, not built**). `schema/archive.sql`
+declares two tables and no trigger: nothing in the schema stops an `UPDATE`, `DELETE` or
+`INSERT OR REPLACE` of a message, and `PROJECT.md`'s *"provenance is sacred"* rests on code
+discipline alone. Today's code writes the archive only through `db.save_message` (an `INSERT`), and
+`grep -rnE "OR REPLACE|REPLACE INTO|ON CONFLICT" program scripts ops` finds nothing aimed at it
+(`BUILT.md`, the REPLACE latent gap). Two facts shape any fix:
+- **Migrations cannot reach it.** `migrations.py` runs against `working.db` only, by design (*"the
+  archive is never migrated"*; its shape is frozen). So a guard on the archive needs another
+  mechanism. One candidate, **not decided**: `init_databases()` already re-runs `archive.sql` on
+  every startup (idempotent `CREATE ... IF NOT EXISTS`), so a `CREATE TRIGGER IF NOT EXISTS` there
+  would reach existing archives. That adds no column or table, but it edits a file marked frozen,
+  so it needs its own review, and **a startup check that the expected triggers exist** would be the
+  safer half (a trigger that silently fails to install is the unmounted-gate shape).
+- **The same applies to `working.db`'s `messages` copy** (`save_message` writes both stores), which
+  carries no guard either.
+**What backup and restore would need.** Backup copies the archive with SQLite's online backup API,
+which carries triggers with the file, so a backup of a guarded archive is guarded. **Restore is
+Tier 3 and not built**, and when it is it must (1) **verify the restored archive's triggers against
+the expected set** before the database is used (a restore from an old backup, taken before the
+guards existed, would otherwise bring back an unguarded archive that looks fine), (2) refuse or
+repair when they differ, and (3) restore the two databases as one consistent pair (the dual-write
+atomicity guarantee). Neither is designed here.
+
 **Journal: "held, not yet read" and "read and declined" look the same — KNOWN GAP,
 deferred to Phase 6** (decided at review 2026-10-01; `docs/REFLECTION_JOURNAL_DESIGN.md`
 J7). Index-after-reading is approved: a journal entry enters memory only on an explicit
