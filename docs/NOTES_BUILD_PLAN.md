@@ -5,6 +5,27 @@
 pieces in build order. Tier 3 (the design's own tiering). **One stop per piece**: each piece
 ends in a review, and the next does not start until it is committed.
 
+## Rulings of 2026-10-02 (applied below)
+
+1. **The `BEFORE INSERT` trigger is approved** (non-pending inserts refused). It is no longer a
+   question for the piece-1 review.
+2. **`notes.enabled` is a bootstrap setting needing a restart, like `moltbook.enabled`**
+   (config file or `ANAM_NOTES_ENABLED`). **Only `approval_required` is settings-backed.** The
+   registry-cache problem the first draft raised for piece 6 therefore does not arise. A
+   consequence, recorded so it is not rediscovered: enabling is a file edit, **not an event the
+   approval log can see**; the record of when Notes was switched on is the piece-8 result and
+   the changelog.
+3. **The `reason` column is dropped** from `note_proposals`. A reviewer's reason lives in
+   `approval_log.detail`. (`NOTES_DESIGN.md` N13 is updated to match.)
+4. **The handler validates enum values and array items itself**, refusing with `TOOL_ERROR`
+   (not `INVALID_ARGUMENTS`), **with one test per refusal**: a bad `action`, a bad
+   `subject_kind`, a non-string quote, and an empty quotes list for an entity proposal.
+5. **At piece 4, the derived message cap is reported with Notes' tools added**: `chat.max_message_chars`
+   recomputed by B6a's derivation with B20's full-catalogue schema term over the catalogue
+   including `note_search` and `note_propose`, beside today's 52,360 characters and the configured
+   50,000, stating whether 50,000 still fits and the headroom left.
+6. **Piece 1 does not start until Lyle has read this plan.**
+
 **Preconditions, both checked rather than assumed:**
 - **B20 is committed**, so the ordering N12 makes a hard rule holds. (Lyle, 2026-10-01.)
 - **Nothing in this plan starts until journal step 3 is committed.** It touches `db.py`,
@@ -24,9 +45,9 @@ including auto-apply.** So the `status` trigger needs **no insert exception**: i
 *"an update of `status` is refused unless the old value is `pending`"* with nothing
 carved out for a row that was born decided. A second trigger, `BEFORE INSERT … WHEN
 NEW.status <> 'pending'`, refuses any insert that tries to skip the step. Both ship
-in piece 1 and are proven there. *(The second trigger goes beyond the approved text, which
-names only the update trigger. It is the other half of the same rule, and it is **flagged for
-the piece-1 review rather than assumed**.)*
+in piece 1 and are proven there. *(The second trigger goes beyond revision 4's text, which
+names only the update trigger. It is the other half of the same rule, and is **approved**,
+ruling 1 of 2026-10-02.)*
 
 ## Order
 
@@ -55,7 +76,7 @@ changelog entry, and `ruff` clean. **No piece commits.**
 **Builds.** Three tables and the FTS index in one migration, run through `_execute_script`
 inside the runner's transaction (B3): `notes`, `note_proposals`, `approval_log`,
 `notes_fts` (external content over `notes(subject, text)`), exactly the shapes of N13 with
-the renamed status. **Nothing in `working.sql`.** Triggers:
+the renamed status and **without a `reason` column** (ruling 3). **Nothing in `working.sql`.** Triggers:
 - `notes_fts` in step with `notes`: insert of an active row; the status change away from
   `active` (deletes from the index); an update of `subject` or `text` on an active row
   (delete and re-insert);
@@ -77,11 +98,10 @@ the renamed status. **Nothing in `working.sql`.** Triggers:
 
 **Review it needs: yes, a stop** (database schema). The review reads the SQL. **Questions
 for that review, so they are not decided silently:**
-1. The `BEFORE INSERT` trigger above (beyond the approved text).
-2. Whether `approval_log` gets `BEFORE UPDATE` and `BEFORE DELETE` triggers so its
+1. Whether `approval_log` gets `BEFORE UPDATE` and `BEFORE DELETE` triggers so its
    append-only property is in the schema too. N10 says "append-only in code"; this would
    match what #21 does for statuses. Proposed: yes, for the same reason.
-3. Whether a decided proposal's *other* columns are also frozen (`BEFORE UPDATE` on any
+2. Whether a decided proposal's *other* columns are also frozen (`BEFORE UPDATE` on any
    column once `status <> 'pending'`), which is stricter than the approved `OF status`.
    Default: only what was approved.
 
@@ -121,7 +141,8 @@ six external tools and the per-turn flag stored in `untrusted_context`, and the 
   terminal status from the tool. Auto-apply arrives in piece 6.
 - `note_propose` runs `gate.check_identity` on the text and stores the verdict on the row
   (flag-only, N7). It declares `takes_attribution` and `takes_origin`.
-- **`notes.enabled = false`**, so `default_registry()` does not offer either tool.
+- **`notes.enabled = false`**, a bootstrap setting read from config (restart to change, like
+  `moltbook.enabled`; ruling 2), so `default_registry()` does not offer either tool.
 - **Dependency, stated:** until piece 5, `note_propose` returns no record in the trace's
   generalised form, so a receipt for it would read `unknown`. That cannot reach a person,
   because the tool is never offered. It is also why piece 5 precedes any enabling.
@@ -143,6 +164,10 @@ six external tools and the per-turn flag stored in `untrusted_context`, and the 
   **empty-search sentence is one constant**, imported by the tool and, in piece 4, by the
   misses report. Rewording it in one place fails the other's test.
 - **Evidence never resolves to a tool result**, only to messages (N7).
+- **Handler-side validation, one test per refusal (ruling 4):** a bad `action`, a bad
+  `subject_kind`, a non-string quote, and an empty `quotes` list on an entity proposal each
+  return `TOOL_ERROR` naming the problem, and each is proven to bite. (`registry`'s validator
+  checks neither enum values nor array items, so nothing upstream does this.)
 - **A tool-schema check:** neither tool takes `actor`, `role` or `user`.
 
 **Review it needs: a stop** (provenance of a new kind of record; two tool descriptions the
@@ -184,6 +209,12 @@ as the note change and the status flip.
   `note_search` has never run.
 
 **Measured:**
+- **The derived message cap with Notes' tools added (ruling 5):** recompute B6a's
+  `chat.max_message_chars` derivation with B20's full-catalogue schema term over the catalogue
+  that now includes `note_search` and `note_propose` (11 tools), and report the derived
+  figure beside today's 52,360 and the configured 50,000, whether 50,000 still fits, and the
+  headroom left. If it no longer fits, that is reported, and lowering the cap is a review
+  question, not an edit made in passing.
 - **Atomicity:** force the log insert to fail and assert the note and the proposal are
   untouched (every command). Each guard proven to bite.
 - **FTS drift:** `check` detects a deliberately drifted index; `reindex` repairs it.
@@ -228,19 +259,17 @@ isolation proof is what shows the gate did not move.
 
 ## Piece 6 — The approval toggle and log, and auto-apply
 
-**Builds.** `notes.approval_required` (default **true**, fail closed) and `notes.enabled`
-(default **false**) as **settings-backed** values, with the TOML value only a seed, and
+**Builds.** `notes.approval_required` (default **true**, fail closed) as a **settings-backed** value, with
+the TOML value only a seed (`notes.enabled`, default **false**, stays bootstrap), and
 **the operator command the only writer** (`scripts.note approval on|off`), which writes the
 setting and an `approval_required_on` or `approval_required_off` log row **in one transaction**. Auto-apply: with
 `approval_required` off a proposal is inserted `pending`, and **in the same transaction** the
 note is written, the proposal flips to `applied_without_review`, and an
 `applied_without_review` log row is written; if the log row cannot be written, **nothing**
 changes. The receipt reads `active`, and `review` lists auto-applied proposals separately.
-- **A thing to resolve in this piece's design, found now:** `BUILT.md` records that
-  `default_registry()` caches, so a settings-backed `enabled` could not be flipped at
-  runtime, against decision #8. This piece must either evaluate `Tool.enabled` at offer time
-  or reset the registry on the write, and **says which, with a test that a live flip
-  changes what the next turn is offered**. Not decided here.
+- **`notes.enabled` is not settings-backed** (ruling 2), so the registry-cache question the
+  first draft raised does not apply: a restart picks up a changed value. Only `approval_required`
+  is read through `store.resolve`, so only it takes effect live.
 
 **Measured:**
 - forced log-insert failure leaves the note, the proposal and the setting untouched;
@@ -350,11 +379,8 @@ message"* is said by the refusal, N4 step 2). The enums stay.
   refusals (a too-short quote, an unknown `note_id`). That is a trade the model's behaviour
   decides, and piece 3 measures a handful of real `note_propose` calls to see whether the
   refusal rate is acceptable before the wording is final.
-- **`registry._validate_arguments` checks neither enum values nor array items** (its own
-  docstring says so). The handler must reject a bad `action`, a bad `subject_kind` and a
-  non-string quote itself, as `INVALID_ARGUMENTS`, with a test each.
-- **`note_proposals.reason` (N13) has no parameter in this draft.** If the entity should
-  supply one it costs roughly 15 tokens; if it is the reviewer's, it needs no parameter.
-  A question for the piece-1 review, because it is a column.
+- **Validation moves into the handler** (ruling 4); see piece 3.
+- **No `reason` parameter**, as the column is dropped (ruling 3), which also removes the
+  roughly 15 tokens it would have cost.
 - **B20's headroom test** gets the catalogue's new total (nine tools plus these two: about
   1,350 tokens), and must still pass.

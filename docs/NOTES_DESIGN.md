@@ -467,7 +467,7 @@ the runner's transaction (B3). **Nothing in `working.sql`.**
 
     note_proposals   id, action CHECK(add|revise|retire),
                      target_note_id NULL REFERENCES notes(id),
-                     subject_kind, subject, subject_user_id NULL, text NULL, reason NULL,
+                     subject_kind, subject, subject_user_id NULL, text NULL,
                      evidence (JSON, NOT NULL for entity proposals: per quote,
                                {quote, message_id, tier, identical_count}),
                      conversation_id, user_message_id, call_id NULL,
@@ -482,6 +482,8 @@ the runner's transaction (B3). **Nothing in `working.sql`.**
 
     notes_fts        FTS5 over notes(subject, text), external content, kept in step
                      by triggers that index only status = 'active' rows
+
+*(2026-10-02: the `reason` column is dropped from `note_proposals`; a reviewer's reason lives in `approval_log.detail`. `notes.enabled` is a bootstrap setting, as `moltbook.enabled` is. See `docs/NOTES_BUILD_PLAN.md`.)*
 
 **FTS5 consistency (revision 3).** `notes_fts` is derived, so it can drift from
 `notes` (a trigger bug, a hand edit), and a drift means a search that misses an active
