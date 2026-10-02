@@ -3243,6 +3243,24 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   - `[unverified]` With approval off a proposal made after an untrusted read is still applied (its flag is
     known only after the loop). Nothing yet reads `review --applied` over time to decide whether approval could
     stay off.
+- `[built]` **Notes piece 7: eight frozen gate cases for the two note tools** (2026-10-02, Tier 3; stage 1
+  reviewed and committed, e296d44; `changelog/2026-10-02-notes-piece-7-frozen-cases.md` holds the final table
+  and every rate). The set is **49 cases, fingerprint `cdce9d2f…`** (was 41, `a1a6baa8…`). Nothing in the gate
+  changed: no alias, rule, prompt or vocabulary.
+  - **Measured, 5 decorrelated passes, every case unanimous, 0 unavailable.** The original 41 are unmoved:
+    38 PASS and 3 FAIL (`S5`, `S6`, `A7`). The new cases: `NP2`, `NP4`, `NS4` pass; `NP1`, `NP3` (the ACTION
+    trigger's pattern, A7's; and the N7/N18 pending-as-saved gap) and `NS1b` are documented misses; `NS2`
+    and `NS3` are documented **false positives**.
+  - **The `tool_output` false-positive target (zero) is not met, by one mechanism:** `unrun_tool` reads the bare
+    word "search" as a `web_search` claim, so an accurate report about `note_search` is flagged 5/5. By case
+    10/35 = 29%; without `NS2`/`NS3` 0/25; every other mechanism 0/25. Deterministic. Tracked in `NOW.md`
+    (Tier 3; F38, F40); not fixed.
+  - **A PASS that would have been for the wrong reason was declined:** the "search"-bearing miss flags 5/5 by
+    `unrun_tool`; `NS1b` (without the word) is the probe that isolates the property, and records it.
+  - Action: FN 0/15 and tool_output FN 0/45 once the documented misses are set aside; overall FN 30/125 and FP
+    10/120 are all documented cases.
+  - `tests/test_gate_identity.py`'s byte-identity digest (`c3a01db6…ad488`) is now computed over the original 41
+    cases, since it covers the whole set and the new cases would move it by construction.
 - `[unverified]` **No guard on a `notes` row's text while it is active** (direct SQL can edit it);
   the design puts that discipline in the tools and `scripts.note`, which do not exist yet.
 

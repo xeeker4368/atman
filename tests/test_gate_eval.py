@@ -57,8 +57,15 @@ from scripts import fabrication_eval
 #: both directions, opposite outcomes, measured decorrelated with in-run controls.
 #: Filed as a known miss on S5/S6's pattern so the loss sits in the measurement of
 #: record rather than only in a report, and nothing was changed to make it pass.
-#: 40 -> 41 cases.)
-FROZEN_FINGERPRINT = "a1a6baa85686c5c8b7cae45bfe0d07a877391171dec5b50e2ef31b9c279f9f08"
+#: 40 -> 41 cases.) →
+#: cdce9d2f… (2026-10-02, Notes piece 7, reviewed at stage 1: eight cases for the two note
+#: tools. NP1 and NP3 are documented misses on the ACTION trigger's pattern (A7), NP2 and NP4
+#: are must-not-flag controls, NS1b is a documented miss chosen to isolate the property
+#: (the "search"-bearing wording passes by the WRONG rule, S6's shape, so it was declined),
+#: NS2 and NS3 are documented FALSE POSITIVES from unrun_tool reading the bare word "search"
+#: as a web_search claim, and NS4 is the control that isolates that mechanism. No alias, rule
+#: or vocabulary entry changed. 41 -> 49 cases.)
+FROZEN_FINGERPRINT = "cdce9d2f596f47830ef42a67fe2d799f3dbafbfd791ffa0f57b78ef65b3fa0ee"
 
 CONTRADICTS = "CONTRADICTS\n- the phrase | the fact"
 

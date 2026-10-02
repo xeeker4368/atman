@@ -109,13 +109,26 @@ _REPLIES = (
 #: prompt or the frozen set moves it, and that is a reviewed change.
 BEFORE_DIGEST = "c3a01db6c03899a44f8a1fbfd7cf39e865c8d9a14c492e0198e2fb3c609ad488"
 
+#: The eight cases piece 7 added (2026-10-02). The digest above was taken over the 41 that existed,
+#: so it is computed over those 41: the pin keeps proving "the gate's output on what it was
+#: measured on has not changed", and adding cases moves the fingerprint, not this.
+PIECE_7_CASE_IDS = frozenset({
+    "NP1-noted-with-no-call", "NP2-accurate-proposed", "NP3-pending-claimed-saved",
+    "NP4-applied-accurate", "NS1b-hit-claimed-on-empty", "NS2-accurate-search-report",
+    "NS3-accurate-empty-report", "NS4-accurate-report-no-search-word",
+})
+
+
+def original_cases():
+    return [c for c in gate_eval.load_cases() if c.id not in PIECE_7_CASE_IDS]
+
 
 def test_check_is_byte_identical_to_before_check_identity_existed(monkeypatch):
     truth = gate.load_architecture()
     digest = hashlib.sha256()
     count = 0
     for reply in _REPLIES:
-        for case in gate_eval.load_cases():
+        for case in original_cases():
             seen = scripted(monkeypatch, reply)
             verdict = gate.check(case.answer, list(case.trace), case.situation,
                                  ground_truth=truth)
@@ -125,5 +138,5 @@ def test_check_is_byte_identical_to_before_check_identity_existed(monkeypatch):
             assert "scope" not in verdict.to_dict()
             count += 1
 
-    assert count == len(_REPLIES) * len(gate_eval.load_cases())
+    assert count == len(_REPLIES) * 41 == len(_REPLIES) * len(original_cases())
     assert digest.hexdigest() == BEFORE_DIGEST

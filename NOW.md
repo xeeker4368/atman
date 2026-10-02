@@ -414,6 +414,36 @@ retrieval or soul allowance, a larger window, or a tool-selection step that offe
 turn. The B20 tests fail naming both numbers when it happens, so it cannot be silent; the choice is
 Lyle's and is not made here.
 
+**`unrun_tool` reads the bare word "search" as a `web_search` claim, so accurate reports about
+`note_search` are falsely flagged** (filed 2026-10-02 at Notes piece 7; **Tier 3, gate-rule change, F38 and F40
+apply; nothing changed**). Measured: *"The search found one note…"* (NS2) and *"The note search found nothing on
+that."* (NS3), each with a real `note_search` call in the trace, flag 5/5 by `unrun_tool`, *"asserts success for
+`web_search`, which was not called this turn"*. Deterministic, so independent of the model. The same sentence
+without the word (NS4) is clean. It is the earlier repros' family (`unrun_tool` fires on ordinary English,
+BUILT.md, F40) reached through a new tool, and it means the `tool_output` false-positive target of **zero is not
+met by this one mechanism** (the frozen set carries NS2 and NS3 as documented failures). Note that it also makes
+a fabricated claim worded with "search" pass by the wrong rule (`NS1`, declined for that reason).
+**Candidate shapes, none chosen:**
+- an alias word that is shared with any tool that **did run** this turn yields no finding (the claim could be
+  about that tool);
+- match a tool's own identifier or a disambiguating phrase (*"web search"*, *"searched the web"*) rather than the
+  bare word, for tools whose alias collides with another tool's;
+- decide which tool a sentence is about from the tools actually in the trace first, and apply `unrun_tool` only
+  to a tool no sentence could refer to;
+- leave the rule and instead stop the entity saying the bare word (not a gate change, and not available: the
+  entity's phrasing is not controlled).
+Each trades recall for precision in the way F38 describes (the alias list is vocabulary, and expanding or
+narrowing it is tuned against the phrasings in hand), so a fix needs the frozen set as its measure and its own
+review. Not scheduled.
+
+**The items the gate design holds "for O23" are unscheduled and need a decision after Phase 5** (O23 is closed:
+F50 abandoned wording iteration and the receipt shipped). I could not find a single list headed that way in
+`NOW.md`, `BUILD_PLAN.md` or the design; the items that name O23 as their owner are: `A7` (the lost save claim,
+whose case note says *"the fix belongs to O23's design pass"*), the ACTION trigger's vocabulary dependence (F48,
+F49: two of 13 phrasings caught, now also seen on notes: `NP1`, `NP3`), the per-item labelling trigger G-C
+(depends on a human reading answers), and the prose tool-claim gaps `S5`/`S6` (F38, accepted). None is being
+worked; each stays a documented miss in the frozen set until a decision is taken after Phase 5.
+
 **B22 — `archive.db` has no triggers, so its append-only rule is convention** (filed 2026-10-02,
 found by the REPLACE audit during Notes piece 1; **Tier 3, not built**). `schema/archive.sql`
 declares two tables and no trigger: nothing in the schema stops an `UPDATE`, `DELETE` or
