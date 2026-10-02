@@ -66,6 +66,13 @@ implementation feels:
 - The fabrication gate and the correction/supersession classifier (design
   and eval harness — not each individual runtime classification call)
 - Go-live reset and database wipe tooling
+- **Notes** (`docs/NOTES_BUILD_PLAN.md`), each Tier 3 piece, one stop per piece: migration 8
+  and its triggers (database schema); the two tools' descriptions, quote resolution and
+  provenance of a new kind of record; `scripts.note`, which is the only human control on what a
+  note may say; the receipt and trace-key generalisation (gate-adjacent); the approval toggle,
+  approval log and auto-apply (authorization semantics); the frozen gate cases and fingerprint
+  move; and the CO15 composition test and pending-claim measurement (ship gates). `OriginContext`
+  (piece 2) is Tier 2 and needs diff review only.
 
 This list is kept in sync with BUILD_PLAN.md's Tier 3 tasks. If a task is
 Tier 3 there, it belongs here — if you add a Tier 3 task without adding it

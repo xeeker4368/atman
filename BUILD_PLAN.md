@@ -250,8 +250,23 @@ build from here rather than assuming the plan continues in one sitting.
 | Periodic mining job: scans recent conversations **across all users, including Jodie's** (decision #3, #17), proposes candidates | 1 | Sonnet |
 | Propose-vs-execute authorization: proposing never gates; executing checks `allow_*` **unless** a human is directly driving the action (decision #4) | **2** | Sonnet |
 | Reflection journal (daily cycle). Design of record `docs/REFLECTION_JOURNAL_DESIGN.md`; its provenance, prompt, migration 7 and gate entry point are Tier 3 review items inside it | 1 | Sonnet |
+| **Notes** (proposed by the entity, approved by a person, recalled on demand). Design of record `docs/NOTES_DESIGN.md` (revision 4, approved 2026-10-01); **build plan `docs/NOTES_BUILD_PLAN.md`**, one stop per piece, shipped dark (`notes.enabled = false`) until its two ship gates pass. Pieces below | see rows | |
+| Notes 1: migration 8 (`notes`, `note_proposals`, `approval_log`, `notes_fts`, status/append-only/freeze triggers) with its forced-failure test | **3** | Opus |
+| Notes 2: `OriginContext` (declared, never model-settable, never in the trace) | 2 | Sonnet |
+| Notes 3: `note_search` and `note_propose` (quote resolution, caps, untrusted-output flag, tool descriptions, schema-token budget) | **3** | Sonnet |
+| Notes 4: `scripts.note` (operator add/revise/retire, review/approve/edit/reject, misses, check, reindex); the real-trace `tool_trace` pin; a note-shaped `check_identity` dev pass; the derived message cap with Notes' tools | **3** | Sonnet |
+| Notes 5: receipt generalisation to `(kind, id)` with O23's isolation proof re-run | **3** | Sonnet |
+| Notes 6: approval toggle (`notes.approval_required`, settings-backed), approval log writes, auto-apply in one transaction | **3** | Sonnet |
+| Notes 7: frozen gate cases for `note_propose` and `note_search`; fingerprint moves | **3** | Sonnet |
+| Notes 8: ship gates: the CO15 composition test (including real replies) and the pending-claim measurement; the result goes to Lyle to decide | **3** | Sonnet |
 | Source trace collection + ingestion blocklist for trace files | 1 | Sonnet |
 | Read-only Moltbook tools: browse, search, one post, one agent's profile and recent posts (no posts-by-author endpoint exists). **Moved here from Phase 8 at review 2026-09-30.** Design of record `docs/MOLTBOOK_READ_DESIGN.md`. The personalised feed is left out pending M0 (the account's identity) | 1 | Sonnet |
+
+**Sequencing (2026-10-02): Notes comes before the self-observation layer.** Notes is separate
+from self-observation by design (`NOTES_DESIGN.md` N0: a note is never about the entity), and
+**no self-observation task exists in this plan yet**; none is added here. When one is designed it
+is sequenced after Notes, and anything it needs from Notes (the approval log, the receipt
+generalisation) is built by Notes' pieces 5 and 6 first.
 
 **Gate:** run one real manual research task end-to-end; confirm a
 self-flagged and a mined candidate both land in the same review surface

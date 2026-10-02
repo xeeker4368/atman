@@ -667,6 +667,11 @@ not an afterthought.
   through a revise proposal the entity has to think to make, a milder form of
   J10's gap.
 - **Schema tokens were measured on the drafted schemas** (N12). The built wording will differ, so they are re-measured in the build task.
+- **`context_message_ids` does not include chunks `memory_search` surfaced earlier in the same
+  turn** (2026-10-02, `docs/NOTES_BUILD_PLAN.md`). `turn.py` builds the origin before the loop
+  runs, so it holds the conversation's messages and the passive retrieval's only. A quote from a
+  message found by an in-turn search resolves in the store tier, under the whole-store uniqueness
+  rule, and can be refused as ambiguous where the context tier would have accepted it.
 - **Autonomous proposals have no origin shape** yet (N14).
 - **The untrusted flag is per turn, not per claim.** A proposal in a turn that also
   read a web page is flagged even when its evidence is wholly from the person. That

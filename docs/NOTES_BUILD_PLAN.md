@@ -24,7 +24,24 @@ ends in a review, and the next does not start until it is committed.
    recomputed by B6a's derivation with B20's full-catalogue schema term over the catalogue
    including `note_search` and `note_propose`, beside today's 52,360 characters and the configured
    50,000, stating whether 50,000 still fits and the headroom left.
-6. **Piece 1 does not start until Lyle has read this plan.**
+6. **Reviewed 2026-10-02: piece 1 may start.** At that review, three piece-1 questions were
+   answered **yes**: `approval_log` gets append-only triggers (`BEFORE UPDATE` and `BEFORE
+   DELETE` raise), and **every column of a decided proposal is frozen** (`BEFORE UPDATE` on
+   `note_proposals` raises once `status <> 'pending'`, which also holds revision 4's
+   `OF status` rule). Piece 1 is built to that.
+
+**Does `OriginContext.context_message_ids` include the chunks `memory_search` surfaced earlier
+in the same turn? No (stated 2026-10-02, checked against `turn.py`).** `turn.py` runs the passive
+retrieval (`_retrieve(content)`) and then calls the loop, handing it the attribution and, in
+piece 2, the origin, **before** any tool runs. So `context_message_ids` can hold the
+conversation's messages and the messages behind the **passive** retrieval only. A message a
+`memory_search` call returned mid-turn is not in it. Consequence: a quote taken from such a
+message is not matched in the preferred "context" tier; it falls through to the store tier, where
+the whole-store uniqueness rule applies, so a short or repeated quote that would have resolved
+inside the context can be refused as ambiguous. It still resolves when it is unique in the store,
+and its tier is recorded as `store`, so the reviewer sees it. **Recorded as a gap in N18.**
+Closing it would mean the handler also reading this turn's earlier tool results, which the
+design does not do; it is not decided here.
 
 **Preconditions, both checked rather than assumed:**
 - **B20 is committed**, so the ordering N12 makes a hard rule holds. (Lyle, 2026-10-01.)
