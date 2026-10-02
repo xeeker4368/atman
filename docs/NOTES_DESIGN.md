@@ -325,6 +325,10 @@ artifact, so the receipt must learn a second kind of record.
   - Each kind states its outcome from its own row: an artifact is `saved`; a
     proposal is **`proposed`**, rendered *"proposed, awaiting approval"*, or
     `approved` / `rejected` once decided.
+    *Amended 2026-10-02 (piece 5, ruling at review): the proposal outcomes are `proposed`
+    ("Proposed, awaiting a person's review."), `accepted` (row `approved` or `edited`: "Reviewed
+    and accepted."), `declined` ("Reviewed and not accepted."), `applied_without_review`
+    ("Applied without review."), `not_proposed` and `unknown`; always the row's CURRENT status.*
   - With `approval_required` off, a proposal applies at once, and its receipt
     reads **`active`** from the note row.
   - The rules that make receipts trustworthy carry over unchanged: `unknown`

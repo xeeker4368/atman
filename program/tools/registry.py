@@ -159,20 +159,52 @@ class DuplicateToolError(ToolError):
     """Two tools were registered under one name."""
 
 
+#: The kinds of record a side-effect call can report (N8, option A). One table, owned here so the
+#: registry can refuse an unknown kind at construction; ``receipts.READERS`` must name the same
+#: set (a test pins it), so a kind cannot be reportable and unreadable.
+RECORD_KINDS = ("artifact", "note_proposal")
+
+
+@dataclass(frozen=True)
+class Record:
+    """One record a call wrote: its ``kind`` and its ``id`` in that kind's own table.
+
+    The trace carries ``{"kind", "id"}`` and nothing else. What the record *says* (its status,
+    its type, its time) is read from its row when a receipt is built, never from the trace."""
+
+    kind: str
+    id: str
+
+    def __post_init__(self) -> None:
+        if self.kind not in RECORD_KINDS:
+            raise ToolError(f"unknown record kind {self.kind!r}; known: {', '.join(RECORD_KINDS)}")
+        if not isinstance(self.id, str) or not self.id:
+            raise ToolError("a record needs a non-empty id")
+
+    def to_dict(self) -> dict[str, str]:
+        return {"kind": self.kind, "id": self.id}
+
+
 @dataclass(frozen=True)
 class ToolOutput:
-    """A handler's result when it also wrote artifact rows (O23 receipts, F50).
+    """A handler's result when it also wrote records (O23 receipts, F50; N8).
 
     ``text`` is what the model sees, stored in ``ToolResult.value`` exactly as a
-    plain string return is. ``artifact_ids`` names the rows **this call** wrote,
-    and reaches the trace as ``artifact_ids``, which is what a receipt reads.
+    plain string return is. ``artifact_ids`` names the artifact rows **this call** wrote
+    (kept so the three existing handlers are unchanged); ``records`` names any other kind.
+    Both reach the trace as ONE key, ``records``, which is what a receipt reads.
 
     A handler that writes nothing keeps returning a plain string. Only a tool
-    declaring ``takes_attribution`` may report ids; see :func:`side_effect_tools`.
+    declaring ``takes_attribution`` may report records; see :func:`side_effect_tools`.
     """
 
     text: str
     artifact_ids: tuple[str, ...] = ()
+    records: tuple[Record, ...] = ()
+
+    @property
+    def all_records(self) -> tuple[Record, ...]:
+        return tuple(Record("artifact", i) for i in self.artifact_ids) + tuple(self.records)
 
 
 class ArtifactWriteError(Exception):
@@ -339,10 +371,14 @@ class ToolResult:
     #: The bound that was in force for this call, in seconds. Recorded so the
     #: trace answers "how long was it given" as well as "how long did it take".
     timeout_seconds: float | None = None
-    #: Artifact rows this call wrote (O23 receipts). Empty for every tool that
+    #: Records this call wrote (O23 receipts; N8). Empty for every tool that
     #: writes nothing, and on a timeout, where the handler's result was lost and
     #: whether it wrote anything is unknown.
-    artifact_ids: tuple[str, ...] = ()
+    records: tuple[Record, ...] = ()
+
+    @property
+    def artifact_ids(self) -> tuple[str, ...]:
+        return tuple(r.id for r in self.records if r.kind == "artifact")
 
     @property
     def ok(self) -> bool:
@@ -384,8 +420,10 @@ class ToolResult:
             "duration_seconds": round(self.duration_seconds, 6),
             "timeout_seconds": self.timeout_seconds,
             # On every entry, empty when nothing was written, so a reader never has
-            # to interpret an absent key. A stored trace WITHOUT it predates the key.
-            "artifact_ids": list(self.artifact_ids),
+            # to interpret an absent key. A stored trace with ``artifact_ids`` and no
+            # ``records`` predates N8 and reads as artifact records; one with neither
+            # predates O23. ``receipts.records_of`` is the one place that knows both.
+            "records": [r.to_dict() for r in self.records],
         }
 
 
@@ -678,7 +716,8 @@ class ToolRegistry:
             logger.warning("tool %s raised: %s: %s", name, type(exc).__name__, exc)
             # A failure after a row was committed still names the row, so a
             # TOOL_ERROR is never read as "nothing was saved" when something was.
-            written = exc.artifact_ids if isinstance(exc, ArtifactWriteError) else ()
+            written = (tuple(Record("artifact", i) for i in exc.artifact_ids)
+                       if isinstance(exc, ArtifactWriteError) else ())
             _check_reported_ids(tool, written)
             return ToolResult(
                 call_id=call_id,
@@ -688,12 +727,12 @@ class ToolRegistry:
                 error=f"{type(exc).__name__}: {exc}",
                 duration_seconds=elapsed,
                 timeout_seconds=limit,
-                artifact_ids=written,
+                records=written,
             )
 
         written = ()
         if isinstance(value, ToolOutput):
-            written = value.artifact_ids
+            written = value.all_records
             value = value.text
         _check_reported_ids(tool, written)
         return ToolResult(
@@ -704,21 +743,21 @@ class ToolRegistry:
             value=value,
             duration_seconds=elapsed,
             timeout_seconds=limit,
-            artifact_ids=written,
+            records=written,
         )
 
 
-def _check_reported_ids(tool: Tool, artifact_ids: tuple[str, ...]) -> None:
+def _check_reported_ids(tool: Tool, records: tuple[Record, ...]) -> None:
     """Only a tool that writes records may say it wrote one.
 
     "Which tools write" is defined once, by ``takes_attribution`` (see
-    :func:`side_effect_tools`). A tool reporting ids without declaring it would
+    :func:`side_effect_tools`). A tool reporting records without declaring it would
     make receipts and the gate disagree about what a side effect is, so it
     raises as the wiring bug it is, the same class as a duplicate registration.
     """
-    if artifact_ids and not tool.takes_attribution:
+    if records and not tool.takes_attribution:
         raise ToolError(
-            f"tool {tool.name!r} reported artifact ids but does not declare "
+            f"tool {tool.name!r} reported records but does not declare "
             f"takes_attribution. Only a tool that writes a record may report one."
         )
 

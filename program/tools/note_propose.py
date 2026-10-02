@@ -26,8 +26,9 @@ Because this tool declares ``takes_attribution``, ``registry.side_effect_tools()
 soon as it is in the catalogue, **even while Notes is dark**; ``tests/test_notes_tools.py`` proves
 the gate's verdicts over every frozen case are byte-identical regardless.
 
-**Receipts:** until piece 5 generalises them, a ``note_propose`` call has no receipt form. That
-cannot reach a person while the tool is never offered.
+**Receipts (piece 5, N8):** the call reports its proposal as a ``note_proposal`` record, and the
+receipt reads that row's current status, so it says *proposed, awaiting a person's review* until a
+person decides it. The model-facing text below is unchanged.
 """
 
 from __future__ import annotations
@@ -41,7 +42,7 @@ from program.memory import db, notes
 from program.origin import OriginContext
 from program.tools import note_quotes
 from program.tools import note_texts as texts
-from program.tools.registry import Tool
+from program.tools.registry import Record, Tool, ToolOutput
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +72,7 @@ def propose_note(
     quotes: list,
     text: str | None = None,
     note_id: str | None = None,
-) -> str:
+) -> ToolOutput:
     if action not in ACTIONS:
         raise texts.NoteRefused(texts.bad_action(action))
     if subject_kind not in SUBJECT_KINDS:
@@ -112,8 +113,9 @@ def propose_note(
     evidence = [note_quotes.resolve_quote(quote, origin).to_dict() for quote in quotes]
 
     verdict = gate.check_identity(text) if text else None
+    proposal_id = db.new_id()
     notes.insert_pending_proposal(
-        proposal_id=db.new_id(),
+        proposal_id=proposal_id,
         action=action,
         target_note_id=target_id,
         subject_kind=subject_kind,
@@ -128,7 +130,9 @@ def propose_note(
     )
     logger.info("note proposal (%s, %s) recorded pending, call %s", action, subject_kind,
                 (origin.call_id or "")[:8])
-    return texts.PENDING_ADD if action == "add" else texts.PENDING_CHANGE
+    return ToolOutput(
+        texts.PENDING_ADD if action == "add" else texts.PENDING_CHANGE,
+        records=(Record("note_proposal", proposal_id),))
 
 
 NOTE_PROPOSE = Tool(

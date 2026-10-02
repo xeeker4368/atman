@@ -74,7 +74,8 @@ def test_a_successful_write_names_its_row_in_the_trace(store):
     [row] = db.list_artifacts(store)
 
     assert result.outcome is ToolOutcome.OK
-    assert result.to_trace_entry()["artifact_ids"] == [row["id"]]
+    assert result.to_trace_entry()["records"] == [
+        {"kind": "artifact", "id": row["id"]}]
     # What the model sees is the text, exactly as before: never the wrapper.
     assert isinstance(result.value, str) and "Saved." in result.value
 
@@ -90,7 +91,8 @@ def test_a_failure_after_the_row_still_names_it_and_tells_the_model_it_was_kept(
     [row] = db.list_artifacts(store)
 
     assert result.outcome is ToolOutcome.TOOL_ERROR
-    assert result.to_trace_entry()["artifact_ids"] == [row["id"]]
+    assert result.to_trace_entry()["records"] == [
+        {"kind": "artifact", "id": row["id"]}]
     # The bundled error-text fix: the model is told what was kept, and why it failed.
     assert "The piece was kept" in result.error
     assert row["id"] in result.error
@@ -103,7 +105,7 @@ def test_a_failure_before_the_row_names_nothing(store):
     result = write(store, text="   ")
 
     assert result.outcome is ToolOutcome.TOOL_ERROR
-    assert result.to_trace_entry()["artifact_ids"] == []
+    assert result.to_trace_entry()["records"] == []
     assert db.list_artifacts(store) == []
 
 
@@ -118,7 +120,7 @@ def test_a_timeout_names_nothing_because_the_result_was_lost(store, monkeypatch)
         attribution=AttributionContext(user_id=store))
 
     assert result.outcome is ToolOutcome.TIMEOUT
-    assert result.to_trace_entry()["artifact_ids"] == []
+    assert result.to_trace_entry()["records"] == []
     time.sleep(0.35)  # let the abandoned worker finish inside the test
 
 
@@ -127,7 +129,7 @@ def test_a_tool_that_writes_nothing_reports_nothing(store):
         name="scaffold_read", description="TEST-ONLY: returns a string.",
         parameters={"type": "object", "properties": {}}, handler=lambda: "read")])
 
-    assert bench.dispatch("scaffold_read").to_trace_entry()["artifact_ids"] == []
+    assert bench.dispatch("scaffold_read").to_trace_entry()["records"] == []
 
 
 @pytest.mark.parametrize("handler", [

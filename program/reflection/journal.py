@@ -221,7 +221,13 @@ def _outcome_words(entry: dict[str, Any]) -> str:
         # after its row was committed is `tool_error` in the trace and `saved` here.
         found = receipts.for_trace([entry])
         words = {receipts.SAVED: "ran — saved", receipts.NOT_SAVED: "did not save anything",
-                 receipts.UNKNOWN: "ran — outcome unknown"}
+                 receipts.UNKNOWN: "ran — outcome unknown",
+                 # note proposals (piece 5): the row's current status, never "saved"
+                 receipts.PROPOSED: "ran — proposed, awaiting a person's review",
+                 receipts.ACCEPTED: "ran — proposal reviewed and accepted",
+                 receipts.DECLINED: "ran — proposal reviewed and not accepted",
+                 receipts.APPLIED: "ran — proposal applied without review",
+                 receipts.NOT_PROPOSED: "did not propose anything"}
         return "; ".join(words[r.outcome] for r in found) or "ran — outcome unknown"
     return {
         "ok": "ran — ok",

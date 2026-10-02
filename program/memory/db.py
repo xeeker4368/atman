@@ -1145,6 +1145,24 @@ def get_artifacts_by_ids(artifact_ids: Iterable[str]) -> dict[str, sqlite3.Row]:
     return {row["id"]: row for row in rows}
 
 
+def get_note_proposals_by_ids(proposal_ids: Iterable[str]) -> dict[str, sqlite3.Row]:
+    """The ``note_proposals`` rows that exist for these ids, keyed by id. One query.
+
+    What a receipt reads to say what became of a proposal (N8): the row's CURRENT status, the
+    primary record, never the trace. An id with no row is absent. No ids means no connection.
+    """
+    ids = sorted(set(proposal_ids))
+    if not ids:
+        return {}
+    marks = ", ".join("?" for _ in ids)
+    with connection() as conn:
+        rows = conn.execute(
+            f"SELECT id, status, created_at, decided_at FROM note_proposals "
+            f"WHERE id IN ({marks})", ids,
+        ).fetchall()
+    return {row["id"]: row for row in rows}
+
+
 def get_artifact_by_hash(sha256: str, user_id: str) -> sqlite3.Row | None:
     """An identical file already uploaded by this user, if there is one."""
     with connection() as conn:

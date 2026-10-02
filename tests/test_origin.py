@@ -73,7 +73,12 @@ def _normalised_trace(raw):
     for entry in json.loads(raw):
         entry = {k: v for k, v in entry.items() if k not in ("duration_seconds",)}
         entry["call_id"] = "<call>" if entry.get("call_id") else entry.get("call_id")
-        entry["artifact_ids"] = ["<id>" for _ in entry.get("artifact_ids", [])]
+        # Piece 5 replaced the trace key `artifact_ids` with `records`. The digest pinned at
+        # piece 2 predates that, so the scrub reads the new key back into the old shape: the pin
+        # then proves everything ELSE a turn observes is unchanged, and that no unexpected key
+        # appeared.
+        entry["artifact_ids"] = ["<id>" for r in entry.pop("records", [])
+                                 if r["kind"] == "artifact"]
         entry["value"] = HEX32.sub("<id>", str(entry.get("value")))
         out.append(entry)
     return out
