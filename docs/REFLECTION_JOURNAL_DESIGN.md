@@ -412,7 +412,7 @@ wrong counts, speaker misattributions, invented specifics (*"pour-over gear bran
 stage-1 reading control stays, in full, until something else replaces it. The prompt is **not**
 being tuned against these errors.
 
-**A flag-only "specifics" check, costed and not built (2026-10-02).** The idea: extract from an
+**A flag-only "specifics" check, costed and DECLINED (2026-10-02).** The idea: extract from an
 entry the numbers, capitalised names and quoted phrases, look each up in the day's records, and
 print the ones absent as a flag-only aid beside the gate's verdict. Cost: about 50 lines
 (`program/reflection/specifics.py`) plus tests and a line in the command's output; no model call,
@@ -428,7 +428,8 @@ real entries** against their records:
   Tightened heuristics would cut that, at the price of more code per false positive removed.
 - **What it would catch**: an invented count or a fabricated quotation. The first is already
   closed by the given counts (0/24 wrong counts), and no entry fabricated a quotation.
-- **Verdict on cost:** low to build, low value on this evidence. Not built. The check that would
+- **Declined (review, 2026-10-02).** Low to build, and it caught none of the known errors, so it is
+  not built and not proposed again without new evidence; the finding above is the record. The check that would
   address the observed errors is a **speaker/event attribution** check, which needs the records'
   structure (who said what, which turn) and is a different, larger piece; it is named here, not
   proposed.
