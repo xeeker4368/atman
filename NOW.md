@@ -290,7 +290,9 @@ whether the link was actually written. CO10.3 got the same treatment when it was
 noticed: measured and decided, not left to drift. Touching `soul.md` again would be a
 fifth change, and Tier 3.
 
-**Notes must be tested against CO10.2 before it ships** (raised at review 2026-09-28,
+**Notes must be tested against CO10.2 before it ships — TESTED 2026-10-02 (piece 8) AND FAILED; see `docs/CORRECTION_DESIGN.md` CO17.** Canonical Notes wordings link 34% on the entity side (329/960), 6 of 8 wordings link, and the entity's own live answers to its own real "no note" replies link in 3 of 12 conversations; production itself wrote 1 false link in the 12 (the `supersedes` table). **Notes does not ship until this is closed.** CO17 designs a structural fix (not built, partial: it covers only claims whose own trace shows an empty search; 1 of 9 "nothing found" claims in the soak store). *The text below is the original item (raised at review 2026-09-28, B11 stage 2), kept for its record; its "documented residual" framing is superseded.*
+
+(Original item.) **Notes must be tested against CO10.2 before it ships** (raised at review 2026-09-28,
 B11 stage 2). CO10.2 is a documented residual: the correction classifier false-links the
 entity's claim *"I have searched my records, and I do not find any mention of X"* when an
 answer about X follows (`N9`, `N10`; `docs/CORRECTION_DESIGN.md` CO15). Six other wordings
