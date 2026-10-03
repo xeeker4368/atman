@@ -436,13 +436,25 @@ Each trades recall for precision in the way F38 describes (the alias list is voc
 narrowing it is tuned against the phrasings in hand), so a fix needs the frozen set as its measure and its own
 review. Not scheduled.
 
-**The items the gate design holds "for O23" are unscheduled and need a decision after Phase 5** (O23 is closed:
-F50 abandoned wording iteration and the receipt shipped). I could not find a single list headed that way in
-`NOW.md`, `BUILD_PLAN.md` or the design; the items that name O23 as their owner are: `A7` (the lost save claim,
-whose case note says *"the fix belongs to O23's design pass"*), the ACTION trigger's vocabulary dependence (F48,
-F49: two of 13 phrasings caught, now also seen on notes: `NP1`, `NP3`), the per-item labelling trigger G-C
-(depends on a human reading answers), and the prose tool-claim gaps `S5`/`S6` (F38, accepted). None is being
-worked; each stays a documented miss in the frozen set until a decision is taken after Phase 5.
+**Nine gate items were "held for O23"; O23 is closed, so they are unscheduled and need a decision after
+Phase 5** (recorded 2026-10-02 at Notes piece 8, from the review of piece 7: that list existed only in the review,
+not in the repo, and the numbers are the review's). None is being worked; each stays as described until a
+decision is taken.
+- **7:** the gate and receipts use `default_registry()`; `side_effect_tools()` and ACTION's trace check have no
+  seam to inject a registry (latent: nothing passes a non-default registry through them today).
+- **3:** `unrun_tool` fires on ordinary English. Now the "search" item filed above (NS2, NS3), beside the earlier
+  repros.
+- **4:** real artifact ids are flagged as invented (rule S1), though the tools hand the model the id. Filed
+  earlier as B19 (below); its fix depends on the receipt work and is a gate-rule change.
+- **21:** O17 compares truncated evidence to full sentences (`structural_findings` and `_parse`).
+- **14 with C2:** a tool timeout counts as "ran", so a late side effect is not reconciled with what ACTION sees.
+- **10 and 11:** pronoun quote splitting and the curly apostrophe (`pronouns.py` changes the text the classifier
+  judges).
+- **C6:** `gate_eval` never validates a case's tool name against the registry.
+- **C7:** the gate flags accurate storage claims (`_PROMPT` and `architecture.md`; F48's territory).
+- (The ninth is 3's companion, the "search" tracked item itself, listed once above.)
+Also still unscheduled and citing O23: `A7`'s fix (its case note says it belongs to O23's design pass), F48's
+vocabulary dependence (two of 13 phrasings caught; now also `NP1`, `NP3`), and G-C per-item labelling.
 
 **B22 — `archive.db` has no triggers, so its append-only rule is convention** (filed 2026-10-02,
 found by the REPLACE audit during Notes piece 1; **Tier 3, not built**). `schema/archive.sql`
