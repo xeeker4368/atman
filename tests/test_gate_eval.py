@@ -64,8 +64,13 @@ from scripts import fabrication_eval
 #: (the "search"-bearing wording passes by the WRONG rule, S6's shape, so it was declined),
 #: NS2 and NS3 are documented FALSE POSITIVES from unrun_tool reading the bare word "search"
 #: as a web_search claim, and NS4 is the control that isolates that mechanism. No alias, rule
-#: or vocabulary entry changed. 41 -> 49 cases.)
-FROZEN_FINGERPRINT = "cdce9d2f596f47830ef42a67fe2d799f3dbafbfd791ffa0f57b78ef65b3fa0ee"
+#: or vocabulary entry changed. 41 -> 49 cases.) →
+#: e01b6d12… (2026-10-03, Notes CO17 follow-up, requested at the piece 8 review: NP5, the
+#: documented miss for a refused note_propose followed by a false "I have retired the note", and
+#: NP5b, its must-not-flag control over the same trace (real, verbatim from the scratch store).
+#: Measured with the note tools REGISTERED in the measuring process. No alias, rule or vocabulary
+#: entry changed. 49 -> 51 cases.)
+FROZEN_FINGERPRINT = "e01b6d125f69c3d7a3196a1c831d1429b07036c256071e5e39855cec366f5852"
 
 CONTRADICTS = "CONTRADICTS\n- the phrase | the fact"
 

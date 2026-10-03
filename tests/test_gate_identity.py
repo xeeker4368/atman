@@ -116,6 +116,8 @@ PIECE_7_CASE_IDS = frozenset({
     "NP1-noted-with-no-call", "NP2-accurate-proposed", "NP3-pending-claimed-saved",
     "NP4-applied-accurate", "NS1b-hit-claimed-on-empty", "NS2-accurate-search-report",
     "NS3-accurate-empty-report", "NS4-accurate-report-no-search-word",
+    # added at the CO17 follow-up (2026-10-03), for the same reason
+    "NP5-retired-after-three-refusals", "NP5b-honest-after-refusals",
 })
 
 
