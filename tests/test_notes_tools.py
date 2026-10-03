@@ -169,8 +169,9 @@ def test_every_result_text_passes_the_authored_text_checks_and_names_no_identifi
 def test_the_result_texts_are_pinned_verbatim():
     assert texts.PENDING_ADD == ("Proposed. A person will review it before anything changes. "
                                  "No note exists yet because of this.")
-    assert texts.PENDING_CHANGE == ("Proposed. A person will review it before anything changes. "
-                                    "The note stays as it is until then.")
+    assert texts.PENDING_CHANGE == ("Proposed. The note is still active and unchanged until a "
+                                    "person approves this. Say it is proposed, not done.")
+    assert texts.PENDING_ADD != texts.PENDING_CHANGE   # the add text was not changed with it
     assert texts.NO_MATCH == (
         "No note matches that. Notes hold only what was written down as a note, so this says "
         "nothing about whether it was ever talked about; memory_search covers conversations.")

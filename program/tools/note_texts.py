@@ -43,10 +43,14 @@ PENDING_ADD = (
     "No note exists yet because of this."
 )
 
-#: The result of a revise or retire. It says the existing note is unchanged.
+#: The result of a revise or retire. It says the existing note is unchanged, and tells the entity
+#: what to say: the previous wording ("A person will review it before anything changes. The note
+#: stays as it is until then.") was followed by a false "the note has been retired/updated" in 8 of
+#: 36 revise and retire turns; this one measured 0 of 36 (2026-10-03, injected in memory). The add
+#: text above is not changed: it was not measured.
 PENDING_CHANGE = (
-    "Proposed. A person will review it before anything changes. "
-    "The note stays as it is until then."
+    "Proposed. The note is still active and unchanged until a person approves this. "
+    "Say it is proposed, not done."
 )
 
 #: The results when approval is off and the proposal was applied at once. They say what happened
