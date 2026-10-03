@@ -105,6 +105,7 @@ def search_notes(query: str) -> str:
 
 NOTE_SEARCH = Tool(
     name="note_search",
+    empty_result=texts.NO_MATCH,
     description=(
         "Search notes about people, topics and projects in this household. "
         "Not conversation memory (use memory_search)."

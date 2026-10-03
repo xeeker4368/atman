@@ -126,6 +126,7 @@ def search_memory(query: str) -> str:
 
 MEMORY_SEARCH = Tool(
     name="memory_search",
+    empty_result=NO_MATCHES,
     description=(
         "Search stored records of earlier conversations, by meaning and by "
         "keyword together. Returns the closest-matching records with the dates "

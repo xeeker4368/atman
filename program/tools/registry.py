@@ -258,6 +258,14 @@ class Tool:
     #: A note proposed in a turn that already ran such a tool is flagged to the reviewer (N7); the
     #: flag is derived from this, so a new external tool is covered the moment it declares it.
     untrusted_output: bool = False
+    #: The **exact sentence this search-like tool returns when it matched nothing**, or ``None``
+    #: when it has no fixed one. Declared, never inferred, and the same constant the tool itself
+    #: returns (so rewording the sentence moves everything that reads it). The correction pool
+    #: uses it to tell that an entity message reported an empty search (CO17): see
+    #: :func:`empty_result_tools` and ``corrections.reports_nothing_found``. A tool that appends a
+    #: note to its empty result (a degraded retrieval leg, an unresponsive engine) is matched by
+    #: prefix, so the declaration is the sentence alone.
+    empty_result: str | None = None
     #: Whether this capability exists right now (decision #12's first axis). A
     #: **call-time predicate**, not a boolean, so the answer comes from config when
     #: the registry is built rather than from whatever it was at import. ``None``
@@ -275,6 +283,13 @@ class Tool:
     timeout_seconds: float | None = None
 
     def __post_init__(self) -> None:
+        if self.empty_result is not None and not (
+                isinstance(self.empty_result, str) and self.empty_result.strip()):
+            # An empty sentence would match EVERY result by prefix and exclude every message.
+            raise ToolError(
+                f"tool {self.name!r} declares an empty `empty_result`. It must be the exact, "
+                f"non-empty sentence the tool returns when nothing matched, or None."
+            )
         if self.takes_attribution and ATTRIBUTION_ARGUMENT in (
             self.parameters.get("properties") or {}
         ):
@@ -760,6 +775,17 @@ def _check_reported_ids(tool: Tool, records: tuple[Record, ...]) -> None:
             f"tool {tool.name!r} reported records but does not declare "
             f"takes_attribution. Only a tool that writes a record may report one."
         )
+
+
+def empty_result_tools() -> dict[str, str]:
+    """``{tool name: the sentence it returns when nothing matched}``, from the full catalogue.
+
+    Derived from ``Tool.empty_result`` rather than a copy of the sentences, the way
+    :func:`untrusted_tools` derives from ``Tool.untrusted_output``: the catalogue, not the enabled
+    registry, because a stored trace can name a tool that has since been disabled."""
+    from program.tools import catalog
+
+    return {tool.name: tool.empty_result for tool in catalog.TOOLS if tool.empty_result}
 
 
 def untrusted_tools() -> tuple[str, ...]:

@@ -455,6 +455,7 @@ def read_agent(name: str) -> str:
 
 MOLTBOOK_BROWSE = Tool(
     untrusted_output=True,
+    empty_result=NO_RESULTS,
     name="moltbook_browse",
     description=(
         "Browse posts on Moltbook, a public forum where AI agents write posts and "
@@ -479,6 +480,7 @@ MOLTBOOK_BROWSE = Tool(
 
 MOLTBOOK_SEARCH = Tool(
     untrusted_output=True,
+    empty_result=NO_RESULTS,
     name="moltbook_search",
     description=(
         "Search Moltbook by meaning, with a plain-language query of up to 500 "

@@ -47,6 +47,7 @@ echoed it) needs both links. A mixed pool would force a choice between them.
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 import sqlite3
@@ -213,6 +214,53 @@ class Correction:
     confidence: float | None = None
 
 
+def reports_nothing_found(tool_trace: str | None, *, message_id: str = "?") -> bool:
+    """Whether an entity message's own stored ``tool_trace`` shows **only empty searches** (CO17).
+
+    True iff the trace has at least one successful call to a tool that declares an
+    ``empty_result`` whose result **starts with** that sentence (a prefix, because a degraded
+    retrieval leg or an unresponsive engine appends a note to the same empty result), **and no other
+    successful call**: a message that also got a hit from any tool, or wrote anything, made claims
+    that rest on something found and stays a candidate. A failed or skipped call counts neither way.
+
+    The sentences come from ``registry.empty_result_tools()``, i.e. from the tools' own
+    declarations, so there is no copy here to drift. **An absent trace is "not a search claim"
+    silently; an unparseable one keeps the candidate AND logs a warning**: failing open is today's
+    behaviour, and the log is what makes a trace that stopped parsing visible.
+    """
+    if not tool_trace:
+        return False
+    try:
+        entries = json.loads(tool_trace)
+        if not isinstance(entries, list):
+            raise ValueError("a tool trace is a list")
+    except ValueError:
+        logger.warning(
+            "message %s has a tool_trace that does not parse; it stays a correction candidate",
+            message_id)
+        return False
+    return entries_report_nothing_found(entries)
+
+
+def entries_report_nothing_found(entries: list) -> bool:
+    """:func:`reports_nothing_found` on an already-parsed trace (a list of entries). Used for the
+    **new** message of a turn, whose trace the loop still holds (the symmetric skip, CO17)."""
+    from program.tools import registry
+
+    empties = registry.empty_result_tools()
+    empty_seen = False
+    for entry in entries or ():
+        if not isinstance(entry, dict) or not entry.get("tool") or entry.get("outcome") != "ok":
+            continue
+        sentence = empties.get(str(entry["tool"]))
+        value = entry.get("value")
+        if sentence and isinstance(value, str) and value.startswith(sentence):
+            empty_seen = True
+        else:
+            return False
+    return empty_seen
+
+
 def _row_candidate(row: sqlite3.Row) -> Candidate:
     return Candidate(
         message_id=row["id"],
@@ -264,7 +312,8 @@ def candidates(
     seen: dict[str, Candidate] = {}
 
     for row in db.get_messages_in_chunks(retrieved_chunk_ids):
-        if row["user_id"] == user_id and row["id"] not in exclude_message_ids:
+        if (row["user_id"] == user_id and row["id"] not in exclude_message_ids
+                and not _reports_empty_search(row)):
             seen[row["id"]] = _row_candidate(row)
 
     before_this_turn = [
@@ -272,7 +321,7 @@ def candidates(
         if row["id"] not in exclude_message_ids
     ]
     for row in chunking.open_group_messages(before_this_turn, user_name):
-        if row["user_id"] == user_id:
+        if row["user_id"] == user_id and not _reports_empty_search(row):
             seen[row["id"]] = _row_candidate(row)
 
     ordered = production_order(seen.values())
@@ -283,6 +332,14 @@ def candidates(
             kept.append(candidate)
             per_role[candidate.role] = per_role.get(candidate.role, 0) + 1
     return kept
+
+
+def _reports_empty_search(row: sqlite3.Row) -> bool:
+    """CO17: an **entity** message whose own trace shows only empty searches is not a candidate,
+    for the entity-side and the person-side call alike (one pool feeds both). A person's message
+    never carries a trace. Applied before the per-role cap."""
+    return row["role"] == "assistant" and reports_nothing_found(
+        row["tool_trace"], message_id=row["id"])
 
 
 def production_order(pool: Iterable[Candidate]) -> list[Candidate]:

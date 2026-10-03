@@ -255,6 +255,7 @@ def _record_corrections(
     user_message_id: str,
     answer_text: str,
     assistant_message_id: str,
+    answer_trace: list | None = None,
 ) -> None:
     """Link anything this turn corrected. Never edits.
 
@@ -296,8 +297,12 @@ def _record_corrections(
             user_text, user_message_id, pool, "user", actor.name,
             candidate_role="assistant",
         ) if config.corrections_person_corrects_entity() else None
-        self_correction = corrections.classify(
-            answer_text, assistant_message_id, pool, "assistant", "the system")
+        # CO17, the symmetric skip: an answer that reports only empty searches ("There is no note
+        # about X") is not judged against the entity's earlier claims. Measured: with such a new
+        # message every one of 640 canonical samples linked a genuine earlier claim as superseded.
+        self_correction = None if corrections.entries_report_nothing_found(answer_trace) else \
+            corrections.classify(
+                answer_text, assistant_message_id, pool, "assistant", "the system")
     except Exception as exc:  # noqa: BLE001 — a missed link, never a failed turn
         logger.warning(
             "correction classifier could not run for conversation %s; no link "
@@ -568,7 +573,8 @@ def handle_user_message(
 
     with _after_durable("correction links", conversation_id):
         _record_corrections(actor, conversation_id, retrieved, content,
-                            user_message_id, result.text, assistant_message_id)
+                            user_message_id, result.text, assistant_message_id,
+                            answer_trace=loop.call_entries(result.trace))
 
     return TurnOutcome(
         conversation_id=conversation_id,
