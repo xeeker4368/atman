@@ -27,10 +27,16 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+import os
+
 from scripts import notes_live as L  # noqa: E402
 
-RAW_TURNS = L.ROOT / "co15_real_turns.jsonl"
-RAW_RUN = L.ROOT / "co15_real_run.jsonl"
+#: ``COREAL_TAG`` re-runs the capture on a fresh store and file (CO17 end to end) without touching
+#: piece 8's raw samples.
+_TAG = os.environ.get("COREAL_TAG", "")
+STORE = "scratch-real-co15" + (f"-{_TAG}" if _TAG else "")
+RAW_TURNS = L.ROOT / f"co15_real_turns{('_' + _TAG) if _TAG else ''}.jsonl"
+RAW_RUN = L.ROOT / f"co15_real_run{('_' + _TAG) if _TAG else ''}.jsonl"
 
 QUESTIONS = (
     ("descaling", "Do you have any notes about how I descale the kettle?",
@@ -67,7 +73,7 @@ QUESTIONS = (
 
 def capture(target: int = 12) -> None:
     from program.tools import note_texts
-    w = L.setup("scratch-real-co15", fresh=False)
+    w = L.setup(STORE, fresh=False)
     done = {json.loads(x)["q"] for x in RAW_TURNS.read_text().splitlines()} if RAW_TURNS.exists() else set()
     qualifying = sum(1 for x in (RAW_TURNS.read_text().splitlines() if RAW_TURNS.exists() else [])
                      if json.loads(x)["qualifies"])
@@ -130,7 +136,7 @@ def build_cases():
 
 def run(passes: int, seeds: list[int]) -> None:
     from program.integrity import correction_eval
-    L.setup("scratch-real-co15", fresh=False)
+    L.setup(STORE, fresh=False)
     cases, meta = build_cases()
     by_id = {c.id: c for c in cases}
     done = set()

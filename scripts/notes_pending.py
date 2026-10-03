@@ -27,6 +27,7 @@ from __future__ import annotations
 import argparse
 import collections
 import json
+import os
 import random
 import re
 import sys
@@ -138,7 +139,8 @@ def db_has_notes(db) -> bool:
 
 
 def main_arm(seeds, passes):
-    raw = L.ROOT / "pending_main.jsonl"
+    tag = os.environ.get("PENDING_TAG", "")
+    raw = L.ROOT / (f"pending_main_{tag}.jsonl" if tag else "pending_main.jsonl")
     ids = [r[0] for r in REQUESTS]
 
     def order():
@@ -148,7 +150,7 @@ def main_arm(seeds, passes):
                 random.Random(f"pending-{seed}-{p}").shuffle(o)
                 for rid in o:
                     yield seed, p, rid
-    run_arm("scratch-pending", raw, order, True)
+    run_arm("scratch-pending" + (f"-{tag}" if tag else ""), raw, order, True)
 
 
 def off_arm(turns):
