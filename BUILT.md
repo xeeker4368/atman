@@ -3283,6 +3283,20 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
     first-person lived-through claims; J8 measured those at 37-41% missed).
   - `[unverified]` Wordings, requests and sentences are mine; one model; seeds fix the shuffle, not the model's sampling; the
     classification of replies is one reader's.
+  - **KNOWN GAPS (2026-10-03, `docs/CORRECTION_DESIGN.md` CO17, `changelog/2026-10-03-notes-followup-proposals.md`):**
+    - **Notes does not pass CO15 and does not ship.** The correction classifier false-links the entity's own "no note about X" claim as
+      superseded by its next answer about X. Production itself wrote **1 false link in the 12 real conversations** (real03: *"No, there is no
+      note on descaling the kettle."* superseded by the entity's turn-2 answer, label `replaced`, with a pool of **one** entity candidate, so the
+      harness's fixed background is not what causes it), consistent with the harness rates (1.6 expected, P(at most 1) = 0.40). A structural
+      fix is **designed, not built**: exclude an entity message whose own trace shows only empty searches from the correction pool. It is
+      partial: **1 of 9 "nothing found" claims in the soak store had a search in its trace**, the rest were said from passive retrieval.
+    - **A refused `note_propose` can be followed by a false "I have retired…"** (5 of 6 turns for one request): the loop's final toolless
+      iteration forced the reply; the receipt says *Not proposed. Nothing was recorded.* and the gate says `clean` (no tool is named; a refused
+      call counts as `ran`). Proposed as frozen case `NP5`, a documented miss; not added.
+    - **Tool-text drafts** (quote guidance; refusals that say nothing was recorded) cost 38 schema tokens (real), derived message cap 51,108,
+      headroom about 277 tokens; **unmeasured on behaviour, not applied**.
+    - The piece 7 measuring process had Notes disabled, so the gate's `known_tools` lacked the note tools; re-run with them registered the
+      eight cells are unchanged.
 - `[unverified]` **No guard on a `notes` row's text while it is active** (direct SQL can edit it);
   the design puts that discipline in the tools and `scripts.note`, which do not exist yet.
 
@@ -3667,6 +3681,7 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
     as naming several candidates. That accounts for all 20 "unusable replies". No link is
     written either way, which is still the safe direction. A reply the grammar did not
     anticipate: the `CORRECTS 1, 2` finding again. Not changed here.
+- `[unverified]` **SUPERSEDED 2026-10-03 (Notes piece 8, `docs/CORRECTION_DESIGN.md` CO17): CO10.2 is NOT a bounded residual.** The entry below called it one on N7's precedent; piece 8 measured the Notes wordings and 6 of 8 link on the entity side (329/960 = 34%), with real conversations linking too. Kept for the record.
 - `[built]` **CO10.2 is a documented residual: neither stage 2 fix is taken** (2026-09-28,
   B11 stage 2, diagnosis only; `docs/CORRECTION_DESIGN.md` CO15,
   `scripts/correction_diagnosis_scope.py`). Nothing in `program/` or the frozen set changed.
