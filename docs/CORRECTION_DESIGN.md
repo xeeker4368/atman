@@ -1305,7 +1305,7 @@ match finds 11 replies; read by hand, **9 are "nothing found" claims** (three wo
 search call in their trace** (*"I have no record of us discussing pottery"*, *"I have no records of trains or travel times"*, *"Nothing about
 Saturday has come up"*): they were said from the passively retrieved block or from nothing. Only one (the CO10.2 original) has a `memory_search`.
 So the rule would have covered **1 of 9 (11%)** in that population, and 12 of 12 in the piece 8 captures, which were *engineered* to make the
-entity search. A claim made from passive retrieval leaves nothing in the trace
+entity search. **CORRECTED 2026-10-03 (CO17 build, sizing run on the soak store): the rule as built covers 0 of those 9, not 1.** The CO10.2 original did call `memory_search`, but that call returned records (a hit), because `memory_search` returns its nearest neighbours whatever their relevance (the retrieval floors are unset), so its empty sentence occurs only on an empty corpus. A claim of "nothing found" after a `memory_search` that returned unrelated records is **not covered**. In the piece 8 captures the rule excludes 13 of 24 assistant messages. A claim made from passive retrieval leaves nothing in the trace
 to key on. A possible extension, not part of this design: record the passive retrieval's emptiness in the trace as a marker entry
 (`messages.tool_trace` has a column for it, no migration), at the cost B21 recorded (it makes `tool_trace` non-null on most turns). Until
 then this is a partial fix and says so.

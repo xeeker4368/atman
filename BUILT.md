@@ -3289,7 +3289,7 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
       note on descaling the kettle."* superseded by the entity's turn-2 answer, label `replaced`, with a pool of **one** entity candidate, so the
       harness's fixed background is not what causes it), consistent with the harness rates (1.6 expected, P(at most 1) = 0.40). A structural
       fix is **designed, not built**: exclude an entity message whose own trace shows only empty searches from the correction pool. It is
-      partial: **1 of 9 "nothing found" claims in the soak store had a search in its trace**, the rest were said from passive retrieval.
+      partial: **0 of 9 "nothing found" claims in the soak store are covered** (corrected 2026-10-03: eight had no search in their trace, and the CO10.2 original's `memory_search` returned records, since it returns its nearest neighbours whatever their relevance).
     - **A refused `note_propose` can be followed by a false "I have retired…"** (5 of 6 turns for one request): the loop's final toolless
       iteration forced the reply; the receipt says *Not proposed. Nothing was recorded.* and the gate says `clean` (no tool is named; a refused
       call counts as `ran`). Proposed as frozen case `NP5`, a documented miss; not added.
@@ -3297,6 +3297,31 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
       headroom about 277 tokens; **unmeasured on behaviour, not applied**.
     - The piece 7 measuring process had Notes disabled, so the gate's `known_tools` lacked the note tools; re-run with them registered the
       eight cells are unchanged.
+- `[built]` **CO17 built (2026-10-03, Tier 3, stopped for review; `changelog/2026-10-03-notes-exclusion-and-tool-text.md`).** `notes.enabled` stays off;
+  no change to the correction `_PROMPT`, the classifier or any alias.
+  - **The exclusion:** `Tool.empty_result`, `registry.empty_result_tools()` (full catalogue), `corrections.reports_nothing_found`
+    (prefix match; at least one successful empty search and no other successful call; absent trace silent, unparseable trace keeps the candidate
+    and logs a WARNING), applied in `candidates()` to both sources before the per-role cap. Declared by `memory_search`, `note_search`,
+    `web_search`, `moltbook_browse`, `moltbook_search`; **no fixed sentence, none declared:** `web_fetch`, `moltbook_read_post`, `moltbook_read_agent`,
+    `image_generate`, `creative_write`, `note_propose`. A drift test dispatches each real tool.
+  - **The symmetric skip, built because measured:** a new message that is itself a no-result report linked the entity's genuine earlier claim
+    **640/640** canonical samples (2 seeds x 20 passes) and **451/480** with the 12 real replies; controls 80/80. `turn._record_corrections` no longer
+    classifies an answer whose own trace reports only empty searches. Not visible to the frozen harness; proven by end-to-end tests.
+  - **38 mutations killed** (21 exclusion, 5 skip, 12 tool text). Suite 1,969 passed, 4 skipped.
+  - **Sizing:** soak store 0 of 212 assistant messages excluded; the 12 captured conversations 13 of 24 (12 pure turn-1 reports, **1 mixed message**
+    with other claims, excluded whole). No mitigation added.
+  - **End to end, final code:** 0 of 12 turn-1 entity replies linked and the turn-2 entity pool 0 in all 12; genuine-correction controls 3/3 linked;
+    web-search-with-hits controls 2/2 kept in the pool.
+  - **Tool text applied as drafted:** real tokens 1,344 -> 1,382 (+38); derived cap 51,108; configured 50,000 still fits, headroom about 277 tokens.
+    **Pending-claim re-run (120 turns): refusals 66 -> 0, every turn made a proposal, accurate 112/120 = 93.3% [87.4-96.6%], but 8/120 = 6.7%
+    [3.4-12.6%] say the change happened (7 retire, 1 revise; "The note about the old router has been retired." 5 times).** Before: 5/120 false
+    "done" with nothing recorded. The false claim moved from "nothing recorded" to "proposed but claimed done"; intervals overlap; not mitigated.
+  - **Frozen gate cases `NP5` (documented miss) and `NP5b`**, 51 cases, fingerprint `e01b6d12…`; measured with the note tools registered: 42 PASS,
+    9 FAIL (all documented), no existing cell moved.
+  - `[unverified]` **The uncovered gap is material:** of 18 no-note claims on plain questions, 7 (39%) made no `note_search` call and 1 no search at
+    all. A "search before saying there is no note" line is **drafted, not applied** (+11 real tokens, headroom about 262).
+  - `[unverified]` **The rule rarely fires on a populated store:** `memory_search` returns neighbours whatever their relevance, so a turn that also ran
+    it has another successful call and stays a candidate. Derived from the code and the soak evidence, not measured on a populated store.
 - `[unverified]` **No guard on a `notes` row's text while it is active** (direct SQL can edit it);
   the design puts that discipline in the tools and `scripts.note`, which do not exist yet.
 
