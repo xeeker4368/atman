@@ -3322,6 +3322,28 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
     all. A "search before saying there is no note" line is **drafted, not applied** (+11 real tokens, headroom about 262).
   - `[unverified]` **The rule rarely fires on a populated store:** `memory_search` returns neighbours whatever their relevance, so a turn that also ran
     it has another successful call and stays a candidate. Derived from the code and the soak evidence, not measured on a populated store.
+- `[built]` **Revise/retire result text says "proposed, not done"** (2026-10-03, Tier 3 text, stopped for review;
+  `changelog/2026-10-03-notes-search-line-and-gap-remeasure.md`).
+  - `note_texts.PENDING_CHANGE` is now *"Proposed. The note is still active and unchanged until a person approves this. Say
+    it is proposed, not done."* `PENDING_ADD` and the approval-off texts are unchanged. The text is pinned by a test,
+    proven to bite.
+  - The full pending arm (20 requests, 2 seeds x 3 passes, approval required, every reply read):
+    - **120/120 made a proposal**, with 0 refusals;
+    - **0/120 false "done" claims [0-3.1%]**, against 8/120 in the CO17 re-run and 5/120 in piece 8;
+    - accurate 120/120.
+  - Replies are near-templated per request, so the effective n is about 20 requests.
+- `[unverified]` **Proposed frozen case `NP6`** (a pending retire claimed done) is clean 5/5: a documented miss in `NP3`'s
+  pattern, because the ACTION rule clears any claim once `note_propose` ran. **Not added to `cases.toml`.**
+- `[built]` **`note_search`'s search-first line was applied, measured and reverted** (2026-10-03).
+  - The 10 no-note claims made without `note_search` were all conversation-recall questions (*"What did we decide about…"*);
+    each called `memory_search`, which was empty on the empty scratch store. **No notes-topic claim was made without a
+    search**, so the line had nothing to fix.
+  - The schema numbers are back to 1,382 real tokens, a derived cap of 51,108 and about 277 tokens of headroom.
+- `[unverified]` **The "about 8% of no-note claims can still be false-linked" estimate is withdrawn.**
+  - In its three linking pairs the person had supplied the fact and the entity's reply recorded it. That is a time-based
+    change, not a CO15 false link.
+  - CO17 excluded every one of those claims from production's pool: 0 entity candidates, against the harness's 11.
+  - One pair's harness rate moved from 0/40 to 4/5 under a different interleaving.
 - `[unverified]` **No guard on a `notes` row's text while it is active** (direct SQL can edit it);
   the design puts that discipline in the tools and `scripts.note`, which do not exist yet.
 

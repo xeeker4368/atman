@@ -405,6 +405,34 @@ past older history is logged and marked in the trace.
   - (4) the reproduction scenarios become regression tests asserting the user's message is
     present on every call.
 
+**Notes follow-ups, 2026-10-03, awaiting review** (`changelog/2026-10-03-notes-search-line-and-gap-remeasure.md`).
+`notes.enabled` stays off.
+- The revise/retire pending text now says *"Say it is proposed, not done."* That gave 0/120 false "done" claims, against
+  8/120 before.
+- `note_search`'s search-first line was reverted: no notes-topic claim was made without a search.
+- **Open: time-based supersession.** A person supplies a fact after the entity said "I don't have any record of X", and
+  the entity records it. The classifier links the old claim as `replaced`.
+  - CO8 has no category for this: the claim was true when made.
+  - CO17 excludes the claim when its search was empty, but on a populated store `memory_search` is not empty, so such
+    claims stay in the pool.
+  - Whether a link here is wanted is undecided.
+- **Also seen:** the entity says *"I will note that…"* with no `note_propose` call in 8 of 10 follow-up turns.
+- **Parser observation:** when the classifier puts its rationale on the `CORRECTS` line, the stored rationale is empty.
+  No change made.
+
+**Measurement scripts must repoint every `ANAM_*` directory before importing `program.*`** (2026-10-03).
+- A token-count script imported `program.config` with the default data directory. Config reads the settings table
+  first, so it **read the real `data/working.db` settings table**. The table was empty, and the real `data/` fingerprint
+  is unchanged.
+- `scripts/notes_live.setup()` does the repointing, but only for scripts that call it first. Ad-hoc scripts do not.
+- **Proposed, not built:** a shared helper, `scripts/_scratch.py` with `scratch_env(name)`.
+  - It sets `ANAM_DATA_DIR`, `ANAM_BACKUP_DIR`, `ANAM_ARTIFACT_DIR` and `ANAM_WORKSPACE_DIR` (and any future directory
+    key, enumerated from `config` the way `tests/test_directories.py` does) under `~/anam-measurements/<name>`.
+  - It runs **before** any `program` import.
+  - It refuses to run if `program` is already in `sys.modules`.
+  - It asserts the resolved `db.working_path()` is under the scratch root.
+  - `notes_live.setup()` would call it, and a test would scan `scripts/` for a `program` import that comes before it.
+
 **Planning item, no fix now (2026-10-02): tool-schema headroom is about 309 tokens with 11 tools.**
 B20's derivation (`config/defaults.toml`, `tests/test_turn.py`) prices every tool's schema against the
 chat message cap. With Notes' two tools the derived cap is 51,236 characters, the configured 50,000
@@ -497,6 +525,21 @@ exists in meaningful volume, calibrate actual threshold values and verify
 the degenerate-query rule (task 1.6) actually fires on real weak-match
 cases — it structurally cannot be exercised while floors are permissive.
 Do not let this quietly stay permissive forever by default.
+
+*Added 2026-10-03: the floors are also what would bring CO10.2 under CO17.*
+- `memory_search` returns its nearest neighbours whatever their relevance, so on a populated
+  corpus it never returns its empty sentence (`memory_search.NO_MATCHES`).
+- CO17's exclusion keys on that sentence (`Tool.empty_result`). So a "nothing found" claim made
+  after a `memory_search` is never excluded today. **The CO10.2 original is one**: its search
+  returned unrelated records.
+- With a calibrated floor, a weak-match search would return the empty sentence. Such a claim would
+  then leave the correction pool, and the turn making it would not be classified (the symmetric
+  skip), with no change to CO17's code.
+- **What the floors would not cover:** a claim made with no search in the trace (from the passively
+  retrieved block, or from nothing). That is 8 of the soak store's 9 "nothing found" claims, and the
+  Notes no-search gap measured in CO17.
+- So calibrating a floor changes correction behaviour as well as retrieval, and needs CO17's
+  end-to-end check re-run when it lands. See `docs/CORRECTION_DESIGN.md` CO17.
 
 ## Go-live checklist (placeholder — fill in once build is underway)
 
