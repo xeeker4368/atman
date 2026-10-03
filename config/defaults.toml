@@ -146,17 +146,17 @@ in_flight_grace_minutes = 41
 #       + correction annotations < 6,000 ch (asserted, test_supersession)
 #       + record headers ~1,000 ch  = 57,000 ch          -14,250
 #   - tool schemas, the FULL catalogue (B20; re-derived 2026-10-02 for Notes' two tools):
-#       11 tools, 5,980 ch of JSON, estimated           -1,495
+#       11 tools, 6,107 ch of JSON, estimated           -1,527 (CO17: the note_propose quote guidance, +37)
 #       (9 tools were 4,854 ch / 1,214 estimated / 1,052 on the real tokenizer; the 9-and-11-tool
 #       real-tokenizer figures are in changelog/2026-10-02-notes-piece-3-tools.md)
-#   = 12,809 tokens x 4.0 = 51,236 characters
+#   = 12,777 tokens x 4.0 = 51,108 characters (51,236 before CO17's tool text)
 #
 # (Before B20 the schemas were priced nowhere and the figure read 57,216.) The
 # schema term covers EVERY tool, enabled or not, so switching one on cannot break
 # this silently.
 #
-# Rounded DOWN to 50,000, the one judgment in the chain, which now leaves ~309
-# tokens of earlier history beside a maximal message (~590 with 9 tools, ~1,800 before
+# Rounded DOWN to 50,000, the one judgment in the chain, which now leaves ~277
+# tokens (~309 before CO17's tool text; real tokenizer: 11 tools 1,382, was 1,344) of earlier history beside a maximal message (~590 with 9 tools, ~1,800 before
 # B20). tests/test_turn.py recomputes the chain from live config and fails if this exceeds
 # it, and a second test fails, naming both numbers, when the catalogue's schemas
 # outgrow that headroom. Notes' two tools are in; THE NEXT TOOL AFTER THEM (~100-250 tokens)

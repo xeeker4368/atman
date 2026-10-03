@@ -58,6 +58,21 @@ APPLIED_RETIRE = "Done. The note was retired as proposed. No one reviewed it."
 
 # --- note_propose: refusals (each reaches the model as TOOL_ERROR) ----------------------------
 
+#: Appended to EVERY refusal of a proposal (CO17): the person is told the truth even when the
+#: entity cannot fix the call. Piece 8 found 5 of 6 retire turns ending in a false "I have retired
+#: the note" after three refusals; the refusal itself now says nothing was recorded and what to
+#: tell the person. Not appended to ``note_search``'s refusals: nothing was being proposed there.
+NOT_RECORDED = (
+    " Nothing was recorded. If you cannot fix this, tell the person plainly that the note was "
+    "not proposed."
+)
+
+
+def proposal_refused(message: str) -> NoteRefused:
+    """A refusal of a ``note_propose`` call, with :data:`NOT_RECORDED` appended."""
+    return NoteRefused(message + NOT_RECORDED)
+
+
 
 def bad_action(value: object) -> str:
     return f"action must be one of add, revise, retire; got {value!r}."
@@ -79,7 +94,7 @@ def subject_too_long(length: int, limit: int) -> str:
 
 TEXT_REQUIRED = "text is required to add or revise a note."
 
-RETIRE_TAKES_NO_TEXT = "a retire takes no text; leave it out."
+RETIRE_TAKES_NO_TEXT = "a retire takes no text. Leave text out and call again."
 
 
 def text_too_long(length: int, limit: int) -> str:
@@ -103,7 +118,7 @@ def note_not_found(value: str) -> str:
 NOTE_ID_AMBIGUOUS = "that id matches more than one note; give more of it."
 
 QUOTES_REQUIRED = (
-    "give at least one quote: exact words a person said that support this."
+    "give at least one quote: words a person said, copied exactly from a message."
 )
 
 
@@ -123,7 +138,10 @@ QUOTE_NOT_A_PERSONS_WORDS = (
     "not your own reply."
 )
 
-QUOTE_NO_MATCH = "that quote does not appear in any message."
+QUOTE_NO_MATCH = (
+    "that quote does not appear in any message a person wrote. Quote words a person said, copied "
+    "exactly: not the text of a note, and not your own reply."
+)
 
 
 def quote_ambiguous(count: int) -> str:

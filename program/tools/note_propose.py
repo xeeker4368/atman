@@ -62,9 +62,9 @@ TIMEOUT_SECONDS = 60.0
 def _resolve_target(note_id: str):
     matches = notes.get_active_by_id_prefix(note_id.strip())
     if not matches:
-        raise texts.NoteRefused(texts.note_not_found(note_id))
+        raise texts.proposal_refused(texts.note_not_found(note_id))
     if len(matches) > 1:
-        raise texts.NoteRefused(texts.NOTE_ID_AMBIGUOUS)
+        raise texts.proposal_refused(texts.NOTE_ID_AMBIGUOUS)
     return matches[0]
 
 
@@ -79,42 +79,43 @@ def propose_note(
     note_id: str | None = None,
 ) -> ToolOutput:
     if action not in ACTIONS:
-        raise texts.NoteRefused(texts.bad_action(action))
+        raise texts.proposal_refused(texts.bad_action(action))
     if subject_kind not in SUBJECT_KINDS:
-        raise texts.NoteRefused(texts.bad_subject_kind(subject_kind))
+        raise texts.proposal_refused(texts.bad_subject_kind(subject_kind))
 
     subject = (subject or "").strip()
     if not subject:
-        raise texts.NoteRefused(texts.SUBJECT_EMPTY)
+        raise texts.proposal_refused(texts.SUBJECT_EMPTY)
     if len(subject) > config.notes_max_subject_chars():
-        raise texts.NoteRefused(
+        raise texts.proposal_refused(
             texts.subject_too_long(len(subject), config.notes_max_subject_chars()))
 
     text = text.strip() if isinstance(text, str) else text
     if action == "retire":
         if text:
-            raise texts.NoteRefused(texts.RETIRE_TAKES_NO_TEXT)
+            raise texts.proposal_refused(texts.RETIRE_TAKES_NO_TEXT)
         text = None
     else:
         if not text:
-            raise texts.NoteRefused(texts.TEXT_REQUIRED)
+            raise texts.proposal_refused(texts.TEXT_REQUIRED)
         if len(text) > config.notes_max_text_chars():
-            raise texts.NoteRefused(texts.text_too_long(len(text), config.notes_max_text_chars()))
+            raise texts.proposal_refused(
+                texts.text_too_long(len(text), config.notes_max_text_chars()))
 
     target_id = None
     if action == "add":
         if note_id:
-            raise texts.NoteRefused(texts.ADD_TAKES_NO_NOTE_ID)
+            raise texts.proposal_refused(texts.ADD_TAKES_NO_NOTE_ID)
     else:
         if not note_id or not str(note_id).strip():
-            raise texts.NoteRefused(texts.NOTE_ID_REQUIRED)
+            raise texts.proposal_refused(texts.NOTE_ID_REQUIRED)
         target_id = _resolve_target(str(note_id))["id"]
 
     if not quotes:
-        raise texts.NoteRefused(texts.QUOTES_REQUIRED)
+        raise texts.proposal_refused(texts.QUOTES_REQUIRED)
     for index, quote in enumerate(quotes, start=1):
         if not isinstance(quote, str) or not quote.strip():
-            raise texts.NoteRefused(texts.quote_not_text(index))
+            raise texts.proposal_refused(texts.quote_not_text(index))
     evidence = [note_quotes.resolve_quote(quote, origin).to_dict() for quote in quotes]
 
     verdict = gate.check_identity(text) if text else None
@@ -153,7 +154,9 @@ NOTE_PROPOSE = Tool(
     name="note_propose",
     description=(
         "Propose a note about a person, topic or project, or a change to one. "
-        "The result says what happened. One short fact per note."
+        "The result says what happened. One short fact per note. "
+        "Evidence quotes are words a person said, copied exactly from a message "
+        "(never a note's text). A retire takes no text."
     ),
     parameters={
         "type": "object",
@@ -168,7 +171,7 @@ NOTE_PROPOSE = Tool(
             "quotes": {
                 "type": "array",
                 "items": {"type": "string"},
-                "description": "Exact quotes as evidence",
+                "description": "Words a person said, copied exactly. Not a note's text.",
             },
             "note_id": {"type": "string", "description": "revise/retire: id from note_search"},
         },

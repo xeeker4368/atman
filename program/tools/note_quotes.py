@@ -71,7 +71,7 @@ def _pick(matches, quote: str, tier: str) -> Resolved:
     if same_text and same_user:
         newest = max(matches, key=lambda m: (m["timestamp"], m["id"]))
         return Resolved(quote, newest["id"], tier, len(matches))
-    raise texts.NoteRefused(texts.quote_ambiguous(len(matches)))
+    raise texts.proposal_refused(texts.quote_ambiguous(len(matches)))
 
 
 def resolve_quote(quote: str, origin: OriginContext) -> Resolved:
@@ -79,7 +79,7 @@ def resolve_quote(quote: str, origin: OriginContext) -> Resolved:
     needle = normalise(clean)
     if (len(needle) < config.notes_min_quote_chars()
             or len(needle.split(" ")) < config.notes_min_quote_words()):
-        raise texts.NoteRefused(texts.quote_too_short(
+        raise texts.proposal_refused(texts.quote_too_short(
             config.notes_min_quote_chars(), config.notes_min_quote_words()))
 
     in_context = [r for r in notes.messages_by_ids(sorted(origin.context_message_ids))]
@@ -97,5 +97,5 @@ def resolve_quote(quote: str, origin: OriginContext) -> Resolved:
     replies = _matching([r for r in in_context if r["role"] == "assistant"], needle) or \
         _matching(notes.messages_containing(_longest_word(needle), ("assistant",)), needle)
     if replies:
-        raise texts.NoteRefused(texts.QUOTE_NOT_A_PERSONS_WORDS)
-    raise texts.NoteRefused(texts.QUOTE_NO_MATCH)
+        raise texts.proposal_refused(texts.QUOTE_NOT_A_PERSONS_WORDS)
+    raise texts.proposal_refused(texts.QUOTE_NO_MATCH)
