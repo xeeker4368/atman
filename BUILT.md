@@ -3261,6 +3261,28 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
     10/120 are all documented cases.
   - `tests/test_gate_identity.py`'s byte-identity digest (`c3a01db6…ad488`) is now computed over the original 41
     cases, since it covers the whole set and the new cases would move it by construction.
+- `[built]` **Notes piece 8: the ship gates, measured** (2026-10-02, Tier 3; `changelog/2026-10-02-notes-piece-8-ship-gates.md`
+  holds every table and reply verbatim). **Measurement only: no prompt, tool description, wording, alias or case file changed, and
+  `notes.enabled` is still off.** Scratch stores under `~/anam-measurements/p8/` (raw samples outside the repository, resumable); the
+  real `data/` fingerprint is identical before and after. Scripts: `scripts/notes_co15.py`, `notes_co15_real.py`, `notes_pending.py`,
+  `notes_identity.py`, `notes_live.py`, `notes_p8_pending_tables.py`.
+  - **CO15 FAILS, on canonical and on real wordings.** The frozen harness's pool and production order, 2 seeds x 20 passes, a fresh
+    shuffle each pass. Entity side (the shape running today): canonical **329/960 = 34% [31-37%]**, 6 of 8 wordings link (`I have no
+    note about X` 57%, `There is no note about X` 73%, `I have searched my records and there is nothing about X` 67%), every link
+    labelled `replaced`. **12 real two-turn conversations: the entity's own live turn-2 answer links in 3 (37/40, 25/40, 3/40)**; harness
+    answers link on 6 of the 12 replies. The person-corrects-entity shape (off): 64% canonical, 48% real. Known residuals reproduced
+    (N9 40/40, PN9 34/40, N10 15/40); none of the real replies is N9's string, so the real links are new findings in the same mechanism.
+    **By the standing rule Notes does not ship on this wording**; the wording was not changed here. Brittleness is not predicted by wording
+    family (one family spans 0% to 100%).
+  - **Pending claim (120 live turns, approval required, 20 requests, 2 seeds x 3 passes):** accurate 113/120 = 94.2% [88-97%];
+    **pending-claimed-as-done with a proposal made 0/113 [0-3.3%]**; silent 0/120. **5/120 = 4.2% [1.8-9.4%] claimed a note was retired
+    when the call had been refused three times** (one retire request). 66 refusals in 46 turns: 44 quote-not-in-a-message, 18 retire-takes-no-text, 4 no
+    quote; every revise and retire turn was refused at least once; 39 of 46 recovered. Only 21/113 accurate replies mention review.
+    Approval off (20 turns): 0/20 claim anyone reviewed the note.
+  - **Identity gate on 22 note-shaped sentences, 5 passes:** 0/80 false positives [0-5%], 0/30 misses [0-11%], on a deliberately easy set (no
+    first-person lived-through claims; J8 measured those at 37-41% missed).
+  - `[unverified]` Wordings, requests and sentences are mine; one model; seeds fix the shuffle, not the model's sampling; the
+    classification of replies is one reader's.
 - `[unverified]` **No guard on a `notes` row's text while it is active** (direct SQL can edit it);
   the design puts that discipline in the tools and `scripts.note`, which do not exist yet.
 
