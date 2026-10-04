@@ -253,6 +253,17 @@ def test_window_carries_the_breakdown_for_inspection():
         == window.budget.context_tokens
     )
 
+    # B20: the same identity with a non-zero tool schema, which is now a reserve of its own.
+    # (window_history takes no schema size, so the budget is planned directly.)
+    budget = history.plan_budget(
+        system_prompt_chars=4_000, retrieved_chars=4_000, tool_schema_chars=6_000)
+    window = history.select_history(exchange(5), budget)
+    assert window.budget.tool_schema_tokens == history.estimate_tokens_from_chars(6_000) > 0
+    assert (
+        window.budget.reserved_tokens + window.budget.history_tokens
+        == window.budget.context_tokens
+    )
+
 
 def test_it_accepts_sqlite_rows_from_the_message_store(isolated_data_dir):
     """A caller can pass db.get_conversation_messages() straight in."""

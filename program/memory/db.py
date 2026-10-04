@@ -237,6 +237,58 @@ _RETRY_DELAY_CAP = 1.0
 # ---------------------------------------------------------------------------
 
 
+class StoreWouldMigrateError(RuntimeError):
+    """A command that must never migrate was pointed at a store whose schema is not the code's."""
+
+
+def require_store_not_migrating() -> None:
+    """Refuse to go on if ``init_databases()`` would migrate an existing store.
+
+    For commands other than the server (``scripts/write_journal.py``, ``program/ops/seed.py``),
+    called **before** ``init_databases()``. Migrations run only at server startup
+    (``program/api/app.py``'s lifespan): a script that migrated would change the real store's
+    schema as a side effect of, say, ``write_journal --show-records`` (demonstrated on a scratch
+    store, 2026-10-03: v6 became v8).
+
+    - ``working.db`` absent: returns. A fresh directory may be created, which migrates nothing.
+    - Present: opened **read-only** (``mode=ro`` URI, so nothing is created or written) and its
+      ``MAX(version)`` compared with the latest version the code knows. Below it, the store would
+      be migrated; above it, the store is newer than this code and its schema is unknown to it.
+      Either raises :class:`StoreWouldMigrateError`. A file with no ``schema_version`` table reads
+      as version 0 and is refused; any other read error (locked, unable to open) also raises, with
+      its own message, and is never reported as a version.
+    """
+    working = working_path()
+    if not working.exists():
+        return
+    from program.memory import migrations
+
+    latest = max([migrations.INITIAL_VERSION, *(m.version for m in migrations.MIGRATIONS)])
+    try:
+        conn = sqlite3.connect(f"file:{working}?mode=ro", uri=True)
+    except sqlite3.OperationalError as exc:
+        raise StoreWouldMigrateError(f"cannot open {working} read-only: {exc}") from exc
+    try:
+        try:
+            version = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] or 0
+        except sqlite3.OperationalError as exc:
+            # Only a missing table means "no schema yet". Anything else (locked, unable to open,
+            # disk I/O) says nothing about the version, so it is not reported as one.
+            if "no such table" not in str(exc):
+                raise StoreWouldMigrateError(
+                    f"cannot read the schema version of {working}: {exc}") from exc
+            version = 0
+    finally:
+        conn.close()
+    if version != latest:
+        relation = "below" if version < latest else "above"
+        raise StoreWouldMigrateError(
+            f"the store at {working} is at schema version {version}, {relation} this code's "
+            f"version {latest}. This command never migrates: migrations run only when the "
+            f"server starts."
+        )
+
+
 def init_databases() -> None:
     """Create both databases and bring the working schema up to date.
 

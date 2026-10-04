@@ -20,6 +20,7 @@ from __future__ import annotations
 import argparse
 import sys
 
+from program.memory import db
 from program.ops import seed
 
 
@@ -51,6 +52,9 @@ def main() -> int:
     except seed.SeedError as exc:
         print(f"Seeding refused: {exc}", file=sys.stderr)
         return 1
+    except db.StoreWouldMigrateError as exc:
+        print(f"refused: {exc}", file=sys.stderr)
+        return 2
 
     print(f"users         : {', '.join(sorted(result.users))}")
     print(f"conversations : {len(result.conversations)}")

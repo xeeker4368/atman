@@ -185,6 +185,11 @@ def main() -> int:
     parser.add_argument("--show-records", metavar="DATE",
                         help="print the day's records as the entity saw them; no model call")
     args = parser.parse_args()
+    try:
+        db.require_store_not_migrating()   # every subcommand; migrations run only at server startup
+    except db.StoreWouldMigrateError as exc:
+        print(f"refused: {exc}", file=sys.stderr)
+        return 2
     db.init_databases()
     if args.show_records:
         return cmd_show_records(args.show_records, args.with_clause)

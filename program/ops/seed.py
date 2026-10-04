@@ -419,7 +419,11 @@ def seed(allow_existing: bool = False) -> SeedResult:
     Requires a reachable Ollama instance — chunking embeds every sealed group,
     and a corpus of chunks with no vectors would be useless to the retrieval
     checkpoint this exists for.
+
+    Never migrates an existing store (``db.require_store_not_migrating``); a missing one is
+    created.
     """
+    db.require_store_not_migrating()
     db.init_databases()
 
     existing = _existing_conversation_count()

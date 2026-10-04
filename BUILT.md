@@ -56,6 +56,31 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   server on a throwaway data directory created both databases at schema version 6,
   login returned 401, no errors logged, port released on shutdown. `DB_SCHEMA.md` and
   the backup CLI's hint now describe this.
+- `[built]` **Scripts never migrate a store; only the server does** (2026-10-03, Tier 3, `db.py`, stopped for review;
+  `changelog/2026-10-03-store-not-migrating.md`).
+  - **The defect, demonstrated on a scratch store:** `write_journal --show-records` (read-only by its own docstring) took
+    a v6 store to v8. `scripts/write_journal.py` called `db.init_databases()` on every subcommand, and so did
+    `program/ops/seed.py`. Against `data/`, either would have applied migrations 7 and 8 to the real store.
+  - **The guard:** `db.require_store_not_migrating()`, called before `init_databases()` in both.
+    - A missing `working.db` passes, so a fresh store can still be created.
+    - An existing one is opened read-only (`mode=ro`; the store is in DELETE journal mode, `db.py:82`, so no WAL
+      files are involved); a version below **or above** the code's latest raises `StoreWouldMigrateError`.
+    - Only `no such table` reads as version 0. Any other read error raises with its own message and claims no version.
+    - `write_journal` and `seed_dataset` print one `refused: …` line and exit 2.
+  - The server path (`program/api/app.py`) is unchanged. `note_admin.require_schema` is unchanged (it still refuses a
+    missing store and requires 8).
+  - **Consequence:** `write_journal` refuses on the real store, including `--show-records` and `--dry-run`, until the
+    server's first startup applies migrations 7 and 8.
+  - Tests: `tests/test_store_not_migrating.py`, 9.
+  - **Proven to bite, eight mutations:**
+    - the `write_journal` call removed fails 2;
+    - the `seed` call removed fails 1;
+    - allowing "above" fails 1;
+    - refusing a missing store fails 1;
+    - refusing always fails 1;
+    - a blanket `except` (every error read as 0) fails the other-read-error test;
+    - `no such table` raising fails the version-0 test;
+    - the `seed_dataset` catch removed fails its test.
 - `[built]` **Health endpoint** — `GET /api/health` returns `{"status": "ok"}`.
   Liveness only; reports on no dependencies. Verified live, not mocked.
 - `[built]` **`run_server.py`** — `--debug` and `--port`, logging to console
@@ -3334,6 +3359,8 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
   - Replies are near-templated per request, so the effective n is about 20 requests.
 - `[unverified]` **Proposed frozen case `NP6`** (a pending retire claimed done) is clean 5/5: a documented miss in `NP3`'s
   pattern, because the ACTION rule clears any claim once `note_propose` ran. **Not added to `cases.toml`.**
+  *Resolved 2026-10-03: not a new case. The two wordings were added to `NP3`'s documented note instead (same
+  mechanism); case count 51 and fingerprint `e01b6d12…` unchanged. `changelog/2026-10-03-np6-into-np3-note.md`.*
 - `[built]` **`note_search`'s search-first line was applied, measured and reverted** (2026-10-03).
   - The 10 no-note claims made without `note_search` were all conversation-recall questions (*"What did we decide about…"*);
     each called `memory_search`, which was empty on the empty scratch store. **No notes-topic claim was made without a
@@ -4552,6 +4579,33 @@ Legend: `[built]` verified working · `[in progress]` partially done ·
 
   The end-of-run fingerprint remains the backstop for any of these that *write*. A
   *read* through one of them is still invisible, as every read was before B16.
+- `[built]` **`scripts/_scratch.py`: measurement scripts get a scratch store before `program` is imported**
+  (2026-10-03; `changelog/2026-10-03-scratch-helper.md`). `scratch_env(name, *, root=None) -> Path`.
+  - It sets every `[paths]` `ANAM_*` variable under `~/anam-measurements/<name>/`. The variables are discovered by
+    parsing `program/config.py`'s env table, without importing it.
+  - It refuses if any `program` module is already imported.
+  - It then imports `program.config` and raises, naming the accessor, if any `*_dir()` (except `config_dir`) resolves
+    outside scratch.
+  - It creates nothing.
+  - **Why:** a script that imported `program` with default directories read the real settings table (2026-10-03).
+  - Tests: `tests/test_scratch_helper.py`, 4.
+    - Three run the helper in subprocesses, because "already imported" is per-process: everything lands under scratch
+      and nothing is created; it refuses after a `program` import; it names `workspace_dir()` when that variable is
+      dropped.
+    - One scans `scripts/*.py`. A script whose first `program` import comes before any `scratch_env` call must be
+      listed, either as `OPERATOR` (6, meant for the real store, each with a reason) or `NOT_YET_MIGRATED` (33, listed
+      and not fixed). The lists can only shrink.
+  - **Proven to bite, five mutations:**
+    - creating a file under scratch fails (i);
+    - pointing at the wrong root fails (i) and (iii);
+    - removing the already-imported refusal fails (ii);
+    - removing the resolution check fails (iii);
+    - an unlisted script, an import before the call, and a stale list entry each fail the scan.
+- `[unverified]` **The scan is static and has limits.**
+  - A script that reaches `program` only through another script (`notes_gap.py` via `notes_live`) passes it.
+  - Scripts that set the directories some other way (`notes_live.setup()`) are listed rather than judged.
+  - The two frozen evals (`correction_eval`, `fabrication_eval`) are in `NOT_YET_MIGRATED` and read the real
+    settings table today.
 - `[unverified]` **The guard cannot tell the suite's writes from another process's.**
   Extending it from creation to modification widens that: running the suite while
   anything else uses the real store now fails the session. That is the right direction —
