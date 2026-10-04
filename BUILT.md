@@ -1,5 +1,14 @@
 # BUILT.md
 
+> **FROZEN as of 2026-10-04 (docs restructure; `changelog/2026-10-04-docs-restructure.md`). Do not edit and do not load whole.**
+> - **Why:** it was 354,129 of the 432,290 characters `CLAUDE.md` imported at the start of every session (82%), and a status label in a
+>   long document is a derived artifact that can drift from the code (`AGENTS.md` "A status label is a derived artifact too").
+> - **Current invariants** are in `ARCHITECTURE.md`, each cited to a test or a function. **Open items and current state** are in `NOW.md`.
+>   **Phase status** is in `BUILD_PLAN.md`.
+> - **Search it by heading** (`## Core platform`, `## Memory / retrieval`, `## Tools`, ...), for the history of why something is the way it is.
+> - The paragraph below calling this file the single source of truth, and its "Rule for maintaining this file", are superseded by `AGENTS.md`
+>   "Git hygiene": this file is no longer updated with new work.
+
 Single source of truth for what actually exists in **this** repo, verified
 against code/tests/database — not aspiration, not the old project's status.
 
