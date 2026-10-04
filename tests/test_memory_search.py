@@ -178,6 +178,35 @@ def test_a_degraded_search_says_which_leg_did_not_run(store, monkeypatch):
     assert "grind finer" in text.lower()
 
 
+def test_it_says_the_search_was_incomplete_when_the_vector_store_fails(
+    store, monkeypatch
+):
+    """B24: the store failing is a leg being down, not the whole search failing."""
+
+    class ExplodingQueryStore:
+        indexes_vectors = True
+
+        def upsert(self, chunk_id, vector, metadata):
+            return None
+
+        def delete(self, chunk_id):
+            return None
+
+        def has(self, chunk_id):
+            return True
+
+        def query(self, vector, n_results=10, ids=None):
+            raise RuntimeError("Error creating hnsw segment reader")
+
+    monkeypatch.setattr(retrieval.vectors, "get_vector_store", ExplodingQueryStore)
+
+    text = memory_search.search_memory("sour espresso grind")
+
+    assert "This search was incomplete" in text
+    assert "vector" in text
+    assert "grind finer" in text.lower(), "the lexical leg still answered"
+
+
 def test_an_empty_query_is_a_tool_error_not_an_arbitrary_top_match(store):
     """Searching for nothing would return the corpus's arbitrary best matches
     and read like an answer."""

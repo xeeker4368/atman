@@ -44,6 +44,7 @@ per-request sweep arrives with task 2.2. Until then the callers are
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 
@@ -64,6 +65,20 @@ class IdleCloseError(RuntimeError):
     """
 
 
+@dataclass(frozen=True)
+class IdleCandidate:
+    """One conversation the sweep judged idle, and the snapshot it judged on.
+
+    ``last_message_at`` is carried because the close is conditional on it: the
+    sweep decides at one moment and closes at another, and a message arriving in
+    between means the conversation is not idle after all.
+    """
+
+    conversation_id: str
+    reason: str
+    last_message_at: str
+
+
 @dataclass
 class IdleCloseResult:
     """What a sweep did.
@@ -77,6 +92,10 @@ class IdleCloseResult:
     closed: int = 0
     chunked: int = 0
     skipped_active: int = 0
+    #: Candidates that were not closed after all: a message arrived after the
+    #: snapshot, or a turn is running in them. Counted rather than silent,
+    #: because "examined 3, closed 1" otherwise reads as two failures.
+    skipped_recently_active: int = 0
     closed_ids: list[str] = field(default_factory=list)
     failures: list[tuple[str, str]] = field(default_factory=list)
 
@@ -102,10 +121,10 @@ def _window_for(last_role: str | None) -> timedelta:
 def find_idle_conversations(
     now: datetime | None = None,
     exclude_conversation_id: str | None = None,
-) -> list[tuple[str, str]]:
-    """Open conversations past their window. Returns ``(id, reason)`` pairs."""
+) -> list[IdleCandidate]:
+    """Open conversations past their window, each with the snapshot judged."""
     now = now or datetime.now(timezone.utc)
-    idle: list[tuple[str, str]] = []
+    idle: list[IdleCandidate] = []
 
     for row in db.get_open_conversations_with_activity():
         if exclude_conversation_id and row["id"] == exclude_conversation_id:
@@ -115,10 +134,13 @@ def find_idle_conversations(
         if quiet_for >= window:
             kind = "in-flight grace" if row["last_role"] not in (ASSISTANT, None) else "idle"
             idle.append(
-                (
-                    row["id"],
-                    f"{kind}: quiet {quiet_for.total_seconds() / 60:.1f}m "
-                    f"of {window.total_seconds() / 60:.0f}m",
+                IdleCandidate(
+                    conversation_id=row["id"],
+                    reason=(
+                        f"{kind}: quiet {quiet_for.total_seconds() / 60:.1f}m "
+                        f"of {window.total_seconds() / 60:.0f}m"
+                    ),
+                    last_message_at=row["last_message_at"],
                 )
             )
     return idle
@@ -128,12 +150,25 @@ def close_idle_conversations(
     now: datetime | None = None,
     exclude_conversation_id: str | None = None,
     dry_run: bool = False,
+    is_busy: Callable[[str], bool] | None = None,
 ) -> IdleCloseResult:
     """Close every conversation past its idle window.
 
     ``exclude_conversation_id`` is the conversation the caller is currently
     using. Task 2.2 passes the active one, so a sweep can never close the turn
     that triggered it.
+
+    ``is_busy`` is asked, when given, whether a turn is running in a candidate;
+    the chat route passes ``turn_locks.held``. It is passed in rather than
+    imported so this module keeps knowing nothing about turns, and it is an
+    in-process answer only — the conditional close below is what covers another
+    process, and the two are deliberately both present.
+
+    **The close is conditional on the snapshot** this sweep judged
+    (``IdleCandidate.last_message_at``): a message that arrived since means the
+    conversation is not idle after all, so it is left open, counted in
+    ``skipped_recently_active``, and **not chunked** — finalising it would seal
+    its trailing group while the conversation is still live.
 
     **Ordering matters:** ``ended_at`` is set first, then chunking runs. If
     chunking fails the conversation is still closed, ``chunked`` stays 0, and it
@@ -156,12 +191,30 @@ def close_idle_conversations(
         result.skipped_active = 1
 
     if dry_run:
-        result.closed_ids = [cid for cid, _ in candidates]
+        result.closed_ids = [c.conversation_id for c in candidates]
         return result
 
-    for conversation_id, reason in candidates:
+    for candidate in candidates:
+        conversation_id, reason = candidate.conversation_id, candidate.reason
+        if is_busy is not None and is_busy(conversation_id):
+            result.skipped_recently_active += 1
+            logger.info(
+                "Left conversation %s open: a turn is running in it",
+                conversation_id[:8],
+            )
+            continue
         try:
-            db.end_conversation(conversation_id)
+            if not db.end_conversation(
+                conversation_id, not_after=candidate.last_message_at
+            ):
+                result.skipped_recently_active += 1
+                logger.info(
+                    "Left conversation %s open: it has a message newer than the "
+                    "sweep's snapshot (%s)",
+                    conversation_id[:8],
+                    candidate.last_message_at,
+                )
+                continue
             result.closed += 1
             result.closed_ids.append(conversation_id)
             logger.info("Closed conversation %s (%s)", conversation_id[:8], reason)
@@ -188,4 +241,48 @@ def close_idle_conversations(
             f"{detail}"
         )
 
+    return result
+
+
+@dataclass
+class DrainResult:
+    """What a drain of the recovery queue did."""
+
+    queued: int = 0
+    attempted: int = 0
+    chunked: int = 0
+    failures: list[tuple[str, str]] = field(default_factory=list)
+
+
+def drain_recovery_queue(limit: int = 1) -> DrainResult:
+    """Finish final chunking for conversations that were closed but not chunked.
+
+    ``db.get_unchunked_ended_conversations()`` has existed since task 1.3 and
+    nothing drained it: a close whose chunking failed left the conversation's
+    trailing turns unretrievable with no retry anywhere. This is that retry.
+
+    **Bounded, and deliberately not at startup.** Final chunking embeds, so a
+    drain makes model calls; the chat route runs it after the response with
+    ``limit=1``, which keeps it out of the person's wait and off the startup path
+    (a slow or absent model must not delay or fail serving). The script runs it
+    with whatever limit the operator asks for.
+
+    Failures are collected rather than raised: a conversation that fails stays in
+    the queue, and the next drain tries it again.
+    """
+    result = DrainResult()
+    rows = db.get_unchunked_ended_conversations(limit=limit)
+    result.queued = len(rows)
+    for row in rows:
+        result.attempted += 1
+        try:
+            chunking.finalise_conversation(row["id"])
+            result.chunked += 1
+            logger.info("Drained the recovery queue: chunked %s", row["id"][:8])
+        except Exception as exc:  # noqa: BLE001 - collected, the row stays queued
+            result.failures.append((row["id"], str(exc)))
+            logger.warning(
+                "The recovery queue still holds %s: final chunking failed: %s",
+                row["id"][:8], exc,
+            )
     return result

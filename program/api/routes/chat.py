@@ -46,7 +46,7 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException, status
 from pydantic import BaseModel, Field
 
 from program.api.routes.auth import CurrentActor
-from program.engine import ollama, turn
+from program.engine import ollama, turn, turn_locks
 from program.memory import chunking, idle
 from program.settings.permissions import Actor
 from program.tools import receipts
@@ -88,9 +88,20 @@ def _sweep(conversation_id: str) -> None:
     waiting for has already succeeded, and ``IdleCloseError`` here would only
     surface as an unhandled background exception. The conversations it failed
     to close stay open and are retried on the next sweep.
+
+    It also drains **one** conversation from the recovery queue — a close whose
+    final chunking failed. One per turn is deliberate: the drain embeds, so it is
+    real work, and it belongs here rather than at startup, where a slow model
+    would delay serving.
     """
     try:
-        result = idle.close_idle_conversations(exclude_conversation_id=conversation_id)
+        result = idle.close_idle_conversations(
+            exclude_conversation_id=conversation_id,
+            # In-process, and a snapshot: a conversation whose turn lock is held
+            # is left open. The conditional close inside the sweep is what covers
+            # another process, so this is an improvement on top, not the guard.
+            is_busy=turn_locks.held,
+        )
         if result.closed:
             logger.info(
                 "post-turn sweep closed %d conversation(s), chunked %d",
@@ -99,6 +110,16 @@ def _sweep(conversation_id: str) -> None:
             )
     except Exception as exc:  # noqa: BLE001 - background, logged not raised
         logger.warning("post-turn idle sweep failed: %s", exc)
+
+    try:
+        drained = idle.drain_recovery_queue(limit=1)
+        if drained.chunked:
+            logger.info(
+                "post-turn drain chunked %d conversation(s) from the recovery queue",
+                drained.chunked,
+            )
+    except Exception as exc:  # noqa: BLE001 - background, logged not raised
+        logger.warning("post-turn recovery-queue drain failed: %s", exc)
 
 
 def _checkpoint(conversation_id: str) -> None:
@@ -139,6 +160,13 @@ def chat(
         # 404 rather than 403: a 403 would confirm the conversation exists.
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="conversation not found"
+        ) from None
+    except turn.TurnAlreadyRunning as exc:
+        # 409, not a queue: a turn is bounded at roughly 35 minutes, so holding
+        # the second request could take longer than answering it. Nothing was
+        # written for this request, so a client retry is harmless.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
         ) from None
     except turn.MessageTooLongError as exc:
         raise HTTPException(

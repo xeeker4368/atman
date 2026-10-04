@@ -93,3 +93,19 @@ statement is never overwritten, that a correction is recorded as a link if at al
 that the entity must not claim the record changed or that the link has been made.
 Measured live: 0/120 changed-record claims against control's 2/120, and 0/120 link claims.
 `docs/SOUL_AND_PROMPT_DESIGN.md` revision 4, S21–S26.*
+
+---
+
+**B24 — `retrieval._vector_leg` guards only the embedding call, so a vector-store failure drops the lexical leg
+too** (filed 2026-10-03, found with B23; **Tier 3, nothing changed**).
+- `_vector_leg` catches an exception from `ollama.embed(...)` and degrades with a `skip_reason`
+  (`program/memory/retrieval.py` around line 353). The next line, `store.query(...)`, is not guarded, so a Chroma
+  error propagates out of `retrieval.search()`.
+- `turn.py` then logs `retrieval failed for this turn` and runs with **no retrieved records**, though the lexical
+  leg's results were available. Observed in every failing turn of B23.
+- **BUILT.md's "One leg down does not take retrieval with it" holds only for an embedder failure**; its test kills
+  the embedder.
+- The smallest fix is to guard `store.query` the same way, so the leg degrades and the lexical results survive. It
+  does not fix B23; it limits what B23 costs.
+
+**CLOSED by piece 3.5 step 4** (2026-10-04, `git log --grep 'Piece 3.5 step 4'`): `store.query` is guarded the way `ollama.embed` already was, with the same log phrase, so the lexical leg's results survive a vector-store failure. The same step bounded the text sent to the embedder, which is the other way a long turn lost that leg. Cited in `ARCHITECTURE.md` under Memory / retrieval; changelog `changelog/2026-10-04-piece-3.5-lifecycle.md`.

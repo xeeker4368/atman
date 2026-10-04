@@ -448,3 +448,111 @@ def test_a_vector_leg_failure_degrades_rather_than_failing_retrieval(
     assert result.vector.ran is False
     assert "could not be embedded" in result.vector.skip_reason
     assert result.results, "the lexical leg should still have produced results"
+
+
+# --- B24: a vector-store failure must not take the lexical leg with it -------
+
+
+class ExplodingQueryStore:
+    """A vector store whose query raises, as Chroma's did in B23."""
+
+    indexes_vectors = True
+
+    def __init__(self, error=None):
+        self.error = error or RuntimeError("Error creating hnsw segment reader")
+
+    def upsert(self, chunk_id, vector, metadata):
+        return None
+
+    def delete(self, chunk_id):
+        return None
+
+    def has(self, chunk_id):
+        return True
+
+    def query(self, vector, n_results=10, ids=None):
+        raise self.error
+
+
+def test_a_vector_store_failure_keeps_the_lexical_results(corpus, monkeypatch):
+    monkeypatch.setattr(retrieval.vectors, "get_vector_store", ExplodingQueryStore)
+
+    result = retrieval.search("espresso grinder")
+
+    assert result.results, "the lexical leg's results were lost with the vector leg"
+    assert result.lexical.ran is True
+    assert result.vector.ran is False
+    assert "vector store could not be queried" in result.vector.skip_reason
+    assert "hnsw segment reader" in result.vector.skip_reason
+
+
+def test_a_vector_store_failure_is_logged_as_the_vector_leg_being_unavailable(
+    corpus, monkeypatch, caplog
+):
+    """The exact phrase matters: it is what the operator's log watch greps for."""
+    monkeypatch.setattr(retrieval.vectors, "get_vector_store", ExplodingQueryStore)
+
+    with caplog.at_level("WARNING", logger="program.memory.retrieval"):
+        retrieval.search("espresso grinder")
+
+    assert any("vector leg unavailable" in r.getMessage() for r in caplog.records)
+
+
+def test_a_store_failure_does_not_swallow_the_isolation_violation(corpus, monkeypatch):
+    """The guard catches Exception, never BaseException."""
+    from tests.conftest import StoreIsolationViolation
+
+    monkeypatch.setattr(
+        retrieval.vectors, "get_vector_store",
+        lambda: ExplodingQueryStore(StoreIsolationViolation("a real store was opened")),
+    )
+
+    with pytest.raises(StoreIsolationViolation):
+        retrieval.search("espresso grinder")
+
+
+# --- The embedding query is bounded -----------------------------------------
+
+
+def test_a_long_message_is_truncated_for_the_embedding_only(corpus, monkeypatch):
+    budget = config.embedding_max_input_chars()
+    seen: list[str] = []
+
+    def refusing_embed(text, **kwargs):
+        # What the embedding model does with over-length input: it refuses.
+        if len(text) > budget:
+            raise RuntimeError(f"input is {len(text)} characters, over the model's context")
+        seen.append(text)
+        return [0.5] * 768
+
+    monkeypatch.setattr(retrieval.ollama, "embed", refusing_embed)
+    long_query = ("espresso grinder and the kettle, " * 4000)[: budget * 4]
+    assert len(long_query) > budget
+
+    result = retrieval.search(long_query)
+
+    assert result.vector.ran is True, "the vector leg was lost to a long question"
+    assert len(seen) == 1 and len(seen[0]) == budget
+    assert long_query.startswith(seen[0]), "the embedded text is the opening, verbatim"
+    # The lexical leg still saw the whole thing.
+    assert result.lexical.ran is True
+    assert set(retrieval.query_terms(long_query)) == set(result.terms)
+
+
+def test_a_query_inside_the_budget_is_passed_through_unchanged(corpus, monkeypatch):
+    seen: list[str] = []
+    monkeypatch.setattr(
+        retrieval.ollama, "embed",
+        lambda text, **kw: (seen.append(text), [0.5] * 768)[1],
+    )
+
+    retrieval.search("espresso grinder")
+
+    assert seen == ["espresso grinder"]
+
+
+def test_the_truncation_limit_is_the_embedding_budget(monkeypatch):
+    """Read from config, not written twice."""
+    monkeypatch.setattr(config, "embedding_max_input_chars", lambda: 12)
+    assert retrieval._query_for_embedding("x" * 50) == "x" * 12
+    assert retrieval._query_for_embedding("short") == "short"

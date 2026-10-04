@@ -14,6 +14,7 @@ import argparse
 import sys
 
 from program.memory import db, reconcile, vectors
+from program.ops import store_lock
 
 
 def main() -> int:
@@ -21,6 +22,14 @@ def main() -> int:
     parser.add_argument("--dry-run", action="store_true", help="Report, change nothing")
     parser.add_argument("--limit", type=int, default=None, help="Repair at most N")
     args = parser.parse_args()
+
+    # The whole point of this script is to write vectors, and a second process
+    # doing that breaks a running server's vector search until it restarts (B23).
+    try:
+        store_lock.hold_or_refuse("reconcile vectors")
+    except store_lock.StoreInUse as exc:
+        print(exc, file=sys.stderr)
+        return 1
 
     store = vectors.get_vector_store()
     print(f"data dir     : {db.working_path().parent}")

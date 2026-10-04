@@ -18,9 +18,12 @@ production store for weeks.
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Protocol, Sequence, runtime_checkable
 
 from program import config
+
+logger = logging.getLogger(__name__)
 
 #: One collection, named once. The go-live wipe and any rebuild both key on it.
 COLLECTION_NAME = "chunks"
@@ -131,10 +134,15 @@ class ChromaVectorStore:
     indexes_vectors = True
 
     def __init__(self, path: str, collection_name: str = COLLECTION_NAME):
-        import chromadb
-
         self.path = path
         self.collection_name = collection_name
+        self._open()
+
+    def _open(self) -> None:
+        """Build this store's client and collection. Also the recovery's second half."""
+        import chromadb
+
+        path, collection_name = self.path, self.collection_name
         self._client = chromadb.PersistentClient(path=path)
         self._collection = self._client.get_or_create_collection(
             name=collection_name,
@@ -143,6 +151,30 @@ class ChromaVectorStore:
             embedding_function=None,
             metadata={"hnsw:space": "cosine"},
         )
+
+    def _recover_stale_reader(self) -> None:
+        """Rebuild this store's view of the collection after another process wrote.
+
+        **B23.** A process that has queried the collection keeps a stale view of
+        it once another process upserts: either every later query raises
+        ``InternalError`` (when nothing was on disk at the first query), or — and
+        this one is silent — the new vectors are simply never returned.
+
+        Both are cured by the same two steps, and **both steps are needed**,
+        measured: clearing Chroma's shared system cache alone leaves this object
+        holding the old collection, and rebuilding the client alone gets handed
+        the same cached system back.
+
+        ``SharedSystemClient.clear_system_cache()`` is an **internal** Chroma API
+        (a static method that empties two class-level dicts). That is why chromadb
+        is pinned, and why ``tests/test_vectors.py`` fails loudly if the attribute
+        stops existing. It is process-wide: it drops every cached Chroma system,
+        which in this application is only ours.
+        """
+        from chromadb.api.shared_system_client import SharedSystemClient
+
+        SharedSystemClient.clear_system_cache()
+        self._open()
 
     def _check_dimension(self, chunk_id: str, vector: list[float]) -> None:
         expected = config.expected_embedding_dimension()
@@ -208,7 +240,30 @@ class ChromaVectorStore:
 
         ``n_results`` is clamped by Chroma to the collection size, so
         over-asking is safe and needs no guard here.
+
+        **A stale reader is recovered once** (B23, see
+        :meth:`_recover_stale_reader`). A second failure propagates, and
+        ``retrieval._vector_leg`` degrades the leg rather than the turn.
         """
+        import chromadb.errors
+
+        try:
+            return self._query(vector, n_results, ids)
+        except chromadb.errors.InternalError as exc:
+            logger.warning(
+                "the vector store's reader was stale (another process wrote "
+                "vectors); clearing Chroma's system cache, reopening and retrying "
+                "once: %s", exc,
+            )
+            self._recover_stale_reader()
+            return self._query(vector, n_results, ids)
+
+    def _query(
+        self,
+        vector: list[float],
+        n_results: int,
+        ids: Sequence[str] | None,
+    ) -> dict[str, Any]:
         if ids is None:
             return self._collection.query(
                 query_embeddings=[vector], n_results=n_results

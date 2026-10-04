@@ -14,7 +14,7 @@ each phase) and the history in `BUILT.md` (frozen; `ARCHITECTURE.md` holds the c
 - **In progress:** Phase 5. Built: reflection journal, read-only Moltbook tools, Notes pieces 1 to 8, the CO17 exclusion. Not built: bounded research
   execution, the self-flag tool, periodic mining. **Not started:** Phases 6 to 10.
 - **HEAD:** see `git log`.
-- **Last full suite on record:** 2,002 passed, 23 skipped, 0 failed, `ruff` clean, 2026-10-04, on piece 4a's final commit (`changelog/2026-10-04-piece-4a.md`); the 23 skips are the live tests and two opt-in Moltbook tests.
+- **Last full suite on record:** 2,057 passed, 23 skipped, 0 failed, `ruff` clean, 2026-10-04, on piece 3.5's final commit (`changelog/2026-10-04-piece-3.5-lifecycle.md`); the 23 skips are the live tests and two opt-in Moltbook tests.
 - **Dark or off by default** (`config/defaults.toml`, parsed with `tomllib`): `notes.enabled = false`, `moltbook.enabled = false`,
   `corrections.person_corrects_entity = false`. A local `config/local.toml` can override them; it was not read for this block.
 
@@ -28,7 +28,13 @@ Fix sequence `docs/FIX_PLAN_2026-10-04.md` (rulings and amendments at its top). 
   SQLite requirement (a startup probe builds the schema in memory); a failed schema-version read counted as version 0
   (`note_admin`) or null (`backup`); the kit tripwire matching only "retrieval failed" (a file outside the repo).
 - **Not in 4a:** the `ollama.chat` docstring (fixed in `d77bcbf`); `Tool.empty_result` stays optional (`tests/test_empty_result.py` enforces it).
-- **Next:** piece 3.5 (lifecycle and concurrency, Tier 3), not started.
+- **Piece 3.5 (lifecycle and concurrency, Tier 3): built 2026-10-04, awaiting review** (`git log --grep 'Piece 3.5'`;
+  `changelog/2026-10-04-piece-3.5-lifecycle.md`, design `docs/DESIGN_3.5_2026-10-04.md`). It closes: two turns
+  overlapping in one conversation (409); a message saved into a conversation that has ended, and the reply that
+  used to be indexed by nothing; the idle sweep closing a conversation that got a message after its snapshot; a
+  chunk row whose vector upsert failed being skipped for ever; the recovery queue nothing drained; B24; and B23's
+  loud shape (recovery) and its quiet shape (a refusal for vector-writing scripts).
+- **Next:** piece 3.1 (classifier options at temperature 0, and correction rendering behind a setting).
 
 ---
 
@@ -450,51 +456,30 @@ guards existed, would otherwise bring back an unguarded archive that looks fine)
 repair when they differ, and (3) restore the two databases as one consistent pair (the dual-write
 atomicity guarantee). Neither is designed here.
 
-**B23 — a server that has queried Chroma fails every later vector query once another process writes
-vectors, until restart** (filed 2026-10-03, found on a scratch server; **Tier 3, nothing changed in the repo**).
-- **Symptom:** after a conversation was ended and chunked by a separate process (`db.end_conversation` plus
-  `chunking.finalise_conversation`), every following turn logged `retrieval failed for this turn, continuing
-  without: Error executing plan: Internal error: Error creating hnsw segment reader: Nothing found on disk`, and
-  `memory_search` raised the same `InternalError`.
-- **Reproduced on scratch stores**, chromadb 1.5.9, real model:
+**B23 — Chroma's cross-process staleness: the mechanism is closed, two things stay open**
+(filed 2026-10-03; recovery and refusal built by piece 3.5 step 5, 2026-10-04,
+`git log --grep 'Piece 3.5 step 5'`; `docs/DESIGN_3.5_2026-10-04.md` section 0.3).
+- **What was built:** `vectors.ChromaVectorStore.query` recovers once from the loud shape (a Chroma
+  `InternalError` after another process wrote: clear the shared system cache, reopen the client,
+  retry), and `program/ops/store_lock.py` refuses the four vector-writing scripts
+  (`close_idle_conversations`, `reconcile_vectors`, `seed_dataset`, `write_journal --index`) while a
+  server holds the store. A second server on one store is refused too.
+- **Residual, measured and now a checked property: the quiet shape cannot be detected.** When the
+  collection already held a vector, another process's write raises nothing — `count()` and `has()`
+  see the new vector and `query()` never returns it. There is nothing for the recovery to trigger
+  on, so the **refusal is what closes this shape**. If Chroma ever starts reporting it,
+  `tests/test_store_lock.py::test_a_stale_view_raises_nothing_which_is_why_a_script_is_refused`
+  fails and says so.
+- **Phase 6 owes the journal route.** A launchd `write_journal --index` will be **refused** by the
+  guard, by design. Phase 6 should add a loopback-gated admin route that indexes one artifact id in
+  the server's process (`POST /api/journal/index`, behind `require_actor` plus an admin capability),
+  with the launchd job calling it; J7's control is unchanged, because the route takes an explicit id
+  and never scans. The script stays the operator path for a stopped server. Not designed here.
+- The recovery uses an internal Chroma API, so the chromadb pin is load-bearing;
+  `tests/test_store_lock.py::test_the_chroma_stale_reader_recovery_api_exists` fails loudly if it
+  disappears.
 
-  | case | result |
-  |---|---|
-  | (a) the server had answered a turn, then another process wrote | **fails** |
-  | (b) the server was started after the other process wrote | works |
-  | (c) the conversation was ended inside the server (idle sweep) | works |
-  | (d) the server from (a) was restarted | **fixed**, with nothing on disk changed |
-
-  The on-disk state is the same in the healthy and the broken stores: the vector segment has no `max_seq_id` row and
-  only its four preallocated HNSW files. So the fault is the long-lived process's in-memory view.
-- **Minimal reproduction, no server:**
-  - A long-lived process queries, and a second process upserts one vector; the first process's next query fails.
-  - **It needs the long-lived process to have queried first**: one that only opened the client (as the server does
-    at boot) and never queried kept working.
-  - `vectors.reset_vector_store()` alone does **not** recover. **`chromadb.api.shared_system_client.SharedSystemClient.clear_system_cache()`
-    then `reset_vector_store()` recovered it in-process** (an internal Chroma API).
-- **What can trigger it in this repo:** any vector-writing script run while the server is up and has answered a turn:
-  - `scripts/close_idle_conversations.py`;
-  - `scripts/reconcile_vectors.py`;
-  - `scripts/seed_dataset.py`;
-  - `scripts/write_journal.py --index`.
-
-  Demonstrated only for the chunking route. The other three use the same `upsert` and client, but are untested.
-- **Phase 6 owes serialization:** vector writes go through the server's process, or scripts refuse while a server
-  holds the store, or the recovery above is built and tested. Not chosen.
-- **The kit was changed instead:** it now ends conversations through a launcher-only route inside the server.
-
-**B24 — `retrieval._vector_leg` guards only the embedding call, so a vector-store failure drops the lexical leg
-too** (filed 2026-10-03, found with B23; **Tier 3, nothing changed**).
-- `_vector_leg` catches an exception from `ollama.embed(...)` and degrades with a `skip_reason`
-  (`program/memory/retrieval.py` around line 353). The next line, `store.query(...)`, is not guarded, so a Chroma
-  error propagates out of `retrieval.search()`.
-- `turn.py` then logs `retrieval failed for this turn` and runs with **no retrieved records**, though the lexical
-  leg's results were available. Observed in every failing turn of B23.
-- **BUILT.md's "One leg down does not take retrieval with it" holds only for an embedder failure**; its test kills
-  the embedder.
-- The smallest fix is to guard `store.query` the same way, so the leg degrades and the lexical results survive. It
-  does not fix B23; it limits what B23 costs.
+**B24 a vector-store failure drops the lexical leg:** closed by piece 3.5 step 4 (`git log --grep 'Piece 3.5 step 4'`); text in `docs/archive/NOW-closed-backlog.md`.
 
 **B25 — when `memory_search` returns an error, the entity can report a clean search** (filed 2026-10-03; relates to
 CO17; **observed once, not measured; nothing changed**).

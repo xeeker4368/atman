@@ -514,6 +514,20 @@ def list_users() -> list[sqlite3.Row]:
 # ---------------------------------------------------------------------------
 
 
+class ConversationClosed(RuntimeError):
+    """A message was offered to a conversation whose ``ended_at`` is set.
+
+    Closing is what runs final chunking and sets ``chunked``, so a message added
+    afterwards is indexed by nothing: the trailing group is already sealed, and
+    the conversation is no longer in ``get_unchunked_ended_conversations()``
+    either. Refusing the write is what makes "the trailing group is indexed
+    exactly once, by the close" true rather than hoped for.
+
+    The caller decides what to do with it. ``turn.py`` starts a new conversation
+    and saves the reply there, reporting the new id.
+    """
+
+
 @retry_on_locked
 def start_conversation(user_id: str, conversation_id: str | None = None) -> str:
     cid = conversation_id or new_id()
@@ -533,12 +547,33 @@ def get_conversation(conversation_id: str) -> sqlite3.Row | None:
 
 
 @retry_on_locked
-def end_conversation(conversation_id: str) -> None:
-    with transaction() as conn:
-        conn.execute(
-            "UPDATE conversations SET ended_at = ? WHERE id = ? AND ended_at IS NULL",
-            (now_iso(), conversation_id),
+def end_conversation(conversation_id: str, *, not_after: str | None = None) -> bool:
+    """Close a conversation. Returns whether this call closed it.
+
+    ``not_after`` is the caller's own snapshot of the conversation's last message
+    time: the close then happens only if no message has arrived since. The idle
+    sweep passes it, because it decides a conversation is idle at one moment and
+    closes it at another, and a message in between means the conversation is not
+    idle after all — closing it would seal a trailing group under a turn that is
+    still running.
+
+    Omitting it keeps the unconditional close, for callers that mean it: a close
+    driven by a person (the kit's end route, a script) is not racing its own
+    snapshot.
+
+    The return value matters to the sweep: it must not run final chunking for a
+    conversation it did not close, and it must not count one either.
+    """
+    sql = "UPDATE conversations SET ended_at = ? WHERE id = ? AND ended_at IS NULL"
+    params: list = [now_iso(), conversation_id]
+    if not_after is not None:
+        sql += (
+            " AND NOT EXISTS (SELECT 1 FROM messages "
+            "WHERE conversation_id = ? AND timestamp > ?)"
         )
+        params.extend([conversation_id, not_after])
+    with transaction() as conn:
+        return conn.execute(sql, params).rowcount == 1
 
 
 # ---------------------------------------------------------------------------
@@ -560,6 +595,20 @@ def save_message(
 
     Either both rows land or neither does. See the module docstring for why
     that matters and why WAL is not used.
+
+    **Refuses a conversation that has ended**, raising
+    :class:`ConversationClosed` with nothing written. The guard is part of the
+    first insert rather than a read before it, so the conversation cannot be
+    closed between the check and the write: the statement takes the write lock,
+    and a close committed earlier is visible to its subquery while one attempted
+    later cannot commit until this transaction ends. **That atomicity rests on
+    both databases being in ``DELETE`` journal mode** — one writer at a time
+    across the pair, which is the same property the dual write itself depends on
+    (see the module docstring on why WAL is excluded).
+
+    A conversation that does not exist is deliberately *not* this exception: the
+    archive insert proceeds, the working insert fails its foreign key, and the
+    caller gets ``IntegrityError`` exactly as before.
     """
     if role not in ("user", "assistant"):
         raise ValueError(f"unknown role: {role!r}")
@@ -568,12 +617,22 @@ def save_message(
     ts = timestamp or now_iso()
 
     with transaction() as conn:
-        conn.execute(
+        written = conn.execute(
             """INSERT INTO archive.messages
                    (id, conversation_id, user_id, role, content, tool_trace, timestamp)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (mid, conversation_id, user_id, role, content, tool_trace, ts),
-        )
+               SELECT ?, ?, ?, ?, ?, ?, ?
+               WHERE NOT EXISTS (
+                   SELECT 1 FROM main.conversations
+                   WHERE id = ? AND ended_at IS NOT NULL
+               )""",
+            (mid, conversation_id, user_id, role, content, tool_trace, ts,
+             conversation_id),
+        ).rowcount
+        if written == 0:
+            raise ConversationClosed(
+                f"conversation {conversation_id[:8]} has ended; a message cannot be "
+                f"added to it. Start a new conversation instead."
+            )
         conn.execute(
             """INSERT INTO messages
                    (id, conversation_id, user_id, role, content, tool_trace, timestamp)
@@ -1289,6 +1348,15 @@ def get_open_conversations_with_activity() -> list[sqlite3.Row]:
     ``last_role`` is what distinguishes an in-flight turn from a completed one:
     an assistant message means the model has answered, a user message means a
     turn may still be running. Idle-close applies a different window to each.
+
+    **The pick is deterministic when two messages share a timestamp.** It used to
+    read ``role`` as a bare column beside ``MAX(timestamp)``, which SQLite takes
+    from *an* arbitrary row of the matching group — so a user and an assistant
+    message stamped in the same second could report either role, and the sweep
+    would then choose either window. The role is now read from the latest row by
+    ``timestamp`` with ``rowid`` (insertion order) as the tie-break. Nothing runs
+    ``VACUUM`` (``tests/test_notes_schema.py`` enforces that), and even a renumber
+    would only change which of two simultaneous messages names the role.
     """
     with connection() as conn:
         return conn.execute(
@@ -1303,14 +1371,20 @@ def get_open_conversations_with_activity() -> list[sqlite3.Row]:
             FROM conversations c
             LEFT JOIN (
                 SELECT
-                    conversation_id,
-                    MAX(timestamp) AS last_timestamp,
-                    -- The role of the row holding that MAX. SQLite's bare-column
-                    -- rule makes other columns in a MAX() aggregate come from
-                    -- the matching row, which is exactly what is wanted here.
-                    role AS last_role
-                FROM messages
-                GROUP BY conversation_id
+                    g.conversation_id,
+                    g.last_timestamp,
+                    (
+                        SELECT x.role FROM messages x
+                        WHERE x.conversation_id = g.conversation_id
+                          AND x.timestamp = g.last_timestamp
+                        ORDER BY x.rowid DESC
+                        LIMIT 1
+                    ) AS last_role
+                FROM (
+                    SELECT conversation_id, MAX(timestamp) AS last_timestamp
+                    FROM messages
+                    GROUP BY conversation_id
+                ) g
             ) m ON m.conversation_id = c.id
             WHERE c.ended_at IS NULL
             ORDER BY last_message_at

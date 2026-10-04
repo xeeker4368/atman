@@ -61,6 +61,7 @@ checkpoint or a recovery pass.
 from __future__ import annotations
 
 import hashlib
+import logging
 import sqlite3
 import threading
 from dataclasses import dataclass, field
@@ -68,6 +69,8 @@ from dataclasses import dataclass, field
 from program import config
 from program.engine import ollama
 from program.memory import db, splitting, vectors
+
+logger = logging.getLogger(__name__)
 
 # Conversation chunks are firsthand: the entity was present for them. Task 1.7
 # owns the vocabulary and validates these; see the design's D4.
@@ -110,6 +113,11 @@ class ChunkingResult:
     chunks_written: int = 0
     chunks_skipped: int = 0
     vectors_indexed: int = 0
+    #: Chunks that already had a row but no vector, re-embedded and upserted by
+    #: this run. Separate from ``vectors_indexed`` because it is a repair, not
+    #: ordinary work: if it is ever non-zero on an untroubled store, a vector
+    #: upsert has been failing somewhere.
+    vectors_repaired: int = 0
     marked_chunked: bool = False
     chunk_ids: list[str] = field(default_factory=list)
 
@@ -288,6 +296,29 @@ def _write_group(
                     f"existing store. Stored sha {existing['text_sha256'][:12]}, "
                     f"computed {digest[:12]}."
                 )
+            # The row is right. Its vector may not exist: the row is committed
+            # before the upsert, so a failed or interrupted upsert leaves a chunk
+            # that is lexically retrievable and invisible to the vector leg — and
+            # every later run used to skip it on its stored text, permanently.
+            # Repaired here, in the path that found it. ``indexes_vectors`` keeps
+            # this from embedding on every skip under a store that holds nothing.
+            if store.indexes_vectors and not store.has(existing["id"]):
+                logger.warning(
+                    "chunk %s (%s/%d) had a row and no vector; re-embedding it",
+                    existing["id"][:8], conversation_id[:8], index,
+                )
+                store.upsert(
+                    existing["id"],
+                    ollama.embed(text),
+                    {
+                        "conversation_id": conversation_id,
+                        "user_id": user_id,
+                        "chunk_index": index,
+                        "source_type": SOURCE_TYPE,
+                        "source_trust": SOURCE_TRUST,
+                    },
+                )
+                result.vectors_repaired += 1
             result.chunks_skipped += 1
             continue
 
@@ -385,12 +416,22 @@ def _run(conversation_id: str, *, include_open_tail: bool) -> ChunkingResult:
 def checkpoint_conversation(conversation_id: str) -> ChunkingResult:
     """Write any chunks that have sealed since the last call.
 
-    Called after a completed assistant turn. Never touches the open trailing
-    group and never marks the conversation chunked. Cheap when nothing sealed:
-    one packing pass and one indexed lookup.
+    Called after a completed assistant turn. Never marks the conversation
+    chunked — only :func:`finalise_conversation` does that. Cheap when nothing
+    sealed: one packing pass and one indexed lookup.
+
+    **A conversation that has ended has no open trailing group to protect**, so
+    the tail is written. Once ``ended_at`` is set no message can be added
+    (``db.save_message`` refuses), which is what makes this safe and idempotent:
+    a later finalise re-packs the same groups, finds the same text, and skips
+    them. It is the belt beside the recovery queue — a close whose final chunking
+    never ran leaves the tail unindexed, and this writes it the next time anyone
+    checkpoints that conversation.
     """
     with _conversation_lock(conversation_id):
-        return _run(conversation_id, include_open_tail=False)
+        conversation = db.get_conversation(conversation_id)
+        ended = conversation is not None and conversation["ended_at"] is not None
+        return _run(conversation_id, include_open_tail=ended)
 
 
 def finalise_conversation(conversation_id: str) -> ChunkingResult:

@@ -106,8 +106,12 @@ from typing import Any
 
 from program import config
 from program.attribution import AttributionContext
-from program.engine import loop
+from program.engine import loop, turn_locks
 from program.engine import situation as situation_block
+
+# Re-exported deliberately: a caller catches one name from this module beside the
+# other turn-level errors, rather than importing the lock registry to name it.
+from program.engine.turn_locks import TurnAlreadyRunning  # noqa: F401
 from program.integrity import corrections, gate
 from program.memory import db, retrieval
 from program.memory import notes as notes_db
@@ -474,8 +478,15 @@ def handle_user_message(
     rather than reaching the model.
 
     Raises ``ConversationAccessError``, ``EmptyMessageError``,
-    ``MessageTooLongError``, and whatever
+    ``MessageTooLongError``, ``TurnAlreadyRunning``, and whatever
     ``ollama`` raises when the model cannot be reached.
+
+    **One turn at a time per conversation.** The guard is taken after the
+    conversation is resolved — it needs the id — and before anything is written,
+    so a refused second send leaves no message and makes no model call. A send
+    with no ``conversation_id`` is never refused: the id does not exist until
+    ``db.start_conversation`` returns, so two first sends simply produce two
+    conversations.
     """
     content = (text or "").strip()
     if not content:
@@ -491,9 +502,50 @@ def handle_user_message(
 
     conversation_id, is_new = _resolve_conversation(actor, conversation_id)
 
+    with turn_locks.turn(conversation_id):
+        return _answer(
+            actor,
+            content,
+            conversation_id,
+            is_new=is_new,
+            situation=situation,
+            registry=registry,
+        )
+
+
+def _answer(
+    actor: Actor,
+    content: str,
+    conversation_id: str,
+    *,
+    is_new: bool,
+    situation: str | None,
+    registry: ToolRegistry | None,
+) -> TurnOutcome:
+    """The turn itself, with the conversation already resolved and held.
+
+    Split out of :func:`handle_user_message` so the guard reads as one line there
+    rather than as an indented block around everything.
+    """
     # Before generation. See the module docstring — this ordering is what makes
     # an in-flight turn distinguishable from a finished one.
-    user_message_id = db.save_message(conversation_id, actor.user_id, "user", content)
+    try:
+        user_message_id = db.save_message(
+            conversation_id, actor.user_id, "user", content)
+    except db.ConversationClosed:
+        # A close landed between resolving the conversation and writing into it.
+        # Nothing has been generated yet, so this is simply the closed-conversation
+        # path arriving a moment later: start a fresh one and answer there. One
+        # attempt only — a brand new conversation cannot be closed, so a second
+        # refusal would be a defect and is left to raise.
+        conversation_id = db.start_conversation(actor.user_id)
+        is_new = True
+        logger.warning(
+            "the conversation closed before this turn's question could be saved; "
+            "continuing in %s", conversation_id[:8],
+        )
+        user_message_id = db.save_message(
+            conversation_id, actor.user_id, "user", content)
 
     if situation is None:
         situation = _build_situation(actor, user_message_id)
@@ -544,13 +596,42 @@ def handle_user_message(
             ", ".join(f.rule for f in verdict.findings) or verdict.semantic_error,
         )
 
-    assistant_message_id = db.save_message(
-        conversation_id,
-        actor.user_id,
-        "assistant",
-        result.text,
-        tool_trace=json.dumps(result.trace) if result.trace else None,
-    )
+    trace_json = json.dumps(result.trace) if result.trace else None
+    try:
+        assistant_message_id = db.save_message(
+            conversation_id,
+            actor.user_id,
+            "assistant",
+            result.text,
+            tool_trace=trace_json,
+        )
+    except db.ConversationClosed:
+        # The conversation closed while this turn was running (another process's
+        # sweep, or the operator). The answer exists and the person is waiting for
+        # it, so it is saved into a new conversation and the new id is reported —
+        # the same contract the caller already handles for a conversation that was
+        # closed before the turn began.
+        #
+        # The reply goes there ALONE. The question is already on record in the old
+        # conversation, and chunked with it, and copying it would put a second
+        # archive row under one utterance — a record of something that did not
+        # happen. The cost is that the new conversation's first chunk is an answer
+        # with no question in front of it, and that nothing links the two.
+        closed_conversation_id = conversation_id
+        conversation_id = db.start_conversation(actor.user_id)
+        is_new = True
+        logger.warning(
+            "conversation %s closed while a turn was running; the reply is saved "
+            "in %s, on its own",
+            closed_conversation_id[:8], conversation_id[:8],
+        )
+        assistant_message_id = db.save_message(
+            conversation_id,
+            actor.user_id,
+            "assistant",
+            result.text,
+            tool_trace=trace_json,
+        )
 
     # --- the answer is durable from here. Nothing below may fail the turn. ---
 

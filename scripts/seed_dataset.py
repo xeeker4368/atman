@@ -21,7 +21,7 @@ import argparse
 import sys
 
 from program.memory import db
-from program.ops import seed
+from program.ops import seed, store_lock
 
 
 def main() -> int:
@@ -37,6 +37,16 @@ def main() -> int:
         help="Describe what would be written, touching nothing",
     )
     args = parser.parse_args()
+
+    # Seeding chunks and embeds, so it writes vectors; a second process doing that
+    # breaks a running server's vector search until it restarts (B23). Taken before
+    # anything is written, and it creates the data directory itself if needed.
+    if not args.dry_run:
+        try:
+            store_lock.hold_or_refuse("seed a corpus")
+        except store_lock.StoreInUse as exc:
+            print(exc, file=sys.stderr)
+            return 1
 
     if args.dry_run:
         print(f"{len(seed.CONVERSATIONS)} conversation(s), "

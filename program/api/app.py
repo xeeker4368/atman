@@ -18,6 +18,7 @@ from fastapi import FastAPI
 from program import config
 from program.api.routes import auth, chat, health, upload
 from program.memory import capability, db, vectors
+from program.ops import store_lock
 
 
 @asynccontextmanager
@@ -47,15 +48,26 @@ async def lifespan(app: FastAPI):
     before the vector store, so a failed migration stops startup before anything
     else is built.
 
+    **The store's lock is held for the server's lifetime** (piece 3.5): a second
+    server on the same store is refused, and so is a vector-writing script while
+    this one runs — see ``program/ops/store_lock.py`` for why that is necessary
+    and why ``flock`` rather than a pid file.
+
     **A capability probe runs first** (piece 4a): it builds the whole schema in an in-memory
     SQLite, so a build without FTS5 or the JSON functions stops startup with a plain message
     before any file is touched (``program/memory/capability.py``).
     """
     config.auth_session_secret()
     capability.probe()
-    db.init_databases()
-    vectors.get_vector_store()
-    yield
+    # The store's lock, held for as long as this server runs. After the two checks
+    # above, so an unconfigured server still touches nothing on disk; before the
+    # databases are created or migrated, which is the work two servers must not do
+    # at once. It also refuses a second server on one store — the same hazard a
+    # vector-writing script is refused for (B23), seen from the other side.
+    with store_lock.hold_for_server():
+        db.init_databases()
+        vectors.get_vector_store()
+        yield
 
 
 def create_app() -> FastAPI:

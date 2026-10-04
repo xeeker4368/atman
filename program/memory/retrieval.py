@@ -338,6 +338,33 @@ def _lexical_leg(
     return [(row["id"], row["score"]) for row in rows]
 
 
+def _query_for_embedding(raw_query: str) -> str:
+    """The query as the embedder may receive it: at most the embedding budget.
+
+    ``ollama.embed`` deliberately does not truncate — sizing the input is the
+    application's job, and a chunk that is too big is a defect rather than
+    something to shorten quietly — so the caller has to do it. A chat message may
+    be ``chat.max_message_chars`` (50,000) while the embedding model's real
+    context is 2,048 tokens, which is what ``embedding.max_input_chars`` (5,000)
+    is derived from in ``config/defaults.toml``. Without this, a long paste lost
+    the vector leg on every turn it was the query.
+
+    **A prefix, and the limitation is stated rather than hidden:** the cut can
+    land mid-word, and whatever a long message says after the budget is not
+    embedded, so the vector leg sees its opening and not its end. Only the
+    embedded string is affected — the stored message is untouched and the lexical
+    leg still gets every term.
+    """
+    budget = config.embedding_max_input_chars()
+    if len(raw_query) <= budget:
+        return raw_query
+    logger.info(
+        "embedding query truncated from %d to %d characters for the vector leg",
+        len(raw_query), budget,
+    )
+    return raw_query[:budget]
+
+
 def _vector_leg(
     raw_query: str,
     limit: int,
@@ -351,7 +378,7 @@ def _vector_leg(
         return []
 
     try:
-        vector = ollama.embed(raw_query)
+        vector = ollama.embed(_query_for_embedding(raw_query))
     except Exception as exc:  # noqa: BLE001 - the leg degrades, retrieval does not
         logger.warning("vector leg unavailable: %s", exc)
         report.ran = False
@@ -359,7 +386,18 @@ def _vector_leg(
         return []
 
     store = vectors.get_vector_store()
-    response = store.query(vector, n_results=limit, ids=allowed_ids)
+    try:
+        response = store.query(vector, n_results=limit, ids=allowed_ids)
+    except Exception as exc:  # noqa: BLE001 - the leg degrades, retrieval does not
+        # B24. The embedding call was guarded and this one was not, so a vector
+        # store that raised took the whole of `search()` with it and the turn ran
+        # with NO retrieved records — while the lexical leg's results were sitting
+        # there. Same phrasing in the log as the embedding failure, deliberately:
+        # one leg being down reads the same way whichever half of it failed.
+        logger.warning("vector leg unavailable: %s", exc)
+        report.ran = False
+        report.skip_reason = f"the vector store could not be queried: {exc}"
+        return []
     ids = response["ids"][0] if response.get("ids") else []
     distances = response["distances"][0] if response.get("distances") else []
 

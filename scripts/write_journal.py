@@ -29,6 +29,7 @@ from program.artifacts import indexing
 from program.artifacts import journal as storage
 from program.engine import ollama
 from program.memory import db
+from program.ops import store_lock
 from program.reflection import journal
 
 WHAT_YOU_CAN_DO = """\
@@ -137,6 +138,16 @@ def cmd_show_records(date_text: str, clause: bool) -> int:
 
 
 def cmd_index(artifact_id: str) -> int:
+    # Indexing embeds and upserts; a second process writing vectors breaks a
+    # running server's vector search until it restarts (B23). Writing an entry
+    # does not index it, so only this subcommand takes the lock.
+    try:
+        store_lock.hold_or_refuse("index a journal entry")
+    except store_lock.StoreInUse as exc:
+        print(exc, file=sys.stderr)
+        print("A running server can index it instead once Phase 6 adds that route.",
+              file=sys.stderr)
+        return 1
     try:
         count, _ = indexing.index_existing(artifact_id)
     except indexing.AlreadyIndexed as exc:
