@@ -25,6 +25,7 @@ from __future__ import annotations
 import logging
 
 from fastapi import APIRouter, File, HTTPException, UploadFile, status
+from starlette.concurrency import run_in_threadpool
 
 from program import config
 from program.api.routes.auth import CurrentActor
@@ -81,7 +82,11 @@ async def upload(
         )
 
     try:
-        result = ingest.ingest(data, file.filename or "unnamed", actor.user_id)
+        # In a worker thread: extraction and one embedding call per chunk can take tens of
+        # seconds, and on the event loop they stalled every other request, health checks and
+        # chat replies included.
+        result = await run_in_threadpool(
+            ingest.ingest, data, file.filename or "unnamed", actor.user_id)
     except blocklist.GovernanceFileError as exc:
         # 400, not 403: 403 reads as "you may not", which invites "perhaps
         # someone else may". Nobody may — this is not a permission question, so

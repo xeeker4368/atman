@@ -16,7 +16,8 @@ finish line. The entity has no name; "Anam" is the substrate.
 
 ## Test and lint
 
-- `venv/bin/python -m pytest` (a few tests call live Ollama when it is reachable and skip when it is not).
+- `venv/bin/python -m pytest`: tests marked `live` (a real Ollama, SearXNG, ComfyUI or the internet) are skipped, and nothing contacts a service.
+- `venv/bin/python -m pytest --run-live` also runs them. It needs those services up and nothing else using the model (not during a measurement run); a test whose service is down is skipped.
 - `ruff check .`
 
 ## Scripts (`scripts/`)

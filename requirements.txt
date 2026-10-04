@@ -1,13 +1,17 @@
+# Direct dependencies are pinned to the versions installed in the project venv on 2026-10-04 (Python 3.14.5).
+# `requirements.lock` is `pip freeze` of a clean venv built from this file alone (2026-10-04), transitive packages included.
+# Changing a pin is a deliberate change: re-run the suite and refresh the lock in the same commit.
+
 # Phase 0-1 dependencies. Later phases add their own, each with a note in the
 # changelog entry saying why it was needed.
 
 # Web framework and server
-fastapi
-uvicorn
-python-multipart
+fastapi==0.141.1
+uvicorn==0.52.4
+python-multipart==0.0.32
 
 # HTTP client (Ollama, and later SearXNG)
-requests
+requests==2.34.2
 
 # PDF text extraction (task 2.6, decision #11). BSD-3-Clause, one transitive
 # dependency, 4.1 MB installed. Chosen over pdfplumber on a measured comparison:
@@ -16,13 +20,13 @@ requests
 # FTS5 and the embedder, which both tokenise on words. PyMuPDF was excluded on
 # licensing (AGPL-3.0 against a public repo) before quality was reached. Full
 # comparison: docs/INGESTION_DESIGN.md I7.
-pypdf
+pypdf==6.18.0
 
 # Vector store (task 1.4). Local, on-disk; no server process.
-chromadb
+chromadb==1.5.9
 
 # Dev tooling
-pytest
-httpx        # required by fastapi's TestClient
-ruff
-vulture
+pytest==9.1.1
+httpx==0.28.1  # required by fastapi's TestClient
+ruff==0.16.5
+vulture==2.16

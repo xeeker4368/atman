@@ -364,6 +364,9 @@ def test_the_phase_two_tools_dispatch_identically_with_and_without_attribution(
     attribution, which is worse than no test — it would train the next person to
     ignore it.
     """
+    # `memory_search` runs real retrieval, whose vector leg embeds the query: a fake embedder
+    # keeps the test off the real Ollama (it used to call it whenever it was up).
+    monkeypatch.setattr(loop.ollama, "embed", lambda text, **kwargs: [1.0] * 768)
     reg = registry.default_registry()
 
     without = reg.dispatch(name, arguments)
@@ -437,6 +440,8 @@ def test_turn_supplies_the_person_present(monkeypatch, store):
         return {"message": {"role": "assistant", "content": "Done."}}
 
     monkeypatch.setattr(loop.ollama, "chat", fake_chat)
+    # Passive retrieval at the start of a turn embeds the message; keep it off the real Ollama.
+    monkeypatch.setattr(loop.ollama, "embed", lambda text, **kwargs: [1.0] * 768)
     monkeypatch.setattr(turn.gate, "check", lambda *a, **k: turn.gate.GateVerdict())
     actor = Actor(user_id=store, name="Lyle", role=Role.ADMIN)
 

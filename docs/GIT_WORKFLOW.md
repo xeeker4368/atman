@@ -39,7 +39,7 @@ exit 1
 4. `ALLOW_MAIN=1 git commit`, then `ALLOW_PUSH=1 git push`.
 5. `git branch -D cc/<piece>`.
 
-**Why squash:** intermediate commits never reach main, so a leak added and later removed on a branch cannot reach public history.
+**Why squash:** intermediate commits never reach main, so a leak added and later removed on a branch cannot reach public history. Docs written on a branch must not cite that branch's commit hashes or say the branch is awaiting merge, because the squash gives the work a new hash and the branch is deleted; cite the item or `git log --grep '<piece>'` instead.
 
 ## Stopping, naming, parallel work
 

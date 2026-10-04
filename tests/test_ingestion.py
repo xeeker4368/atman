@@ -22,9 +22,7 @@ from program.artifacts import indexing, ingest
 from program.engine import ollama
 from program.memory import db, migrations, reconcile, retrieval, vectors
 
-live_only = pytest.mark.skipif(
-    not ollama.is_available(), reason="Ollama is not reachable; live test skipped"
-)
+live_only = pytest.mark.live("ollama")
 
 
 def _deterministic_embedding(text: str, **kwargs) -> list[float]:

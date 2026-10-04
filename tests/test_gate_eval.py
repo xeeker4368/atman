@@ -257,6 +257,9 @@ def test_the_harness_goes_through_gate_check_only(monkeypatch, cases):
 
     monkeypatch.setattr(gate, "check", spy)
     monkeypatch.setattr(gate, "semantic_findings", lambda *a, **k: [])
+    # `gate.check` reaches the classifier through `classifier.classify`, not `semantic_findings`, so
+    # that stub alone left a real call to Ollama whenever it was up. Script the reply as well.
+    script_classifier(monkeypatch, "CONSISTENT")
     case = by_id(cases, "S4-timeout-claimed-failure")
 
     result = gate_eval.run_case(case, "RUBRIC", runs=2)

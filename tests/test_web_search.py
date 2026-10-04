@@ -30,17 +30,7 @@ from program.tools.web_search import WEB_SEARCH, WebSearchError
 FIXTURE = pathlib.Path(__file__).parent / "fixtures" / "searxng_response.json"
 
 
-def searxng_is_up() -> bool:
-    try:
-        return requests.get(config.searxng_url(), timeout=3).status_code == 200
-    except requests.exceptions.RequestException:
-        return False
-
-
-live_only = pytest.mark.skipif(
-    not searxng_is_up(),
-    reason="local SearXNG is not reachable; live-call test skipped",
-)
+live_only = pytest.mark.live("searxng")
 
 
 @pytest.fixture

@@ -130,6 +130,13 @@ can read 5/5"; at revision 9 a case whose real rate was **90%** read **1/5**, an
 only the escalation to 20 runs (18/20) showed it. Non-unanimous means escalate,
 whichever side of the middle the block happens to land on.*
 
+### When the classifier runs at temperature 0
+
+*(Ruling of 2026-10-04; applies from piece 3.1, which pins the gate and correction classifiers at temperature 0.)*
+Repeating one prompt then gives near-identical outputs, so "20 runs" no longer estimates a rate. Compare per-case
+outcomes, and take 3 shuffled passes to catch state noise (the same case differing by what ran before it). Do not tune
+cases or wording to move a documented failure.
+
 ### Mutation checks run with bytecode writing off
 
 "Proven to bite" means breaking the code, running the tests, and restoring the code.

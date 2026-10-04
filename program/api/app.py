@@ -17,7 +17,7 @@ from fastapi import FastAPI
 
 from program import config
 from program.api.routes import auth, chat, health, upload
-from program.memory import db, vectors
+from program.memory import capability, db, vectors
 
 
 @asynccontextmanager
@@ -46,8 +46,13 @@ async def lifespan(app: FastAPI):
     secret check, so an unconfigured server stops without touching the store, and
     before the vector store, so a failed migration stops startup before anything
     else is built.
+
+    **A capability probe runs first** (piece 4a): it builds the whole schema in an in-memory
+    SQLite, so a build without FTS5 or the JSON functions stops startup with a plain message
+    before any file is touched (``program/memory/capability.py``).
     """
     config.auth_session_secret()
+    capability.probe()
     db.init_databases()
     vectors.get_vector_store()
     yield

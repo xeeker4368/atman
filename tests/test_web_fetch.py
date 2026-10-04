@@ -533,17 +533,7 @@ def test_an_http_error_is_reported_with_its_status(monkeypatch, bench):
 # --- Live: a real page over the real internet --------------------------------
 
 
-def internet_is_reachable() -> bool:
-    try:
-        requests.get("https://example.com/", timeout=5)
-        return True
-    except requests.exceptions.RequestException:
-        return False
-
-
-@pytest.mark.skipif(
-    not internet_is_reachable(), reason="no internet; live fetch skipped"
-)
+@pytest.mark.live("internet")
 def test_a_live_fetch_of_a_real_page(bench):
     """Real DNS, real TLS, real socket, real peer check."""
     result = bench.dispatch("web_fetch", {"url": "https://example.com/"})

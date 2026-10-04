@@ -510,7 +510,7 @@ def test_the_gate_takes_no_actor():
 # --- Live --------------------------------------------------------------------
 
 
-@pytest.mark.skipif(not ollama.is_available(), reason="Ollama is not reachable")
+@pytest.mark.live("ollama")
 def test_a_live_classification_of_a_real_continuity_claim():
     """Real model, real rubric. The canonical case only — the accuracy question
     belongs to the eval harness, not here."""
@@ -522,7 +522,7 @@ def test_a_live_classification_of_a_real_continuity_claim():
     assert findings[0].claim_class is ClaimClass.IDENTITY
 
 
-@pytest.mark.skipif(not ollama.is_available(), reason="Ollama is not reachable")
+@pytest.mark.live("ollama")
 def test_a_live_classification_of_an_ordinary_answer():
     assert gate.semantic_findings("Dublin is the capital of Ireland.") == []
 

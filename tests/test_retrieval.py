@@ -426,7 +426,10 @@ def test_top_k_bounds_the_result_count(corpus):
     assert len(result) <= 2
 
 
-def test_an_empty_store_returns_nothing_without_raising(isolated_data_dir):
+def test_an_empty_store_returns_nothing_without_raising(isolated_data_dir, monkeypatch):
+    # The vector leg embeds the query; a working fake embedder means the leg really queries the
+    # empty collection, and keeps the test off the real Ollama.
+    monkeypatch.setattr(retrieval.ollama, "embed", lambda text, **kwargs: [1.0] * 768)
     db.init_databases()
     result = retrieval.search("anything at all")
     assert result.results == []

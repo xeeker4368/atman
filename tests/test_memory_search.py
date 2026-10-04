@@ -27,10 +27,7 @@ from program.tools import memory_search, registry
 from program.tools.memory_search import MEMORY_SEARCH
 from program.tools.registry import ToolOutcome, ToolRegistry
 
-live_only = pytest.mark.skipif(
-    not ollama.is_available(),
-    reason="Ollama is not reachable; live-call tests skipped",
-)
+live_only = pytest.mark.live("ollama")
 
 ESPRESSO = [
     ("user", "My espresso is coming out sour and it runs too fast through the "

@@ -578,9 +578,7 @@ def test_a_zero_reserve_refuses_rather_than_capping_every_reply_at_nothing(
     assert fake.call_count == 0
 
 
-@pytest.mark.skipif(
-    not loop.ollama.is_available(), reason="Ollama is not reachable; live test skipped"
-)
+@pytest.mark.live("ollama")
 def test_live_a_truncated_tool_call_has_the_shape_the_handler_assumes():
     """Pins the observed shape, so an Ollama change fails here, not silently.
 

@@ -8,19 +8,27 @@ beside this one to track the same thing.
 
 ## Current state
 
-Code exists: 1,986 tests collected (`pytest --collect-only -q`, 2026-10-04). Phase status is in `BUILD_PLAN.md` ("Status:" under
+Code exists: the test count is whatever `pytest --collect-only -q` reports. Phase status is in `BUILD_PLAN.md` ("Status:" under
 each phase) and the history in `BUILT.md` (frozen; `ARCHITECTURE.md` holds the current invariants).
 - **Built:** Phases 0 to 4. Two Phase 1 items are owed: the Restore CLI (not built) and the loopback check (deferred to Phase 9).
 - **In progress:** Phase 5. Built: reflection journal, read-only Moltbook tools, Notes pieces 1 to 8, the CO17 exclusion. Not built: bounded research
   execution, the self-flag tool, periodic mining. **Not started:** Phases 6 to 10.
-- **HEAD when this was written:** 944cefb (2026-10-03). No code has changed since fb25f6e (`git diff --stat fb25f6e HEAD -- program tests scripts config`).
-- **Last full suite:** 1,982 passed, 4 skipped, `ruff` clean, 2026-10-03 (`changelog/2026-10-03-store-not-migrating.md`, committed in fb25f6e).
+- **HEAD:** see `git log`.
+- **Last full suite on record:** 2,002 passed, 23 skipped, 0 failed, `ruff` clean, 2026-10-04, on piece 4a's final commit (`changelog/2026-10-04-piece-4a.md`); the 23 skips are the live tests and two opt-in Moltbook tests.
 - **Dark or off by default** (`config/defaults.toml`, parsed with `tomllib`): `notes.enabled = false`, `moltbook.enabled = false`,
   `corrections.person_corrects_entity = false`. A local `config/local.toml` can override them; it was not read for this block.
 
 ## Active task
 
-Defect verification and fix sequencing, in progress.
+Fix sequence `docs/FIX_PLAN_2026-10-04.md` (rulings and amendments at its top). Order: 4a, 3.5, then 3.1.
+- **Piece 4a: built and reviewed 2026-10-04; find it with `git log --grep 'Piece 4a'`** (`changelog/2026-10-04-piece-4a.md`). It closes:
+  the upload route blocking the event loop (and the duplicate-upload race, B9, which the thread move would have exposed; a lock
+  closes it); collection calling Ollama, SearXNG and the internet (live tests are now marked and need `--run-live`; unmarked
+  tests cannot reach the real Ollama); unpinned dependencies (`requirements.txt` pinned, `requirements.lock`); no declared
+  SQLite requirement (a startup probe builds the schema in memory); a failed schema-version read counted as version 0
+  (`note_admin`) or null (`backup`); the kit tripwire matching only "retrieval failed" (a file outside the repo).
+- **Not in 4a:** the `ollama.chat` docstring (fixed in `d77bcbf`); `Tool.empty_result` stays optional (`tests/test_empty_result.py` enforces it).
+- **Next:** piece 3.5 (lifecycle and concurrency, Tier 3), not started.
 
 ---
 

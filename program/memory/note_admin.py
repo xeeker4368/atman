@@ -71,7 +71,12 @@ def require_schema() -> int:
     try:
         try:
             version = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] or 0
-        except sqlite3.OperationalError:
+        except sqlite3.OperationalError as exc:
+            # Only a missing table means "no schema yet". A lock, a disk error or an unreadable
+            # file says nothing about the version, so it is refused as itself and never as
+            # "version 0" (the same rule as `db.require_store_not_migrating`).
+            if "no such table" not in str(exc):
+                raise AdminError(f"cannot read the schema version of {working}: {exc}") from exc
             version = 0
     finally:
         conn.close()

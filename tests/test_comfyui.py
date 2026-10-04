@@ -342,15 +342,7 @@ def test_a_fresh_seed_is_used_when_none_is_given(monkeypatch):
 # --- live, and skipped rather than failed when ComfyUI is down ---------------
 
 
-def comfyui_running() -> bool:
-    try:
-        comfyui.available()
-        return True
-    except comfyui.ComfyUIError:
-        return False
-
-
-@pytest.mark.skipif(not comfyui_running(), reason="ComfyUI is not running on 8188")
+@pytest.mark.live("comfyui")
 def test_available_against_the_real_instance():
     stats = comfyui.available()
 
@@ -358,7 +350,7 @@ def test_available_against_the_real_instance():
     assert stats["devices"][0]["type"] == "mps", "this build expects Apple Silicon"
 
 
-@pytest.mark.skipif(not comfyui_running(), reason="ComfyUI is not running on 8188")
+@pytest.mark.live("comfyui")
 def test_a_real_generation_returns_a_real_png():
     image = comfyui.generate("a single copper kettle on a plain background")
 

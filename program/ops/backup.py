@@ -452,7 +452,7 @@ def _write_manifest(result: BackupResult) -> None:
             "artifact_dir": str(config.artifact_dir()),
             "workspace_dir": str(config.workspace_dir()),
         },
-        "schema_version": _schema_version(),
+        "schema_version": _schema_version(result.directory),
         "row_counts": result.row_counts,
         "artifacts": [asdict(a) for a in result.artifacts],
         "warnings": result.warnings,
@@ -476,15 +476,25 @@ def _write_manifest(result: BackupResult) -> None:
     )
 
 
-def _schema_version() -> int | None:
+def _schema_version(destination: Path) -> int | None:
+    """The schema version recorded in the manifest, **read from the captured copy**.
+
+    Like the row counts, and for the same reason: reading the live store made the manifest
+    describe an instant the snapshot did not capture, and reading it could fail on a lock. Only
+    a copy with no ``schema_version`` table gives ``None``; any other error propagates, because
+    a manifest that says "no version" for a copy that could not be read is a false record.
+    """
+    conn = sqlite3.connect(f"file:{destination / 'working.db'}?mode=ro", uri=True)
     try:
-        with db.connection() as conn:
-            row = conn.execute(
-                "SELECT MAX(version) AS v FROM schema_version"
-            ).fetchone()
-            return row["v"] if row else None
-    except sqlite3.OperationalError:
-        return None
+        try:
+            row = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()
+        except sqlite3.OperationalError as exc:
+            if "no such table" not in str(exc):
+                raise
+            return None
+        return row[0] if row else None
+    finally:
+        conn.close()
 
 
 def read_manifest(backup_dir: Path) -> dict:

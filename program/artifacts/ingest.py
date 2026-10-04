@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import threading
 import uuid
 from dataclasses import dataclass, field
 
@@ -138,6 +139,10 @@ def _index_text(
     return indexing.index_text(artifact_id, user_id, text, artifact_type)
 
 
+#: Serialises every upload's duplicate check and row insert, in this process (a single worker).
+_CHECK_AND_INSERT = threading.Lock()
+
+
 def ingest(
     data: bytes,
     filename: str,
@@ -167,45 +172,50 @@ def ingest(
     # IngestionError subclass — the route maps it to its own fixed response.
     blocklist.check(data, digest)
 
-    existing = db.get_artifact_by_hash(digest, user_id)
-    if existing is not None:
-        # Byte-identical re-upload. Recorded rather than re-indexed: embedding
-        # the same text twice would put two copies in competition for the same
-        # retrieval slots.
-        logger.info("artifact %s re-uploaded; returning the existing row",
-                    existing["id"])
-        return IngestResult(
-            artifact_id=existing["id"],
-            filename=existing["filename"],
-            content_type=existing["content_type"],
-            size_bytes=existing["size_bytes"],
-            extraction_status=existing["extraction_status"],
-            extraction_note=existing["extraction_note"],
-            chars_extracted=len(existing["extracted_text"] or ""),
-            chunks_written=len(db.get_artifact_chunks(existing["id"])),
-            duplicate_of=existing["id"],
+    # The duplicate check and the row insert are one step. Without this, two identical uploads
+    # that overlap both pass the check and both insert (B9). The route runs ingest in a worker
+    # thread so it does not block the event loop; that is what makes the overlap possible, so the
+    # lock goes in with it. Held through extraction and the insert, never through embedding.
+    with _CHECK_AND_INSERT:
+        existing = db.get_artifact_by_hash(digest, user_id)
+        if existing is not None:
+            # Byte-identical re-upload. Recorded rather than re-indexed: embedding
+            # the same text twice would put two copies in competition for the same
+            # retrieval slots.
+            logger.info("artifact %s re-uploaded; returning the existing row",
+                        existing["id"])
+            return IngestResult(
+                artifact_id=existing["id"],
+                filename=existing["filename"],
+                content_type=existing["content_type"],
+                size_bytes=existing["size_bytes"],
+                extraction_status=existing["extraction_status"],
+                extraction_note=existing["extraction_note"],
+                chars_extracted=len(existing["extracted_text"] or ""),
+                chunks_written=len(db.get_artifact_chunks(existing["id"])),
+                duplicate_of=existing["id"],
+            )
+
+        artifact_id = uuid.uuid4().hex
+        content_type = extraction.detect_content_type(data, filename)
+        relative, absolute = _storage_path(artifact_id, artifact_type)
+        absolute.write_bytes(data)
+
+        result = extraction.extract(data, content_type)
+
+        db.insert_artifact(
+            artifact_id=artifact_id,
+            user_id=user_id,
+            filename=filename,
+            content_type=content_type,
+            size_bytes=len(data),
+            sha256=digest,
+            storage_path=relative,
+            artifact_type=artifact_type,
+            extraction_status=result.status.value,
+            extracted_text=result.text or None,
+            extraction_note=result.note,
         )
-
-    artifact_id = uuid.uuid4().hex
-    content_type = extraction.detect_content_type(data, filename)
-    relative, absolute = _storage_path(artifact_id, artifact_type)
-    absolute.write_bytes(data)
-
-    result = extraction.extract(data, content_type)
-
-    db.insert_artifact(
-        artifact_id=artifact_id,
-        user_id=user_id,
-        filename=filename,
-        content_type=content_type,
-        size_bytes=len(data),
-        sha256=digest,
-        storage_path=relative,
-        artifact_type=artifact_type,
-        extraction_status=result.status.value,
-        extracted_text=result.text or None,
-        extraction_note=result.note,
-    )
 
     written, chunk_ids = 0, []
     if result.status is ExtractionStatus.EXTRACTED and result.text.strip():

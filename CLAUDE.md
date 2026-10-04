@@ -18,7 +18,8 @@ details and `BUILD_PLAN.md` has a "Status:" line under each phase. It is a git r
 `reference/old-anam/` is the prior build (reference-only, see below).
 
 Commands that exist (from `pytest.ini`, `pyproject.toml`, `start.sh`, `run_server.py`, `scripts/`):
-- `venv/bin/python -m pytest`: the tests (`testpaths = tests`). A few call live Ollama when it is reachable.
+- `venv/bin/python -m pytest`: the tests (`testpaths = tests`). Tests marked `live` are skipped and no test may reach the real Ollama.
+- `venv/bin/python -m pytest --run-live`: also runs the live tests. Needs the services up and nothing else using the model; run it only when the task says so.
 - `ruff check .`: lint (line length 100, rules E, F, I).
 - `python run_server.py [--debug] [--port N]` or `./start.sh [--lan]`: start the backend.
 - `scripts/`: operator and measurement scripts; `README.md` says what each is for. A script that imports

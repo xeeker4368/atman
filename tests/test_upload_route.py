@@ -187,3 +187,76 @@ def test_a_binary_upload_is_accepted_and_reported_as_unread(client):
     assert body["extraction_status"] == "metadata_only"
     assert body["chunks_indexed"] == 0
     assert "not read" in body["extraction_note"]
+
+
+# --- piece 4a: the route does not hold the event loop; overlapping uploads stay one row -----------
+
+
+def test_an_upload_does_not_block_the_event_loop(store, monkeypatch):
+    """While one upload is inside a slow ingest, a health check must still be answered. On the
+    event loop the health check waited for the whole ingest."""
+    import asyncio
+    import time
+
+    import httpx
+
+    from program.artifacts import ingest
+
+    real = ingest.ingest
+
+    def slow(*args, **kwargs):
+        time.sleep(0.8)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(ingest, "ingest", slow)
+    app = create_app()
+
+    async def scenario():
+        async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app), base_url="http://test") as http:
+            login = await http.post("/api/login", json={"name": "Lyle", "password": PASSWORD})
+            headers = {"Authorization": f"Bearer {login.json()['token']}"}
+            posting = asyncio.create_task(http.post(
+                "/api/upload", files={"file": ("a.txt", b"Notes about grinders.", "text/plain")},
+                headers=headers))
+            started = time.monotonic()
+            await asyncio.sleep(0.2)  # let the upload reach the slow ingest
+            health = await http.get("/api/health")
+            answered_after = time.monotonic() - started
+            return answered_after, health, await posting
+
+    answered_after, health, uploaded = asyncio.run(scenario())
+
+    assert health.status_code == 200
+    assert uploaded.status_code == 200
+    # The ingest sleeps 0.8s. Answered by 0.5s means it was not stuck behind it.
+    assert answered_after < 0.5, f"the health check was answered after {answered_after:.2f}s"
+
+
+def test_concurrent_identical_uploads_make_one_row(store, monkeypatch):
+    """Two byte-identical uploads that overlap must not both pass the duplicate check (B9)."""
+    import threading
+    import time
+
+    from program.artifacts import extract, ingest
+
+    real_extract = extract.extract
+
+    def slow_extract(*args, **kwargs):
+        time.sleep(0.3)  # long enough that both threads are past the duplicate check without a lock
+        return real_extract(*args, **kwargs)
+
+    monkeypatch.setattr(extract, "extract", slow_extract)
+    results: list = []
+
+    def upload_once():
+        results.append(ingest.ingest(b"One note about a kettle.", "k.txt", store["lyle"]))
+
+    threads = [threading.Thread(target=upload_once) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert len(db.list_artifacts()) == 1
+    assert sorted(r.duplicate_of is None for r in results) == [False, True]

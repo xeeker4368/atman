@@ -374,11 +374,13 @@ def test_working_sql_still_holds_the_version_one_definition():
     assert "superseding_message_id" not in text
 
 
-def test_a_chunks_messages_resolve_by_timestamp_window(store):
+def test_a_chunks_messages_resolve_by_timestamp_window(store, monkeypatch):
     """The mapping 3.5 will need, and the reason message granularity costs
     something: there is no ordinal, so the range is resolved by timestamp."""
     from program.memory import chunking as chunking_module
 
+    # Chunking embeds each chunk; a deterministic fake keeps this off the real Ollama.
+    monkeypatch.setattr(chunking_module.ollama, "embed", _embed)
     conversation = db.start_conversation(store["lyle"].user_id)
     ids = [
         db.save_message(conversation, store["lyle"].user_id, role, text)
@@ -397,11 +399,12 @@ def test_a_chunks_messages_resolve_by_timestamp_window(store):
     assert set(ids) <= resolved
 
 
-def test_a_link_survives_the_chunk_it_predates(store):
+def test_a_link_survives_the_chunk_it_predates(store, monkeypatch):
     """The timing gap C3 dissolves: the correction is written against messages,
     so it does not wait for a chunk and does not break when one arrives."""
     from program.memory import chunking as chunking_module
 
+    monkeypatch.setattr(chunking_module.ollama, "embed", _embed)
     conversation = db.start_conversation(store["lyle"].user_id)
     old = db.save_message(conversation, store["lyle"].user_id, "user", "It was Tuesday.")
     db.save_message(conversation, store["lyle"].user_id, "assistant", "Noted.")

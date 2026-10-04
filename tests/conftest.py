@@ -59,6 +59,8 @@ from pathlib import Path
 from urllib.parse import unquote, urlparse
 
 import pytest
+import requests
+import requests.sessions
 
 from program import config
 from program.memory import vectors
@@ -275,10 +277,119 @@ io.open = _guarded_io_open
 os.open = _guarded_os_open
 
 
+# --- live tests, and the guard that keeps every other test off the real Ollama ---------------
+#
+# A test that calls a real service is marked ``@pytest.mark.live("ollama")`` (or "searxng",
+# "comfyui", "internet") and is skipped unless ``--run-live`` is given. Nothing is probed at
+# collection: the old ``skipif(not ollama.is_available())`` ran a request at import, so merely
+# collecting the suite called Ollama (seven times), SearXNG and example.com. With ``--run-live``
+# the named service is probed when the test is about to run, and the test is skipped if it is down.
+#
+# Every test WITHOUT the marker, and collection itself, is refused any request to the real Ollama
+# (``OllamaGuardViolation``, a BaseException so ``except Exception`` cannot swallow it), recorded
+# and re-reported at session end like the store guard. Tests that exercise a failing Ollama point
+# ``ANAM_OLLAMA_HOST`` at a dead port, which is not the real one and so is not refused.
+
+
+class OllamaGuardViolation(BaseException):
+    """An unmarked test, or collection, sent a request to the real Ollama."""
+
+
+_LIVE_ALLOWED = False
+_OLLAMA_VIOLATIONS: list[str] = []
+_REAL_OLLAMA_PORT = 11434
+_LOOPBACK_NAMES = {"localhost", "127.0.0.1", "::1", "0.0.0.0"}
+_REAL_OLLAMA_AT_IMPORT = urlparse(config.ollama_host())
+
+
+def _is_real_ollama(url: object) -> bool:
+    """True for the default local Ollama (loopback, port 11434) or the host configured at import."""
+    parsed = urlparse(str(url))
+    host, port = parsed.hostname, parsed.port
+    if host is None:
+        return False
+    if host in _LOOPBACK_NAMES and port == _REAL_OLLAMA_PORT:
+        return True
+    return (host == _REAL_OLLAMA_AT_IMPORT.hostname and port == _REAL_OLLAMA_AT_IMPORT.port
+            and host in _LOOPBACK_NAMES)
+
+
+_real_session_request = requests.sessions.Session.request
+
+
+def _guarded_session_request(self, method, url, *args, **kwargs):
+    if not _LIVE_ALLOWED and _is_real_ollama(url):
+        message = (f"{method} {url} reached the real Ollama from a test (or from collection) "
+                   f"that is not marked @pytest.mark.live(\"ollama\"). Patch the call, or mark "
+                   f"the test.")
+        _OLLAMA_VIOLATIONS.append(message)
+        raise OllamaGuardViolation(message)
+    return _real_session_request(self, method, url, *args, **kwargs)
+
+
+requests.sessions.Session.request = _guarded_session_request
+
+
+def pytest_addoption(parser):
+    parser.addoption("--run-live", action="store_true", default=False,
+                     help="run tests marked live (a real Ollama, SearXNG, ComfyUI or the internet)")
+
+
+def _probe(service: str) -> bool:
+    """Whether a live service answers. Only called for a live-marked test under --run-live."""
+    global _LIVE_ALLOWED
+    _LIVE_ALLOWED = True
+    try:
+        if service == "ollama":
+            from program.engine import ollama
+            return ollama.is_available()
+        if service == "searxng":
+            return requests.get(config.searxng_url(), timeout=3).status_code == 200
+        if service == "comfyui":
+            from program.media import comfyui
+            comfyui.available()
+            return True
+        if service == "internet":
+            requests.get("https://example.com/", timeout=5)
+            return True
+        raise ValueError(f"unknown live service {service!r}")
+    except Exception:  # noqa: BLE001 - any failure means the service is not there
+        return False
+    finally:
+        _LIVE_ALLOWED = False
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_runtest_setup(item):
+    marker = item.get_closest_marker("live")
+    if marker is None:
+        return
+    if not item.config.getoption("--run-live"):
+        pytest.skip("live test: pass --run-live to run it")
+    service = marker.args[0] if marker.args else "ollama"
+    if not _probe(service):
+        pytest.skip(f"{service} is not reachable; live test skipped")
+
+
+@pytest.fixture(autouse=True)
+def _ollama_guard(request):
+    """Allow the real Ollama only for a test marked live."""
+    global _LIVE_ALLOWED
+    _LIVE_ALLOWED = request.node.get_closest_marker("live") is not None
+    yield
+    _LIVE_ALLOWED = False
+
+
 @pytest.fixture(scope="session", autouse=True)
 def _guard_runtime_store():
     """Fail the session if the suite opened, created or modified anything real."""
     yield
+
+    if _OLLAMA_VIOLATIONS:
+        raise OllamaGuardViolation(
+            f"the suite sent {len(_OLLAMA_VIOLATIONS)} request(s) to the real Ollama from unmarked "
+            f"tests; the first:\n  {_OLLAMA_VIOLATIONS[0]}"
+        )
 
     if _OPEN_VIOLATIONS:
         raise StoreIsolationViolation(

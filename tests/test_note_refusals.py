@@ -124,6 +124,9 @@ def test_a_retire_that_is_given_text_is_told_to_leave_it_out(world):
     assert texts.RETIRE_TAKES_NO_TEXT in result.error and result.error.endswith(SUFFIX)
 
 
-def test_an_accepted_proposal_is_unchanged_by_all_this(world):
+def test_an_accepted_proposal_is_unchanged_by_all_this(world, monkeypatch):
+    # An accepted add runs the identity gate on its text, which calls the classifier model; script
+    # the reply so the test does not call the real Ollama.
+    monkeypatch.setattr(note_propose.gate.classifier, "classify", lambda *a, **k: "CONSISTENT")
     result = propose(world)
     assert result.outcome.value == "ok" and result.value == texts.PENDING_ADD

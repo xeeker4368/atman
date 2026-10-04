@@ -26,10 +26,7 @@ import pytest
 from program import config
 from program.engine import ollama
 
-live_only = pytest.mark.skipif(
-    not ollama.is_available(),
-    reason="Ollama is not reachable; live-call tests skipped",
-)
+live_only = pytest.mark.live("ollama")
 
 
 @pytest.fixture
