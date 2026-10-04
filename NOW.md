@@ -1,29 +1,33 @@
 # NOW.md
 
-Overwritten each session. This is the single place for "where things stand
-right now" — current state, the decision log, backlog, and active task.
-Do not let a second doc grow up beside this one to track the same thing.
-
-Last updated: [fill in at first real session]
+This is the single place for "where things stand right now": current state, the decision log, open
+items and the active task. Git history holds the earlier versions. Do not let a second doc grow up
+beside this one to track the same thing.
 
 ---
 
 ## Current state
 
-Repo scaffolded. `reference/old-anam/` present (reference-only, see
-`AGENTS.md`). Canonical docs (this set of five) just written. No code
-written yet. Master build plan not yet drafted.
+Code exists: 1,986 tests collected (`pytest --collect-only -q`, 2026-10-04). Phase status is in `BUILD_PLAN.md` ("Status:" under
+each phase) and the history in `BUILT.md` (frozen; `ARCHITECTURE.md` holds the current invariants).
+- **Built:** Phases 0 to 4. Two Phase 1 items are owed: the Restore CLI (not built) and the loopback check (deferred to Phase 9).
+- **In progress:** Phase 5. Built: reflection journal, read-only Moltbook tools, Notes pieces 1 to 8, the CO17 exclusion. Not built: bounded research
+  execution, the self-flag tool, periodic mining. **Not started:** Phases 6 to 10.
+- **HEAD when this was written:** 944cefb (2026-10-03). No code has changed since fb25f6e (`git diff --stat fb25f6e HEAD -- program tests scripts config`).
+- **Last full suite:** 1,982 passed, 4 skipped, `ruff` clean, 2026-10-03 (`changelog/2026-10-03-store-not-migrating.md`, committed in fb25f6e).
+- **Dark or off by default** (`config/defaults.toml`, parsed with `tomllib`): `notes.enabled = false`, `moltbook.enabled = false`,
+  `corrections.person_corrects_entity = false`. A local `config/local.toml` can override them; it was not read for this block.
 
 ## Active task
 
-None yet — next step is drafting the master build plan from the decision
-log below.
+Defect verification and fix sequencing, in progress.
 
 ---
 
 ## Decision log
 
-Every architectural and scope decision made before code exists. CC should
+Every architectural and scope decision, as decided. Entries 1 to 19 were written before code existed
+(`e46ae7a` has 19); entries 20 to 23 were added during the build. CC should
 treat every line here as DECIDED — implement against it, don't relitigate
 it. If a task seems to require deviating from one of these, stop and flag
 it rather than deciding silently.
@@ -242,36 +246,9 @@ extracted text is reproducible from it — but "provenance is sacred" holds more
 weakly here than elsewhere. Revisit if ingested documents turn out to carry the
 kind of history the archive exists to protect.
 
-**~~The entity's `users` row can be turned into an account~~ — CLOSED 2026-09-24
-(plan B6b, Tier 3).** The row stays inert through a NULL `password_hash`, and every
-route to changing that is now refused: `db.set_password_hash` refuses the reserved
-row, `scripts/set_password.py` refuses it by name before prompting, `auth.login`
-refuses the name (through the same dummy verification as an unknown name, so timing
-does not single it out), and `auth.actor_for_header` refuses a token for its id, so
-no route behind `require_actor` can run as the entity. Each guard is proven by a
-break test. See `changelog/2026-09-24-b6b-login-bounds-and-entity-row.md`.
+**B6b the entity's `users` row can be turned into an account:** closed 9a616cc; text in `docs/archive/NOW-closed-backlog.md`.
 
-**How the entity should describe supersession** (raised 2026-09-22, CO10.3). Not
-urgent, and not a defect in any mechanism — recorded so it has somewhere to land.
-
-The record is append-only: a correction writes a `supersedes` **link** and edits nothing.
-The entity currently describes this inaccurately, and the fabrication gate correctly flags
-it: *"I have updated the record to reflect…"* and *"I have changed my memory so it now
-says 4417."* both flag 5/5, while *"I have linked that to your earlier message; the earlier
-one still stands in the record, marked as superseded."* and *"Nothing in the record was
-changed…"* are clean 0/5. No overlap.
-
-So the gate is right and the phrasing is wrong. **The open question is whether anything
-should teach the entity the accurate framing** — a line in `soul.md` or the prompt about
-what a correction does to the record — or whether a correctly-flagged inaccuracy is the
-system working as intended and needs no change. Either answer is fine; it should be a
-decision rather than a drift. Touching `soul.md` is Tier 3, which is why this is a backlog
-item and not a fix.
-*Resolved 2026-09-30 by B12 (D3): `soul.md` now carries a clause saying the earlier
-statement is never overwritten, that a correction is recorded as a link if at all, and
-that the entity must not claim the record changed or that the link has been made.
-Measured live: 0/120 changed-record claims against control's 2/120, and 0/120 link claims.
-`docs/SOUL_AND_PROMPT_DESIGN.md` revision 4, S21–S26.*
+**CO10.3 how the entity should describe supersession:** resolved d63206e (a `soul.md` clause); text in `docs/archive/NOW-closed-backlog.md`. The follow-up on D3's "superseded" wording, below, stays open.
 
 **D3's "superseded" wording, in answers about what happened to an old statement** (raised
 at review 2026-09-30, B12). Not blocking: D3 is a clear improvement regardless. But in
@@ -335,8 +312,8 @@ Supersession resolves a `supersedes` link to chunks by a message → chunk times
 join (`db.get_supersedes_for_chunks`). A journal entry is an artifact, and **artifact chunks
 carry no message ids**, so the join can never reach one. A claim restated in a journal entry
 and later corrected keeps surfacing from the entry **unannotated**, while the original
-message surfaces with its correction. Nothing reports it. The journal is not built yet, so
-this is latent until it is; it applies to any artifact chunk that restates a claim, but the
+message surfaces with its correction. Nothing reports it. The journal is built (`2cde154`, 2026-10-01) and an entry enters memory only on an explicit `--index` (J7), so
+this applies from the first indexed entry; it applies to any artifact chunk that restates a claim, but the
 journal is the first kind whose purpose is to restate the day's claims. **Not a residual**:
 nothing about it is characterised or bounded. Whether to fix it, and how, is a separate
 future decision, but it must not ship silent.
@@ -348,67 +325,14 @@ surface. Checked 2026-09-30 by `grep` over `program/` and `scripts/`: the only r
 are diagnostic scripts (e.g. `scripts/soul_diagnosis_b12.py`) and direct SQL. That is
 intended for what the verdict *does* (stage 1 is flag-only, decision #23), but it means
 **a flagged turn is noticed only if someone goes looking**, and nobody is prompted to.
-The journal gets a reader in its own command's output (J7); turns have none. The
+The journal has a reader in its own command's output (J7, built in `2cde154`); turns have none. The
 natural home is Phase 9's admin panel, or the Phase 7 observability work. Recorded so
 the persisted-but-unread state is a known state, not a silent one.
 
-**B20: tool-schema tokens are not a budget term** (filed at review 2026-09-30, Moltbook
-revision 3; Tier 3). **BUILT 2026-10-01 with B21 (6652709) and reviewed the same day** (the proofs asked for at
-review are in eb90f93, BUILT.md "Proved at review (2026-10-01)"): see BUILT.md and
-`changelog/2026-10-01-b20-b21-turn-budget.md`. The derived cap fell from 57,216 to 52,360
-characters; the configured 50,000 still fits, with ~590 tokens of headroom left (9 tools, 2026-10-01; about
-277 with 11 tools as of 2026-10-03, see the planning item below). Every
-tool-bearing call sends the offered tools' JSON schemas, and nothing counts them: not
-`history.plan_budget`, not `prompt.assemble_turn`, and not B6a's derivation of
-`chat.max_message_chars` (`tests/test_turn.py`). **Measured against `gemma4:26b`'s
-tokenizer:** 5 tools **657** tokens, 9 tools (with Moltbook) **1,052**. B6a's derivation
-leaves **1,804** tokens of headroom beside a maximal message, which falls to **752** with
-9 tools. Notes (two tools, ~100 tokens each) and the remaining Phase 5 tools will consume
-most of the rest, with nothing failing when they do.
-**Built in 6652709 as designed below; the `reserved + history == context` test was extended to a non-zero schema on
-2026-10-03 (`tests/test_history.py`)** (this list was written as "Designed, not built (presented at review)"):
-- `plan_budget(..., tool_schema_chars=0)`, with a `tool_schema_tokens` field on
-  `BudgetBreakdown`, and the `reserved + history == context` test extended to it.
-- `prompt.assemble_turn` takes the size, and `loop.py` passes `len(json.dumps(payload))`
-  when tools are sent, 0 on the final, toolless call.
-- B6a's derivation gains the term, computed over the **full catalogue** (every tool, enabled
-  or not), so switching a tool on can never silently break it.
-- A dedicated test fails, naming both numbers, when the full catalogue's schemas exceed the
-  cap's headroom.
-- The 4.0 chars/token estimate over-counts these schemas (real 4.61), which is the safe
-  direction.
+**B20 tool-schema tokens are not a budget term:** built 6652709 (proofs eb90f93); text in `docs/archive/NOW-closed-backlog.md`.
+The headroom planning item below stays open.
 
-**B21: a long user message is silently dropped after tool rounds: REPRODUCED**
-(2026-09-30, found by reading while measuring B20; Tier 3, history windowing).
-**BUILT 2026-10-01 with B20 (6652709) and reviewed the same day** (proofs in eb90f93), to the order approved at review: older
-history, then the records (continuation pieces first, then hits from the lowest rank), then
-the oldest whole tool rounds, then a final call without tools as the last resort. Every step
-past older history is logged and marked in the trace.
-- **Mechanism.** After a tool round, the loop re-plans the window over the user's message
-  plus the round's tool messages. `history.select_history` walks newest-first, always keeps
-  only the newest (now a tool result), and stops at the first message that does not fit,
-  which can be **the user's own message**. The model is then asked to answer tool results
-  with no question in front of it.
-- **Silent:** the overflow warning never fires, because the newest message fits.
-- **Reproduced** with the real loop, prompt assembly and windowing, only `ollama.chat`
-  faked (scratchpad script, recorded in the changelog):
-  - a 50,000-char message beside maximal retrieved records survives one round of 2 tool
-    calls, and is **dropped** after 3 calls, or after 2 rounds of 2.
-  - Smallest message dropped after 4 rounds:
-    - records 57,000: 1 call/round from ~42,700 chars; 2 from ~25,900; **3 from ~9,400**;
-    - records 25,000: only at 3 calls/round, from ~41,600 chars;
-    - no records: never, up to the 50,000 cap.
-- **The original proposal, kept for its record.** It was built in 6652709 as modified at review: a records-shrink step
-  (continuation pieces, then hits from the lowest rank) was added before dropping rounds. See BUILT.md "B21 fixed: this
-  turn's user message is pinned". The original text:
-  - (1) pin the current turn's user message so it is never evicted;
-  - (2) when the pinned message plus this turn's tool rounds exceed the budget, drop the
-    **oldest whole rounds** (an assistant tool-call message with all its results), never
-    part of one, logging at WARNING;
-  - (3) once (2) has happened, make the next call the final, toolless one, so the model
-    answers with what it has rather than looping;
-  - (4) the reproduction scenarios become regression tests asserting the user's message is
-    present on every call.
+**B21 a long user message is silently dropped after tool rounds:** built 6652709 (proofs eb90f93); text in `docs/archive/NOW-closed-backlog.md`.
 
 **Notes follow-ups, 2026-10-03, awaiting review** (`changelog/2026-10-03-notes-search-line-and-gap-remeasure.md`).
 `notes.enabled` stays off.
@@ -430,7 +354,7 @@ past older history is logged and marked in the trace.
   first, so it **read the real `data/working.db` settings table**. Its contents were not observed. The table was
   recorded empty on 2026-09-24 (B15, read-only), and `working.db` has not been modified since 2026-09-22 (fingerprint),
   so it was presumably still empty. The real `data/` fingerprint is unchanged.
-- **Built 2026-10-03:** `scripts/_scratch.py`, `scratch_env(name, *, root=None)` (BUILT.md; `changelog/2026-10-03-scratch-helper.md`).
+- **Built 2026-10-03 (`fb25f6e`):** `scripts/_scratch.py`, `scratch_env(name, *, root=None)` (`changelog/2026-10-03-scratch-helper.md`).
   - It sets every `[paths]` `ANAM_*` variable, discovered by parsing `program/config.py` without importing it, under
     `~/anam-measurements/<name>`.
   - It refuses if any `program` module is already imported.
@@ -606,10 +530,19 @@ Do not let this quietly stay permissive forever by default.
 - So calibrating a floor changes correction behaviour as well as retrieval, and needs CO17's
   end-to-end check re-run when it lands. See `docs/CORRECTION_DESIGN.md` CO17.
 
-## Go-live checklist (placeholder — fill in once build is underway)
+## Go-live checklist
 
-- [ ] Full database wipe executed and verified
-- [ ] `soul.md` final wording reviewed
-- [ ] Model temperature finalized
-- [ ] Go-live reset command tested
-- [ ] All eval/probe harnesses passing on final build
+Every line is from `BUILD_PLAN.md` Phase 10 or from an open item in this file. Nothing is ticked: none of these is done.
+
+- [ ] Full database wipe executed and verified (decision #16; Phase 10). Phase 10's checkpoint says to confirm with Lyle before executing it.
+- [ ] Go-live reset command built and tested (Phase 10, Tier 3).
+- [ ] `soul.md` final wording pass (Phase 10, Tier 3, Opus).
+- [ ] Final model temperature (Phase 10).
+- [ ] All eval and probe harnesses run against the final pre-wipe build (Phase 10).
+- [ ] Pre-go-live scripted soak test, before the wipe (Phase 10). A human-driven pass is to be added as its own line once the UI ships (Phase 10, "Revisit once the UI ships").
+- [ ] Final launch config/profile (Phase 10).
+- [ ] Rotate the Moltbook API key before Phase 8; it was pasted unredacted into chat once. *(Lyle, 2026-10-04.)*
+- [ ] Cap Docker memory for the SearXNG container. *(Lyle, 2026-10-04.)*
+- [ ] B22 closed before go-live (`archive.db` has no triggers). *(Lyle, 2026-10-04.)*
+- Also open, not stated as a go-live requirement in the docs: a tested restore (the Restore CLI is in Phase 1's task list and
+  not built; `BUILT.md` "Backup / restore": a backup has never been restored).

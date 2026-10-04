@@ -21,10 +21,7 @@ Complexity in the substrate is not the same thing as richness in the entity.
 
 ## Status
 
-Fresh build. The prior implementation (`xeeker4368/Anam`) is kept at
-`reference/old-anam/` for consultation only — see `AGENTS.md` for the rule
-governing that folder. Nothing in this repo is a copy of that code; it is a
-from-scratch build informed by lessons already learned there.
+Phases 0 to 4 are built and Phase 5 is in progress; the current state is in `NOW.md` ("Current state") and the status of each phase in `BUILD_PLAN.md`. The prior implementation (`xeeker4368/Anam`) is kept at `reference/old-anam/` for consultation only, and `AGENTS.md` forbids copying code from it.
 
 The database in this build is disposable test data. It will be wiped before
 go-live, without exception, unlike the prior project's more cautious

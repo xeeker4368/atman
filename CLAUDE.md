@@ -6,26 +6,32 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 @PROJECT.md
 @GUIDANCE.md
 @NOW.md
-@BUILT.md
+@ARCHITECTURE.md
+
+`BUILT.md` is the frozen history of how the build got here (about 354,000 characters). It is **not
+imported**: search it by heading (`## Core platform`, `## Tools` and so on), never load it whole.
 
 ## State of this repo
 
-**Fresh build. No code exists yet.** As of this writing the repo contains only
-the five canonical docs imported above, `reference/old-anam/`, and an empty
-`venv/` (Python 3.14, pip only). It is **not yet a git repository** — `git init`
-has not been run.
+Phases 0 to 4 of `BUILD_PLAN.md` are built and Phase 5 is in progress; `NOW.md` ("Current state") has the
+details and `BUILD_PLAN.md` has a "Status:" line under each phase. It is a git repository on `main`.
+`reference/old-anam/` is the prior build (reference-only, see below).
 
-Consequences for a session starting here:
+Commands that exist (from `pytest.ini`, `pyproject.toml`, `start.sh`, `run_server.py`, `scripts/`):
+- `venv/bin/python -m pytest`: the tests (`testpaths = tests`). A few call live Ollama when it is reachable.
+- `ruff check .`: lint (line length 100, rules E, F, I).
+- `python run_server.py [--debug] [--port N]` or `./start.sh [--lan]`: start the backend.
+- `scripts/`: operator and measurement scripts; `README.md` says what each is for. A script that imports
+  `program` against a scratch store calls `scripts/_scratch.py` `scratch_env(name)` first.
 
-- There are no build, test, lint, or run commands yet. Do not invent them, and
-  do not copy the old project's (`./start.sh`, `python -m pytest`,
-  `python -m tir.admin`) into a task brief as if they applied — that package
-  does not exist in this build.
-- `BUILT.md` is the authority on what actually exists. Everything in `PROJECT.md`
-  under "In scope" is *planned*, not present. When adding the first real code,
-  update `BUILT.md` in the same commit, and record commands here once they exist.
-- Nothing here is a copy of the prior implementation. The package name `tir/` and
-  the "Tír" naming belong to that old build; do not carry either into new code.
+Hard rules: **CC never commits or stages.** **CC does not start a server against `data/`.**
+
+Doc map: `AGENTS.md` how CC works; `PROJECT.md` what and why; `GUIDANCE.md` behavioural principles; `NOW.md`
+current state, the decision log and open items; `ARCHITECTURE.md` current invariants, each cited to a test or
+code; `BUILD_PLAN.md` the phases and their status; `BUILT.md` frozen history; `docs/` design docs;
+`docs/archive/` closed items; `docs/measurements/` future measurement detail; `changelog/` dated task records.
+
+The package name `tir/` and the "Tír" naming belong to the old build; do not carry either into new code.
 
 ## Naming and language discipline
 
@@ -55,12 +61,12 @@ copying code from it. Two failure modes to watch for:
    when a file under that directory is read. Those describe the *old* project's
    rules and status. This repo's root docs win, always. Concretely, the old docs
    still treat self-modification, the review queue, and partial data preservation
-   as live; here they are deferred or abolished (`NOW.md` entries 14–16).
+   as live; here they are deferred or abolished (`NOW.md` decision log entries 14 and 15 for self-modification and the review queue, 16 for the wipe).
 
 ## Decisions that are already made
 
-`NOW.md` holds a 19-entry decision log covering everything settled before code
-exists. **Treat every line there as DECIDED** — implement against it rather than
+`NOW.md` holds a 23-entry decision log (entries 1 to 23) covering what was settled before and
+during the build. **Treat every line there as DECIDED** — implement against it rather than
 relitigating it, and if a task seems to require deviating, stop and flag it
 instead of deciding silently. The ones most likely to be reinvented by accident:
 
@@ -87,18 +93,16 @@ instead of deciding silently. The ones most likely to be reinvented by accident:
   "preserve genuine history" exception into the wipe tooling; this build's data
   is disposable test data throughout.
 
-## Planned architecture (none of it built yet)
+## Architecture
 
-Python/FastAPI backend · Ollama for local chat + embeddings · ChromaDB vectors
-plus SQLite FTS5/BM25 lexical, fused via RRF · SearXNG (local HTTP) behind
-`web_search`/`web_fetch` · ComfyUI behind image generation.
+Built: Python/FastAPI backend (`program/`) · Ollama for local chat + embeddings · ChromaDB vectors plus SQLite
+FTS5/BM25 lexical, fused via RRF · SearXNG (local HTTP) behind `web_search`/`web_fetch` · ComfyUI behind image
+generation. `ARCHITECTURE.md` lists the current invariants.
 
-The frontend is deliberately **hybrid**: React for the live chat interface,
-rebuilt around one coordinated state machine — no scattered `useState`, no
-competing pollers, no duplicate state machines, which is the specific failure the
-old build hit. Plain server-rendered forms for the admin settings panel, which
-has no complex client state. Admin settings are loopback-gated and never exposed
-to Jodie.
+Not built: the frontend (planned as **hybrid**: React for the live chat interface, rebuilt around one coordinated
+state machine, with no scattered `useState` and no competing pollers, which is the failure the old build hit; plain
+server-rendered forms for the admin settings panel) and the admin loopback gate that panel needs (`BUILD_PLAN.md`
+Phase 9). Admin settings are to be loopback-gated and never exposed to Jodie.
 
 Substrate stays boring on purpose: accumulated memory is meant to be the only
 interesting variable. KISS is non-negotiable at the substrate level, and
@@ -107,7 +111,7 @@ complexity in the substrate is not the same thing as richness in the entity.
 ## Working rules that bite
 
 - **Never commit.** CC plans → the reviewer (Claude, outside this repo) approves →
-  CC implements with a changelog entry → Lyle reviews the diff and commits.
+  CC implements (with a changelog entry where `AGENTS.md` "Git hygiene" requires one) → Lyle reviews the diff and commits.
   This holds regardless of how small or obviously-correct the change is.
 - One task at a time, verified before the next. Do not batch unrelated changes.
 - **Stop and wait for review** after: database schema (initial or migration),
@@ -118,8 +122,8 @@ complexity in the substrate is not the same thing as richness in the entity.
   a config value, a database row, whether a process actually died, whether a
   service is actually running — run the command. `ollama ps`, direct SQL, and
   process inspection are cheap; being wrong about system state is not. Verify
-  against live code and behavior over any doc, including `BUILT.md`, then fix
-  the doc.
+  against live code and behavior over any doc (`BUILT.md` is frozen history; fix
+  `ARCHITECTURE.md` or `NOW.md` instead), then fix the doc.
 - Git hygiene when staging for Lyle: explicit `git add <filename>` per file,
   never `-A`, never `.`; `git status` clean before a commit.
 - Every task needs tests. If one genuinely can't be tested, say so explicitly

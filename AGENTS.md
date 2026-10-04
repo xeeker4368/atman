@@ -1,13 +1,15 @@
 # AGENTS.md
 
 Instructions for Claude Code (CC) working in this repo. Read this file, plus
-`PROJECT.md`, `BUILT.md`, `NOW.md`, and `GUIDANCE.md`, at the start of every
-session before touching anything.
+`PROJECT.md`, `ARCHITECTURE.md`, `NOW.md`, and `GUIDANCE.md`, at the start of every
+session before touching anything. `BUILT.md` is the frozen history: search it by
+heading, never load it whole.
 
 ## The loop
 
 CC plans → plan goes to the reviewer (Claude, outside this repo) for
-approval → CC implements with a changelog entry → Lyle reviews the diff on
+approval → CC implements (with a changelog entry where "Git hygiene" below
+requires one) → Lyle reviews the diff on
 his own device → Lyle commits. **CC never commits.** Ever, regardless of how
 small or obviously-correct a change seems.
 
@@ -55,6 +57,7 @@ implementation feels:
 - Retrieval changes that implement the supersedes/correction link
 - Provenance/source-trust semantics
 - `soul.md` content and prompt assembly
+- Prompt-facing text (tool descriptions, result texts, refusal texts)
 - Authentication: credential verification, session-token issue and expiry, and
   anything that decides which `Actor` a request produces
 - Database concurrency and locking semantics in `program/memory/db.py` —
@@ -274,14 +277,90 @@ that is not covered and not explicitly exempted, so a fourth occurrence fails th
 suite instead of leaking. **Adding the exemption is a real answer; it just has to be
 written down.**
 
+## Working rules
+
+Each rule binds CC. Where a rule has existed only in review conversation rather than in
+a project document, it says so. Rules B1 to B3 were proposed by CC
+(`changelog/2026-10-03-agents-working-rules-draft.md`, Part B).
+
+**1. Never commit, never stage, never start a server against `data/`.**
+- Lyle runs every commit (`AGENTS.md` "The loop"; `CLAUDE.md` "Never commit").
+- For each change CC writes a list of paths, one per line. It checks that the lists together equal the working-tree
+  changes, and says where a file is shared between sets. CC never uses `git add -p`. *(Review conversation;
+  `CLAUDE.md` "Git hygiene".)*
+- CC does not start a server against `data/`. A server on a scratch store (the play kit) is started only when the task
+  says so, and only after every resolved directory is confirmed under the scratch root. Server startup calls
+  `db.init_databases()`, which applies pending migrations (`program/api/app.py`, `lifespan`). *(The rule itself:
+  review conversation, 2026-10-03.)*
+
+**2. Point every scratch directory before importing `program.*`.**
+- A script that imports `program` with the default directories reads the real store. The settings-backed accessors
+  read `working.db`'s settings table (2026-10-03 occurrence, `NOW.md`).
+- Call `scripts._scratch.scratch_env(name)` before any `program` import. `tests/test_scratch_helper.py` fails on a new
+  script that does not. Operator tools meant to use the real store are listed there with a reason.
+- Confirm the real `data/` is untouched: record a fingerprint (every file's mtime and size) before and after any model
+  run (piece 8 onwards).
+
+**3. The repository is public.**
+- No keys, no account names, no real conversation text, and no raw entity replies from real conversations.
+- Raw samples go in `~/anam-measurements/`, never in the repo (Moltbook fixtures README; review conversation).
+
+**4. Every new search-like tool declares `Tool.empty_result`.**
+- The declaration is the exact sentence the tool returns when nothing matched (CO17, `docs/CORRECTION_DESIGN.md`).
+- CO17's exclusion and symmetric skip key on it. A search tool without it is invisible to both, and nothing fails.
+- Add the tool to the drift test that dispatches each real tool and requires its empty result to be detected.
+
+**5. Measurement trust.**
+- **Decorrelated, shuffled passes:**
+  - interpose a different prompt between samples of one case;
+  - shuffle each pass with a recorded seed;
+  - never loop one prompt back to back (`AGENTS.md` "Sampling a model's behaviour").
+- **Escalate anything non-unanimous:** a case that is not unanimous in five runs goes to 20 runs before its rate is
+  reported, and a rate is reported with an interval (`AGENTS.md`; `NOW.md` decision #22).
+- **Hand classification needs an independent reader** before it is a finding. Until then it is labelled "one reader's
+  classification" (`BUILT.md` caveats on the journal and piece 8 tables). *(The independent-reader requirement: review
+  conversation.)*
+- A harness builds what production builds (`AGENTS.md`). Read the primary source, not a derived one (`AGENTS.md`).
+
+**6. One model run at a time; every run resumable.**
+- Ollama serves one model and samples correlate (`AGENTS.md`), so CC never runs two model-calling processes at once.
+- Append each sample or pass to its raw file as it finishes. A restart skips what is done. *(Review conversation;
+  every `scripts/notes_*` measurement does this.)*
+- Before starting runs, CC says if model time looks longer than the limit the task gives.
+
+**7. Report in the body; flag rather than guess.**
+- Results go in the body of the reply in compact tables, and in a changelog file. Never "printed above" or "see the
+  attachment". *(Review conversation.)*
+- CC reports its own reading, not a recommendation to switch anything on. *(Review conversation.)*
+- **Anything uncertain is flagged as uncertain**, with what would settle it, rather than resolved by a guess. A status
+  claim is checked against the code before it is repeated (`AGENTS.md` "A status label is a derived artifact too").
+
+**B1. New frozen cases are proposed first.** A proposed case is shown with its observed behaviour and added to a case
+file only after review. The `documented` and `note` fields can be edited without moving the fingerprint; a change to
+any fingerprinted field is a new freeze and says so. *(Review conversation, 2026-10-03; piece 7's practice.)*
+
+**B2. Tier 3 work stops for review after it is built,** per "Stop-and-verify checkpoints" above. Prompt-facing
+text (tool descriptions, result texts, refusal texts) counts as Tier 3 and is listed there.
+
+**B3. A text change is measured before it is applied, when it needs under about ten minutes of model time on one process.**
+- Inject the draft in memory in a scratch process, run the relevant requests, and read the replies, before the
+  committed text changes.
+- The 2026-10-03 drafts show why: the draft CC wrote itself (B) was no better than the current text (7/36 against 8/36;
+  `changelog/2026-10-03-notes-search-line-and-gap-remeasure.md`).
+
 ## Git hygiene
 
 - Explicit `git add <filename>` per file. Never `-A`, never `.`.
 - `git status` confirmed clean before every commit — no unrelated files
   riding along.
-- A changelog entry accompanies every substantive change (what changed, why,
-  what was tested, known limitations, follow-up work).
-- Update `BUILT.md` in the same commit as the work it describes.
+- Changelog entries are for Tier 2 and Tier 3 work and for behaviour changes (what changed, why, what was tested,
+  known limitations, follow-up work). A docs-only fix goes in the commit message.
+- `BUILT.md` is frozen history and is not updated (see its header). `ARCHITECTURE.md` is updated in the same commit
+  as the work **only when an invariant changes**.
+- `NOW.md` holds open items only. Closing an item moves it to `docs/archive/` with its ID, leaving a one-line index
+  entry.
+- A statement of what the system does belongs in a test or in the code; the docs explain why.
+- A status claim cites a commit or a test.
 
 ## Testing
 

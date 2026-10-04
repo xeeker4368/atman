@@ -25,6 +25,8 @@ tasks can often be parallelized if noted. Every task lists a **Tier**
 
 ## Phase 0 — Scaffolding
 
+Status: done. Server, health endpoint, `start.sh` and the three config layers with an env override proven by a test are built (`BUILT.md` "Core platform"; `changelog/2026-08-29-phase-0-scaffolding.md`); first commit e46ae7a, 2026-08-31.
+
 Goal: an empty-but-runnable skeleton. No memory, no model calls that matter
 yet — just the shape of the app.
 
@@ -43,6 +45,8 @@ from all three layers with env override proven by a test.
 ---
 
 ## Phase 1 — Core Substrate
+
+Status: built, except two items. Not built: the Restore CLI (`BUILT.md` "Backup / restore": restore is Tier 3 and not built) and the multi-user task's loopback check (`BUILT.md` "Users / households": no loopback gate is built; Phase 9 owes it). Retrieval floors ship unset by design (`NOW.md` "Retrieval floor calibration"). `BUILT.md` "Tables asserted absent" records changes made at this phase's checkpoint.
 
 Goal: the memory system exists and is queryable. This is the highest-risk
 phase in the whole build — most of its tasks are Tier 2/3.
@@ -139,6 +143,8 @@ more was verified than actually was.
 
 ## Phase 2 — Tools
 
+Status: built, except one task. Built: registry, agent loop, chat authentication, `memory_search`, `web_search` (live SearXNG), `web_fetch`, file ingestion, the governance blocklist (`BUILT.md` "Tools", "Agent loop / chat", "Authentication", "Artifacts"; each tool has an "Exercised live inside a real turn" entry). The `db.py` write-contention task is partly done (a retry on every writer, enforced by `tests/test_db_contention.py::test_every_write_in_db_carries_the_retry`) and otherwise open (`BUILT.md` "db.connection() can raise database is locked").
+
 Goal: the entity can act, not just talk.
 
 | Task | Tier | Model |
@@ -159,6 +165,7 @@ Goal: the entity can act, not just talk.
   **Owes idle-close two things.** (a) *Re-derive idle-close's timing.* Its
   `in_flight_grace_minutes` (30) and `FLOOR_MINUTES` (20) were derived from an
   assumed 5-iteration loop before this task existed — placeholders, explicitly.
+  *(Superseded: part (a) was done 2026-09-08 (`changelog/2026-09-08-idle-close-re-derivation.md`). The values now are `in_flight_grace_minutes = 41` (`config/defaults.toml`) and `IN_FLIGHT_GRACE_FLOOR_MINUTES = 35` (`program/config.py`).)*
   The floor is `L x (prompt eval + generation) + tool execution`, so this task's
   actual iteration limit and actual tool timeouts must be used to recompute
   both. Measured inputs to reuse: 19.1s cold model load, 132.8s prompt eval at
@@ -197,6 +204,8 @@ confirmed against a live SearXNG response, not just a mocked test.
 
 ## Phase 3 — Memory Integrity
 
+Status: done at stage 1, flag-only (`NOW.md` decision #23, 2026-09-18; stage 2, block-and-regenerate, is not taken). Gate, correction classifier, both frozen eval sets and retrieval that annotates superseded records are built (`BUILT.md` "Memory integrity", "Correction / supersession"). Open: CO10.2 and PN9 (`NOW.md` backlog); the person-corrects-entity call is built and off (`config/defaults.toml`, `corrections.person_corrects_entity = false`).
+
 Goal: the system can catch and handle its own errors about itself.
 
 | Task | Tier | Model |
@@ -215,6 +224,8 @@ measurement step just because the design is decided.
 ---
 
 ## Phase 4 — Media & Creative
+
+Status: done. Gate criterion met and closed 2026-09-21 (`BUILT.md` "Phase 4's gate criterion is met and closed"; `changelog/2026-09-21-soul-creative-work-refusal-clause.md`). Image generation, creative writing and the refusal clause are built. No autonomous session mode exists; the unattended write path is proven instead (`tests/test_no_person_present.py`).
 
 | Task | Tier | Model |
 |---|---|---|
@@ -242,6 +253,8 @@ build from here rather than assuming the plan continues in one sitting.
 ---
 
 ## Phase 5 — Research & Reflection
+
+Status: in progress. Built: reflection journal, read-only Moltbook tools (off by default), Notes pieces 1 to 8 (dark, `notes.enabled = false`; pieces 1 to 8 are in `BUILT.md` "Notes (Phase 5)"). Not built: bounded research execution, the self-flag tool, the mining job, propose-vs-execute authorization for research, source trace collection (no research code in `program/`; `tests/test_db.py` asserts there is no `research_candidates` table; no `allow_*` flag exists). The phase gate has not been run. Notes' ship gate failed on CO15 (`NOW.md` backlog, `docs/CORRECTION_DESIGN.md` CO17).
 
 | Task | Tier | Model |
 |---|---|---|
@@ -277,6 +290,8 @@ tools work live, and that the key appears in no log line, error or trace.
 
 ## Phase 6 — Scheduling
 
+Status: not started. No scheduler module exists (`tests/test_no_person_present.py::test_b5_did_not_build_a_session_mode` asserts it).
+
 | Task | Tier | Model |
 |---|---|---|
 | Nightly tick / scheduler core | 1 | Sonnet |
@@ -290,6 +305,8 @@ flags correctly and a manual override still works independent of them.
 
 ## Phase 7 — Eval & Observability
 
+Status: not started. `eval/` holds only the Phase 3 case sets (`eval/fabrication_gate`, `eval/corrections`); no retrieval eval harness or behavioural probe harness exists.
+
 | Task | Tier | Model |
 |---|---|---|
 | Retrieval eval harness (frozen regression cases) | 0 | Sonnet |
@@ -297,11 +314,13 @@ flags correctly and a manual override still works independent of them.
 | Raw-gemma control arm (same probe, no memory, for comparison) | 1 | Sonnet |
 | Backend test suite coverage pass | 0 | Sonnet |
 
-Can run in parallel with Phases 4–6 once Phase 1–3 interfaces are stable.
+Can run in parallel with Phases 4–6 once Phase 1–3 interfaces are stable. Phase 4 is done (see its Status line).
 
 ---
 
 ## Phase 8 — Moltbook
+
+Status: not started. The read-only tools were built under Phase 5; no posting, approval toggle or rate limit exists (`tests/test_moltbook.py::test_the_module_never_reads_the_key`; `BUILT.md` "Moltbook, read-only").
 
 *(Moved ahead of UI — the UI phase needs Moltbook's backend capability to
 already exist so it has something real to build a toggle for.)*
@@ -321,6 +340,8 @@ directly, not just by trusting the UI.
 
 ## Phase 9 — Frontend / UI
 
+Status: not started. There is no frontend (`start.sh` help text) and no admin route; the routes are auth, chat, health and upload (`program/api/routes/`).
+
 | Task | Tier | Model |
 |---|---|---|
 | React chat interface: single coordinated state machine (reducer-based), streaming responses, tool-call/artifact rendering — explicitly avoid the competing-poller pattern from `reference/old-anam` (decision #7). **Owes the receipt rendering** (O23, `docs/FABRICATION_GATE_DESIGN.md` F50): render `POST /api/chat`'s `receipts` field, visually separate from the entity's words and never styled as part of the reply, and rebuild it for past turns from the stored `tool_trace` with `receipts.for_trace()`. **In the same change**, replace `creative_write`'s *"Nothing shows it to anyone unless it comes up."* with an accurate line (marked in `program/tools/creative_write.py`). It becomes false the moment a person sees receipts. | 1 | Sonnet |
@@ -339,6 +360,8 @@ a human can actually verify by looking at it.
 ---
 
 ## Phase 10 — Go-Live Readiness
+
+Status: not started. No go-live reset command exists (`tests/test_seed.py::test_there_is_no_wipe_or_reset_surface` asserts the seed module has none); the checklist is in `NOW.md`.
 
 *(Deliberately sequenced after UI, per your instruction — go-live isn't
 meaningful until the full system, UI included, is actually usable.)*
