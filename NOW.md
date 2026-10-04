@@ -518,6 +518,63 @@ guards existed, would otherwise bring back an unguarded archive that looks fine)
 repair when they differ, and (3) restore the two databases as one consistent pair (the dual-write
 atomicity guarantee). Neither is designed here.
 
+**B23 — a server that has queried Chroma fails every later vector query once another process writes
+vectors, until restart** (filed 2026-10-03, found on a scratch server; **Tier 3, nothing changed in the repo**).
+- **Symptom:** after a conversation was ended and chunked by a separate process (`db.end_conversation` plus
+  `chunking.finalise_conversation`), every following turn logged `retrieval failed for this turn, continuing
+  without: Error executing plan: Internal error: Error creating hnsw segment reader: Nothing found on disk`, and
+  `memory_search` raised the same `InternalError`.
+- **Reproduced on scratch stores**, chromadb 1.5.9, real model:
+
+  | case | result |
+  |---|---|
+  | (a) the server had answered a turn, then another process wrote | **fails** |
+  | (b) the server was started after the other process wrote | works |
+  | (c) the conversation was ended inside the server (idle sweep) | works |
+  | (d) the server from (a) was restarted | **fixed**, with nothing on disk changed |
+
+  The on-disk state is the same in the healthy and the broken stores: the vector segment has no `max_seq_id` row and
+  only its four preallocated HNSW files. So the fault is the long-lived process's in-memory view.
+- **Minimal reproduction, no server:**
+  - A long-lived process queries, and a second process upserts one vector; the first process's next query fails.
+  - **It needs the long-lived process to have queried first**: one that only opened the client (as the server does
+    at boot) and never queried kept working.
+  - `vectors.reset_vector_store()` alone does **not** recover. **`chromadb.api.shared_system_client.SharedSystemClient.clear_system_cache()`
+    then `reset_vector_store()` recovered it in-process** (an internal Chroma API).
+- **What can trigger it in this repo:** any vector-writing script run while the server is up and has answered a turn:
+  - `scripts/close_idle_conversations.py`;
+  - `scripts/reconcile_vectors.py`;
+  - `scripts/seed_dataset.py`;
+  - `scripts/write_journal.py --index`.
+
+  Demonstrated only for the chunking route. The other three use the same `upsert` and client, but are untested.
+- **Phase 6 owes serialization:** vector writes go through the server's process, or scripts refuse while a server
+  holds the store, or the recovery above is built and tested. Not chosen.
+- **The kit was changed instead:** it now ends conversations through a launcher-only route inside the server.
+
+**B24 — `retrieval._vector_leg` guards only the embedding call, so a vector-store failure drops the lexical leg
+too** (filed 2026-10-03, found with B23; **Tier 3, nothing changed**).
+- `_vector_leg` catches an exception from `ollama.embed(...)` and degrades with a `skip_reason`
+  (`program/memory/retrieval.py` around line 353). The next line, `store.query(...)`, is not guarded, so a Chroma
+  error propagates out of `retrieval.search()`.
+- `turn.py` then logs `retrieval failed for this turn` and runs with **no retrieved records**, though the lexical
+  leg's results were available. Observed in every failing turn of B23.
+- **BUILT.md's "One leg down does not take retrieval with it" holds only for an embedder failure**; its test kills
+  the embedder.
+- The smallest fix is to guard `store.query` the same way, so the leg degrades and the lexical results survive. It
+  does not fix B23; it limits what B23 costs.
+
+**B25 — when `memory_search` returns an error, the entity can report a clean search** (filed 2026-10-03; relates to
+CO17; **observed once, not measured; nothing changed**).
+- In B23's case (a) the turn's `memory_search` raised `InternalError`, and the reply said: *"I searched your notes
+  and our previous conversations, but I could not find any record of that information."*
+- That is a claim of an empty search over a failed one. In the next turn the same failure was reported accurately:
+  *"the search failed with an internal error."*
+- One occurrence, on scratch data; no rate.
+- Related to CO17 (claims of "nothing found"). CO17's exclusion keys on a **successful** empty result, so a claim
+  made over a failed search is neither excluded nor covered.
+- Whether the gate sees it is untested; `memory_search` is not a side-effect tool.
+
 **Journal: "held, not yet read" and "read and declined" look the same — KNOWN GAP,
 deferred to Phase 6** (decided at review 2026-10-01; `docs/REFLECTION_JOURNAL_DESIGN.md`
 J7). Index-after-reading is approved: a journal entry enters memory only on an explicit
