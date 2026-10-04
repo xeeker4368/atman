@@ -24,12 +24,12 @@ Commands that exist (from `pytest.ini`, `pyproject.toml`, `start.sh`, `run_serve
 - `scripts/`: operator and measurement scripts; `README.md` says what each is for. A script that imports
   `program` against a scratch store calls `scripts/_scratch.py` `scratch_env(name)` first.
 
-Hard rules: **CC never commits or stages.** **CC does not start a server against `data/`.**
+Hard rules: **CC never commits to main and never pushes or merges; it commits to its own `cc/<piece>` branch and stops** (`docs/GIT_WORKFLOW.md`). **CC does not start a server against `data/`.**
 
 Doc map: `AGENTS.md` how CC works; `PROJECT.md` what and why; `GUIDANCE.md` behavioural principles; `NOW.md`
 current state, the decision log and open items; `ARCHITECTURE.md` current invariants, each cited to a test or
 code; `BUILD_PLAN.md` the phases and their status; `BUILT.md` frozen history; `docs/` design docs;
-`docs/archive/` closed items; `docs/measurements/` future measurement detail; `changelog/` dated task records.
+`docs/archive/` closed items; `docs/measurements/` future measurement detail; `docs/GIT_WORKFLOW.md` the branch and merge procedure; `changelog/` dated task records.
 
 The package name `tir/` and the "Tír" naming belong to the old build; do not carry either into new code.
 
@@ -110,9 +110,7 @@ complexity in the substrate is not the same thing as richness in the entity.
 
 ## Working rules that bite
 
-- **Never commit.** CC plans → the reviewer (Claude, outside this repo) approves →
-  CC implements (with a changelog entry where `AGENTS.md` "Git hygiene" requires one) → Lyle reviews the diff and commits.
-  This holds regardless of how small or obviously-correct the change is.
+- **Branch, never main.** CC plans → the reviewer (Claude, outside this repo) approves → CC implements on a `cc/<piece>` branch (with a changelog entry where `AGENTS.md` "Git hygiene" requires one) and commits there → Lyle reviews `git diff main..cc/<piece>`, squash-merges and pushes. CC never commits to main and never pushes, merges, rebases or rewrites history. This holds regardless of how small or obviously-correct the change is.
 - One task at a time, verified before the next. Do not batch unrelated changes.
 - **Stop and wait for review** after: database schema (initial or migration),
   provenance/source-trust semantics, `soul.md` content and prompt assembly,
@@ -124,7 +122,7 @@ complexity in the substrate is not the same thing as richness in the entity.
   process inspection are cheap; being wrong about system state is not. Verify
   against live code and behavior over any doc (`BUILT.md` is frozen history; fix
   `ARCHITECTURE.md` or `NOW.md` instead), then fix the doc.
-- Git hygiene when staging for Lyle: explicit `git add <filename>` per file,
+- Git hygiene when committing on a `cc/` branch: explicit `git add <filename>` per file,
   never `-A`, never `.`; `git status` clean before a commit.
 - Every task needs tests. If one genuinely can't be tested, say so explicitly
   rather than skipping quietly.

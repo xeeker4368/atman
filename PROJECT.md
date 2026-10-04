@@ -44,14 +44,14 @@ carve-out into the wipe tooling for this iteration.
 ## People and roles
 
 - **Lyle** — admin/operator. Full settings access via the admin panel
-  (loopback-gated). Holds all commit authority.
+  (loopback-gated). Holds merge and push authority.
 - **Jodie** — household user. Chat, image generation, creative-space access.
   No settings access, ever. Her conversations are legitimate source material
   for the periodic research-mining pass (see `GUIDANCE.md`), but she cannot
   trigger a research run herself.
 - **Claude (reviewer/architect)** — plans, reviews, pushes back, writes task
   specs.
-- **Claude Code (CC)** — implements. Never commits unilaterally.
+- **Claude Code (CC)** — implements, on its own `cc/<piece>` branch. Never commits to main, never pushes or merges; Lyle reviews the branch and merges (`docs/GIT_WORKFLOW.md`).
 
 ## In scope for this build
 

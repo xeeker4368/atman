@@ -9,9 +9,9 @@ heading, never load it whole.
 
 CC plans → plan goes to the reviewer (Claude, outside this repo) for
 approval → CC implements (with a changelog entry where "Git hygiene" below
-requires one) → Lyle reviews the diff on
-his own device → Lyle commits. **CC never commits.** Ever, regardless of how
-small or obviously-correct a change seems.
+requires one) → CC commits to its own branch and stops → Lyle reviews the
+branch diff on his own device, merges and pushes. **CC never commits to main, and never pushes, merges, rebases or rewrites history. For each task CC creates a branch `cc/<piece>` from the current main, commits to it with explicit `git add <file>` (never `-A` or `.`), and stops. Lyle reviews `git diff main..cc/<piece>`, runs the leak check, squash-merges, commits and pushes. A Tier 3 piece's branch is merged before the next piece's branch is created. See `docs/GIT_WORKFLOW.md`.** This holds
+regardless of how small or obviously-correct a change seems.
 
 Work one task at a time. Verify before proceeding to the next. Do not batch
 unrelated changes into one patch.
@@ -283,11 +283,9 @@ Each rule binds CC. Where a rule has existed only in review conversation rather 
 a project document, it says so. Rules B1 to B3 were proposed by CC
 (`changelog/2026-10-03-agents-working-rules-draft.md`, Part B).
 
-**1. Never commit, never stage, never start a server against `data/`.**
-- Lyle runs every commit (`AGENTS.md` "The loop"; `CLAUDE.md` "Never commit").
-- For each change CC writes a list of paths, one per line. It checks that the lists together equal the working-tree
-  changes, and says where a file is shared between sets. CC never uses `git add -p`. *(Review conversation;
-  `CLAUDE.md` "Git hygiene".)*
+**1. Branches, not main; never start a server against `data/`.**
+- CC never commits to main, and never pushes, merges, rebases or rewrites history. For each task CC creates a branch `cc/<piece>` from the current main, commits to it with explicit `git add <file>` (never `-A` or `.`), and stops. Lyle reviews `git diff main..cc/<piece>`, runs the leak check, squash-merges, commits and pushes. A Tier 3 piece's branch is merged before the next piece's branch is created. See `docs/GIT_WORKFLOW.md`.
+- Before committing, CC confirms `git branch --show-current` names its `cc/` branch. The hooks in `.git/hooks` (see `docs/GIT_WORKFLOW.md`) refuse commits on main and all pushes; CC does not inspect, edit or bypass them and never uses `--no-verify`. *(Review conversation, 2026-10-04; `CLAUDE.md` "Git hygiene".)*
 - CC does not start a server against `data/`. A server on a scratch store (the play kit) is started only when the task
   says so, and only after every resolved directory is confirmed under the scratch root. Server startup calls
   `db.init_databases()`, which applies pending migrations (`program/api/app.py`, `lifespan`). *(The rule itself:
@@ -331,6 +329,7 @@ a project document, it says so. Rules B1 to B3 were proposed by CC
 **7. Report in the body; flag rather than guess.**
 - Results go in the body of the reply in compact tables, and in a changelog file. Never "printed above" or "see the
   attachment". *(Review conversation.)*
+- A finished task's report gives the branch name, `git diff --stat main..<branch>`, `git log --oneline main..<branch>`, and a note for any file another open branch also touches. *(Review conversation, 2026-10-04.)*
 - CC reports its own reading, not a recommendation to switch anything on. *(Review conversation.)*
 - **Anything uncertain is flagged as uncertain**, with what would settle it, rather than resolved by a guess. A status
   claim is checked against the code before it is repeated (`AGENTS.md` "A status label is a derived artifact too").
@@ -353,6 +352,10 @@ text (tool descriptions, result texts, refusal texts) counts as Tier 3 and is li
 - Explicit `git add <filename>` per file. Never `-A`, never `.`.
 - `git status` confirmed clean before every commit — no unrelated files
   riding along.
+- Commit only on the task's `cc/<piece>` branch. After creating it, never switch to main.
+- Never `git push`, `merge`, `rebase`, `reset --hard`, `branch -D`, or change `git config`.
+- Commit messages are public, so they follow the public-repo rules (rule 3): no keys, account names or real
+  conversation text.
 - Changelog entries are for Tier 2 and Tier 3 work and for behaviour changes (what changed, why, what was tested,
   known limitations, follow-up work). A docs-only fix goes in the commit message.
 - `BUILT.md` is frozen history and is not updated (see its header). `ARCHITECTURE.md` is updated in the same commit
