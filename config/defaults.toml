@@ -100,13 +100,10 @@ idle_close_minutes = 15
 #                              -------
 #                               2045 s  = 34.1 min  -> floor 35
 #
-# RE-DERIVED AGAIN 2026-09-15 when the fabrication gate added a sixth model call
-# to the turn (docs/FABRICATION_GATE_DESIGN.md F3). The gate is MEASURED at
-# 0.45 s warm; the 300 s above is the enforced ceiling it inherits from
-# ollama.timeout_seconds, not what it costs. Giving the classifier its own
-# shorter timeout would bring the floor back toward 34 — flagged as a possible
-# tightening, not taken here, because it is a change to a setting the gate does
-# not own.
+# The classifier term was 300 s while the fabrication gate (docs/FABRICATION_GATE_DESIGN.md
+# F3, 2026-09-15) inherited ollama.timeout_seconds; it is 45 s now because the
+# classifier has its own timeout (integrity.classifier_timeout_seconds, below). The
+# floor is 2000 + T seconds, so any T up to 100 s still rounds to 35.
 #
 # The floor lives in program/config.py as IN_FLIGHT_GRACE_FLOOR_MINUTES, and
 # tests/test_idle.py recomputes this arithmetic from the live config values
@@ -120,11 +117,14 @@ idle_close_minutes = 15
 # previous 20-minute floor. The placeholder was under even on measured numbers,
 # not only on ceilings.
 #
-# 46 is the floor plus ~18% for un-modelled overhead (HTTP, JSON, thread
-# scheduling) — the same ratio the previous pair used (40/34), applied to the new
-# floor. Less headroom than the original 1.5x because the floor is built from
-# ceilings rather than from a measurement, so it is already pessimistic.
-# JUDGMENT VALUE at that last step; the 39 underneath it is not.
+# in_flight_grace_minutes = 41 is the floor (35, IN_FLIGHT_GRACE_FLOOR_MINUTES in
+# program/config.py) plus 6 minutes of headroom for un-modelled overhead (HTTP, JSON,
+# thread scheduling), about 17% — close to the 40/34 ratio the earlier pair used.
+# Less than the original 1.5x because the floor is built from ceilings rather than
+# from a measurement, so it is already pessimistic. The 6 minutes are the JUDGMENT
+# VALUE in this chain; the 35 underneath it is derived. tests/test_idle.py pins both:
+# test_the_floor_is_recomputed_from_the_loops_own_limits (2045 s -> 35) and
+# test_the_shipped_grace_is_above_the_floor_in_every_layer (41, and not below 35).
 in_flight_grace_minutes = 41
 
 [chat]

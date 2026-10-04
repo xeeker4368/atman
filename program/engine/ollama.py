@@ -144,8 +144,11 @@ def chat(
     """One non-streaming chat completion.
 
     Returns the parsed response dict, which carries ``message`` plus Ollama's
-    own counters — ``prompt_eval_count`` and ``eval_count`` — which the history
-    windowing in task 1.10 uses to calibrate its token estimate.
+    own counters, ``prompt_eval_count`` and ``eval_count``. **Nothing in
+    ``program/`` reads ``prompt_eval_count``**: the history window's token estimate
+    is a fixed characters-per-token ratio (``history.py``) and is not calibrated
+    against these counters at run time. Within ``program/``, ``eval_count`` is read
+    only to word the error for a truncated reply (``loop.py``, ``journal.py``).
     """
     model = model or config.chat_model()
     opts, think = _split_options(options)
