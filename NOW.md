@@ -353,9 +353,11 @@ natural home is Phase 9's admin panel, or the Phase 7 observability work. Record
 the persisted-but-unread state is a known state, not a silent one.
 
 **B20: tool-schema tokens are not a budget term** (filed at review 2026-09-30, Moltbook
-revision 3; Tier 3). **BUILT 2026-10-01 with B21, stopped for review**: see BUILT.md and
+revision 3; Tier 3). **BUILT 2026-10-01 with B21 (6652709) and reviewed the same day** (the proofs asked for at
+review are in eb90f93, BUILT.md "Proved at review (2026-10-01)"): see BUILT.md and
 `changelog/2026-10-01-b20-b21-turn-budget.md`. The derived cap fell from 57,216 to 52,360
-characters; the configured 50,000 still fits, with ~590 tokens of headroom left. Every
+characters; the configured 50,000 still fits, with ~590 tokens of headroom left (9 tools, 2026-10-01; about
+277 with 11 tools as of 2026-10-03, see the planning item below). Every
 tool-bearing call sends the offered tools' JSON schemas, and nothing counts them: not
 `history.plan_budget`, not `prompt.assemble_turn`, and not B6a's derivation of
 `chat.max_message_chars` (`tests/test_turn.py`). **Measured against `gemma4:26b`'s
@@ -363,7 +365,8 @@ tokenizer:** 5 tools **657** tokens, 9 tools (with Moltbook) **1,052**. B6a's de
 leaves **1,804** tokens of headroom beside a maximal message, which falls to **752** with
 9 tools. Notes (two tools, ~100 tokens each) and the remaining Phase 5 tools will consume
 most of the rest, with nothing failing when they do.
-**Designed, not built (presented at review):**
+**Built in 6652709 as designed below; the `reserved + history == context` test was extended to a non-zero schema on
+2026-10-03 (`tests/test_history.py`)** (this list was written as "Designed, not built (presented at review)"):
 - `plan_budget(..., tool_schema_chars=0)`, with a `tool_schema_tokens` field on
   `BudgetBreakdown`, and the `reserved + history == context` test extended to it.
 - `prompt.assemble_turn` takes the size, and `loop.py` passes `len(json.dumps(payload))`
@@ -377,7 +380,7 @@ most of the rest, with nothing failing when they do.
 
 **B21: a long user message is silently dropped after tool rounds: REPRODUCED**
 (2026-09-30, found by reading while measuring B20; Tier 3, history windowing).
-**BUILT 2026-10-01 with B20, stopped for review**, to the order approved at review: older
+**BUILT 2026-10-01 with B20 (6652709) and reviewed the same day** (proofs in eb90f93), to the order approved at review: older
 history, then the records (continuation pieces first, then hits from the lowest rank), then
 the oldest whole tool rounds, then a final call without tools as the last resort. Every step
 past older history is logged and marked in the trace.
@@ -395,7 +398,9 @@ past older history is logged and marked in the trace.
     - records 57,000: 1 call/round from ~42,700 chars; 2 from ~25,900; **3 from ~9,400**;
     - records 25,000: only at 3 calls/round, from ~41,600 chars;
     - no records: never, up to the 50,000 cap.
-- **Proposed fix, not applied:**
+- **The original proposal, kept for its record.** It was built in 6652709 as modified at review: a records-shrink step
+  (continuation pieces, then hits from the lowest rank) was added before dropping rounds. See BUILT.md "B21 fixed: this
+  turn's user message is pinned". The original text:
   - (1) pin the current turn's user message so it is never evicted;
   - (2) when the pinned message plus this turn's tool rounds exceed the budget, drop the
     **oldest whole rounds** (an assistant tool-call message with all its results), never
@@ -422,21 +427,24 @@ past older history is logged and marked in the trace.
 
 **Measurement scripts must repoint every `ANAM_*` directory before importing `program.*`** (2026-10-03).
 - A token-count script imported `program.config` with the default data directory. Config reads the settings table
-  first, so it **read the real `data/working.db` settings table**. The table was empty, and the real `data/` fingerprint
-  is unchanged.
-- `scripts/notes_live.setup()` does the repointing, but only for scripts that call it first. Ad-hoc scripts do not.
-- **Proposed, not built:** a shared helper, `scripts/_scratch.py` with `scratch_env(name)`.
-  - It sets `ANAM_DATA_DIR`, `ANAM_BACKUP_DIR`, `ANAM_ARTIFACT_DIR` and `ANAM_WORKSPACE_DIR` (and any future directory
-    key, enumerated from `config` the way `tests/test_directories.py` does) under `~/anam-measurements/<name>`.
-  - It runs **before** any `program` import.
-  - It refuses to run if `program` is already in `sys.modules`.
-  - It asserts the resolved `db.working_path()` is under the scratch root.
-  - `notes_live.setup()` would call it, and a test would scan `scripts/` for a `program` import that comes before it.
+  first, so it **read the real `data/working.db` settings table**. Its contents were not observed. The table was
+  recorded empty on 2026-09-24 (B15, read-only), and `working.db` has not been modified since 2026-09-22 (fingerprint),
+  so it was presumably still empty. The real `data/` fingerprint is unchanged.
+- **Built 2026-10-03:** `scripts/_scratch.py`, `scratch_env(name, *, root=None)` (BUILT.md; `changelog/2026-10-03-scratch-helper.md`).
+  - It sets every `[paths]` `ANAM_*` variable, discovered by parsing `program/config.py` without importing it, under
+    `~/anam-measurements/<name>`.
+  - It refuses if any `program` module is already imported.
+  - It then requires **every `*_dir()` accessor** (except `config_dir`) to resolve under the scratch root, raising and
+    naming the one that does not. It does not check `db.working_path()` itself; `data_dir()` covers it.
+  - `tests/test_scratch_helper.py` covers the helper in subprocesses. It also scans `scripts/` for a `program` import
+    before `scratch_env`; existing scripts are listed as `OPERATOR` or `NOT_YET_MIGRATED`.
+  - **Not done:** `notes_live.setup()` does not call it yet, and no existing script was migrated.
 
-**Planning item, no fix now (2026-10-02): tool-schema headroom is about 309 tokens with 11 tools.**
+**Planning item, no fix now (2026-10-02): tool-schema headroom is about 277 tokens with 11 tools** (updated 2026-10-03;
+it read about 309 tokens and a 51,236 cap when written on 2026-10-02 at Notes piece 3, then 51,256 / ~314 after piece 6).
 B20's derivation (`config/defaults.toml`, `tests/test_turn.py`) prices every tool's schema against the
-chat message cap. With Notes' two tools the derived cap is 51,236 characters, the configured 50,000
-fits, and about **309 tokens** of earlier history are left beside a maximal message (about 590 with 9
+chat message cap. With Notes' two tools and CO17's tool text the derived cap is 51,108 characters, the configured
+50,000 fits, and about **277 tokens** of earlier history are left beside a maximal message (about 590 with 9
 tools). **Phase 5's further tools** (the self-flag tool, bounded research execution if it becomes a
 tool, Moltbook posting) will each cost roughly 100 to 250 tokens, so **the next one forces the
 configured message cap below 50,000, or something else to give**: shorter schemas, a smaller
