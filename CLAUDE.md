@@ -37,9 +37,10 @@ The package name `tir/` and the "Tír" naming belong to the old build; do not ca
 ## Naming and language discipline
 
 - The project is **Project Anam**. Anam is the substrate, not the entity.
-- **The AI entity has no name and must not be given one** — not by code, prompt,
-  config, or docs. Never write "Anam said" / "Anam thinks"; that collapses the
-  substrate/entity distinction.
+- **The AI entity is not given a name** — not by code, prompt, config, or docs —
+  and `soul.md` says so. Since decision #24 it **may choose one for itself**;
+  nobody else chooses for it. Never write "Anam said" / "Anam thinks": that
+  collapses the substrate/entity distinction.
 - **No launch-gating or deadline language anywhere** — docs, task briefs, commit
   messages, or conversation. This is a continuously developed hobby project with
   no finish line (`PROJECT.md`).
@@ -66,7 +67,7 @@ copying code from it. Two failure modes to watch for:
 
 ## Decisions that are already made
 
-`NOW.md` holds a 23-entry decision log (entries 1 to 23) covering what was settled before and
+`NOW.md` holds a 24-entry decision log (entries 1 to 24) covering what was settled before and
 during the build. **Treat every line there as DECIDED** — implement against it rather than
 relitigating it, and if a task seems to require deviating, stop and flag it
 instead of deciding silently. The ones most likely to be reinvented by accident:

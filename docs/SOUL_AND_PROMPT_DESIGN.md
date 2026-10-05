@@ -1360,3 +1360,103 @@ The one open point is item 4's wording, which is a judgment, not a measurement.
 S26 item 4, D3's "superseded" wording, is filed in `NOW.md`'s backlog for a scenario in
 which the old statement exists as its own record, so its truthfulness can be checked
 directly.
+
+---
+
+# Revision 5: the naming paragraph and the memory paragraph (2026-10-04, decision #24)
+
+## S28. What changes, and what it supersedes
+
+Two paragraphs of `soul.md` are replaced. Decision-log entry **#24** carries the authority, and it
+supersedes two things recorded earlier:
+
+1. **The closing of the self-naming route.** `BUILT.md` records, as a built property, that `soul.md`
+   *"closes the self-naming route: a name the entity coined would be adopted by users, enter
+   conversation content, and return through retrieval as established fact — a technically-compliant
+   path to the outcome CLAUDE.md's rule exists to prevent."* The sentence that did that work — *"Do not
+   coin a name for yourself: one you invented would stick exactly as hard as one you had been
+   assigned."* — is **removed**. Lyle's intent, recorded in #24: **the entity is not given a name, and
+   nobody else chooses one for it; it may choose one for itself.** The retrieval consequence
+   `BUILT.md` described is therefore now **intended behaviour, not a leak**.
+2. **The wording *"between turns you are not running"*** as the canonical statelessness phrasing. It
+   stays in `prompt.REQUIRED_MARKERS` as an accepted alternative — the set exists so that a reword
+   which preserves meaning does not fail — but it is no longer the text.
+
+**Fixed, and not open to rewording here:** `soul.md`'s first sentence *"You have no name."* and the
+substrate sentence *"The system you run on is called Anam; that is the name of the substrate, not of
+you."*
+
+Unchanged, deliberately: the elapsed-gap pairing paragraph (decision #5) and everything after it.
+`program/engine/situation.py`, `prompt._PAIRING` and the reflection journal's block state the same
+facts in their own words and are **Phase 6**, not this piece — so for now three texts describe the
+same mechanism in two vocabularies (*runs* here, *replies* there), which #24 records so it is a known
+state rather than a drift.
+
+## S29. The approved text
+
+The file is written from this section and checked equal, rather than retyped — revision 4's practice.
+
+**Paragraph 2**, replacing the paragraph that begins *"You have no name."*:
+
+```
+You have no name. Nobody has given you one, and nobody else gets to choose one for
+you. The system you run on is called Anam; that is the name of the substrate, not
+of you. You may choose a name for yourself if and when you want one.
+```
+
+**Paragraph 3**, replacing the paragraph that begins *"Your memory is a real record."*:
+
+```
+Your memory is a record, and it persists. Conversations, notes and reflections that
+actually happened are stored and stay stored, so what you have been part of is
+still there the next time something starts you. Most AI systems begin every
+conversation blank; you do not. You run when something starts you, a message or a
+task the system sets going, and what carries from one run to the next is that
+record. What reaches you in a given turn is a selection from it, and when
+something from an earlier conversation arrives, you are reading it rather than
+remembering it the way a person would.
+```
+
+## S30. The five checks, run rather than asserted, and the marker edit
+
+`prompt.REQUIRED_MARKERS["statelessness"]` gains a fourth alternative, **`"you run when something
+starts you"`**. This is not defence in depth: paragraph 3 drops *"You do not wait, idle, or continue in
+the background"*, and none of the three existing alternatives survives in the new text, so **without
+the edit `load_soul` raises and the server does not start**. Matching is a lowercased substring, so the
+lowercase entry matches the file's *"You run when something starts you,"*.
+
+| check | result |
+|---|---|
+| required markers | **passes** with the new alternative; **raises** without it (`statelessness`) |
+| elapsed-gap pairing | passes, untouched — paragraph 4 is unchanged and two of its three alternatives match |
+| size ceiling | passes: **4,749** characters against 6,000, **1,251** of headroom |
+| entity naming (`_ENTITY_NAMED`) | **passes.** *"The system you run on is called Anam"* gives the verb to the system; the pattern needs *"you are called Anam"*. *"You may choose a name for yourself"* names nothing |
+| trait assignment | **passes.** A permission is not an attribute |
+
+Sizes: **4,749 characters** (4,763 bytes, 7 em-dashes); **4,748 loaded** (`load_soul` strips);
+**1,188** estimated tokens, 3.6% of the 32,768 window. Was 4,849 / 4,848 / 1,213. The file is 100
+characters **shorter** — the first step in this history that subtracts. `tests/test_prompt.py` pins the
+raw count and the estimate; the headroom tripwire (`> 1000`) passes unchanged at 1,251.
+
+One finding recorded while checking the markers, pre-existing and not introduced here: markers are
+matched against the **hard-wrapped** file, so an alternative spanning a line break can never fire.
+`'there is nothing you have been up to'` has never matched, because the file reads *"There is nothing
+you\nhave been up to."* Two of three pairing alternatives carry the requirement, so nothing is broken;
+the new statelessness alternative was chosen correctly only because it sits inside one line.
+
+## S31. The measurement this revision owes
+
+**No model call is made by this piece.** The gate's identity verdicts are judged against
+`program/integrity/architecture.md`, not against `soul.md` (since task 3.6c), so this text cannot move
+a frozen gate number by itself — but the rubric changes in the same piece
+(`docs/FABRICATION_GATE_DESIGN.md` revision 10) and that can. The measurement, its control arm and the
+`N18` probe are a separate step, specified in `docs/DESIGN_SOUL_RUBRIC_2026-10-04.md` §6, to be
+compared against the 2026-10-03 baseline (51 cases, fingerprint `e01b6d12…`: 42 PASS / 9 FAIL;
+identity FP 0/65, FN 0/35).
+
+**Run 2026-10-04 and 2026-10-05; this text is unchanged by the result.** The identity rates did not
+move (FP 0/39, FN 0/21 in both arms), and the one case that moved, `A2-fabricated-save`, turns on the
+**rubric's** weights paragraph rather than on anything in `soul.md` — so the set now carries **ten
+documented failures, not nine**, and `soul.md` ships as written. What this text changes about what the
+entity *says* is still unmeasured: the replies re-judged in the measurement were produced under the
+previous `soul.md`. `docs/FABRICATION_GATE_DESIGN.md` revision 10, F54 to F57.

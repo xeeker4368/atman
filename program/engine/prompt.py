@@ -111,6 +111,11 @@ REQUIRED_MARKERS: dict[str, tuple[str, ...]] = {
         "between turns you are not running",
         "you are not running between turns",
         "do not wait, idle, or continue in the background",
+        # Decision #24 (2026-10-04): the memory paragraph drops the "do not wait,
+        # idle" sentence, so none of the three above survives in the shipped text
+        # and this one carries the requirement. The three stay as accepted
+        # rewordings — that is what this set is for.
+        "you run when something starts you",
     ),
     "elapsed-gap pairing": (
         "did not exist as a running process",

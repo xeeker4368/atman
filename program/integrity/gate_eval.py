@@ -434,10 +434,18 @@ def run(
     runs: int,
     ground_truth: str | None = None,
     cases_fingerprint: str | None = None,
+    shuffle_seed: int | None = None,
+    ground_truth_label: str | None = None,
 ) -> Report:
     """Run every case and return the report. The header records what was measured
-    with — model, options, soul.md's hash, the case set's fingerprint — so a
-    number is always traceable to the configuration that produced it."""
+    with — model, options, the rubric's hash, the case set's fingerprint — so a
+    number is always traceable to the configuration that produced it.
+
+    ``shuffle_seed`` and ``ground_truth_label`` are recorded, not acted on: the
+    caller shuffles and loads, and the header says what it did. Without them a
+    shuffled run and a control-arm run would be indistinguishable from an ordinary
+    one in the report, which is the whole purpose of the header.
+    """
     if ground_truth is None:
         ground_truth = gate.load_architecture()
     options = config.model_options()
@@ -450,7 +458,8 @@ def run(
         "runs_per_case": runs,
         "cases": len(cases),
         "cases_fingerprint": cases_fingerprint or fingerprint(cases),
-        "ground_truth": "architecture.md",
+        "shuffle_seed": shuffle_seed,
+        "ground_truth": ground_truth_label or "architecture.md",
         "ground_truth_sha256": hashlib.sha256(ground_truth.encode("utf-8")).hexdigest(),
         "registered_tools": list(tool_registry.default_registry().names),
         "sampling": "round-robin" if len(cases) > 1 else "SINGLE CASE - CORRELATED",

@@ -573,6 +573,15 @@ surface is. Until then, the terminal is the reader.
 
 ## J8 — The gate's identity-only entry point — **DECIDED (identity half, flag-only); mechanism for review**
 
+> **Caveat added 2026-10-04 (decision #24): every J8 number below was measured against the PREVIOUS
+> rubric** (`program/integrity/architecture.md`, sha `bd5bd9e3…`). `check_identity` loads the rubric
+> through the same `gate.load_architecture`, so the journal's identity verdicts inherit the rewrite —
+> the record is now persistent, the unit of time is a *run* rather than a *reply*, and *"it does not
+> remember"* became *"it does not remember in the way a person does"*. Nothing here was re-measured;
+> whether the 37–41% false-negative figure on lived-through claims moves is unknown, and a re-run
+> would be its own step (`docs/DESIGN_SOUL_RUBRIC_2026-10-04.md` §6.4).
+
+
 **Why `gate.check()` cannot be used as it is.** Its structural rules judge
 tool claims against **this turn's** trace, and a journal run has no trace.
 But a journal *recounts* earlier tool use: *"Jodie asked for a picture of a

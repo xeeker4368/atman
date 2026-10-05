@@ -263,7 +263,12 @@ def _probe_call(name, **arguments):
 #: below, taken by running them on the code BEFORE B20/B21 (commit cb6dafd, exported
 #: and run with the same interpreter, 2026-10-01). A turn that fits must send exactly
 #: what it sent before: no schema term, no pinning and no shrinking can show up in it.
-BEFORE_B20_B21 = "fda59f4771cad76be10d11d3d61ff61330b08663eb81ce12414cc3e439841e63"
+#:
+#: **Re-taken 2026-10-04 (decision #24)**, fda59f47... -> this: the messages include the system
+#: prompt, which holds soul.md, so replacing two of its paragraphs moves it. What the test
+#: protects is unchanged — a fitting turn still sends what it sent before B20/B21, now against the
+#: new soul.md. Re-taken in a commit that touched only the three pinned digests.
+BEFORE_B20_B21 = "c63821ffcbcb73f0fe3a6cda3715ccb3239be45f6ea605d5e4a8e1943066238f"
 
 
 def test_a_turn_that_fits_sends_what_it_sent_before_b20_b21(monkeypatch):

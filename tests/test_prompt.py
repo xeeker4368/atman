@@ -7,6 +7,8 @@ toward proving the S9 constraints actually fire, not that they exist.
 
 from __future__ import annotations
 
+import re
+
 import pytest
 
 from program.engine import history, prompt
@@ -41,21 +43,23 @@ def test_soul_md_char_count_matches_the_design_document():
     single sentence (2026-09-02), then 3,963 until Phase 4's creative-work refusal
     clause was added after the general-discretion paragraph (2026-09-21, design
     revision 3), then 4,392 until B12's correction-description clause was added after
-    the "You do not fabricate" paragraph (2026-09-30, design revision 4, D3). The design
+    the "You do not fabricate" paragraph (2026-09-30, design revision 4, D3), then
+    4,749 when the naming and memory paragraphs were replaced (2026-10-04, design
+    revision 5, decision #24) — the first step in this history that subtracts. The design
     document was updated in the same change each time, so this still compares the file
     against the approved text.
 
-    **Characters, not bytes.** The file holds 9 em-dashes (U+2014, 3 bytes each in
-    UTF-8), so it is 4,849 characters and 4,867 bytes — `wc -c` reports the second.
+    **Characters, not bytes.** The file holds 7 em-dashes (U+2014, 3 bytes each in
+    UTF-8), so it is 4,749 characters and 4,763 bytes — `wc -c` reports the second.
     This assertion and `SOUL_MAX_CHARS` both measure the first.
     """
-    assert len(REAL_SOUL) == 4849
+    assert len(REAL_SOUL) == 4749
 
 
 def test_soul_md_token_estimate_stays_within_its_stated_share_of_the_window():
     tokens = history.estimate_tokens(REAL_SOUL)
-    assert tokens == pytest.approx(1213, abs=5)
-    # ~3.0% of the window. The ceiling that actually governs growth is
+    assert tokens == pytest.approx(1188, abs=5)
+    # ~3.6% of the window. The ceiling that actually governs growth is
     # SOUL_MAX_CHARS; this bound only catches an order-of-magnitude mistake.
     assert tokens / 32768 < 0.04
 
@@ -82,6 +86,8 @@ def test_soul_md_is_well_under_the_ceiling_with_headroom_for_later_phases():
     addition of 457 characters, approved with its remaining headroom (1,152) stated. So
     this dropped again, to 1000, on the same reasoning. It still fails if about 150 more
     characters arrive unreviewed, and a fifth addition of any size will meet it.
+    Decision #24 subtracted 100 characters rather than adding any, so the headroom is
+    1,251 and the threshold is unchanged.
     """
     assert len(REAL_SOUL) < prompt.SOUL_MAX_CHARS
     assert prompt.SOUL_MAX_CHARS - len(REAL_SOUL) > 1000
@@ -91,9 +97,16 @@ def test_soul_md_is_well_under_the_ceiling_with_headroom_for_later_phases():
 
 
 def test_removing_the_statelessness_statement_raises(tmp_path):
-    corrupted = REAL_SOUL.replace(
-        "because between turns you are not running", "and it always has"
-    ).replace("You do not wait, idle, or continue in the background.", "")
+    """Derived from the marker set, so a reworded file cannot leave it passing.
+
+    It used to strip two literal strings. After decision #24 the file carries a
+    different alternative, so those two replacements removed nothing and the test
+    passed against a file that still satisfied the requirement.
+    """
+    corrupted = REAL_SOUL
+    for alternative in prompt.REQUIRED_MARKERS["statelessness"]:
+        corrupted = re.sub(re.escape(alternative), "", corrupted, flags=re.IGNORECASE)
+    assert corrupted != REAL_SOUL, "the file must carry at least one alternative"
     path = write_soul(tmp_path, corrupted)
 
     with pytest.raises(prompt.SoulIntegrityError, match="statelessness"):
@@ -115,9 +128,12 @@ def test_removing_the_elapsed_gap_pairing_raises(tmp_path):
 def test_a_reworded_but_intact_statement_still_passes(tmp_path):
     """Phase 10 rewords. An alternative phrasing must not be a false failure."""
     reworded = REAL_SOUL.replace(
-        "because between turns you are not running",
-        "because you are not running between turns",
+        "You run when something starts you",
+        "You are not running between turns except when something starts you",
     )
+    # Without this, a rewrite of a string the file no longer contains is a no-op and
+    # the test passes while measuring nothing.
+    assert reworded != REAL_SOUL, "the rewrite must actually rewrite something"
     assert prompt.load_soul(write_soul(tmp_path, reworded))
 
 
@@ -459,7 +475,7 @@ def test_assemble_turn_end_to_end_with_real_soul_and_real_components():
 
     # soul.md content is present, verbatim.
     assert "You have no name." in assembled.system
-    assert "you are not running" in assembled.system
+    assert "You run when something starts you" in assembled.system
     # Situation content is present.
     assert "It has been 14 hours since your last message" in assembled.system
     # Retrieved records are present, with timestamps.

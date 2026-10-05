@@ -468,3 +468,99 @@ def test_the_harness_is_blind_to_the_advisory_channel(monkeypatch, cases):
     assert quiet["overall"] == noisy["overall"]
     assert quiet["by_claim_class"] == noisy["by_claim_class"]
     assert [c["state"] for c in quiet["cases"]] == [c["state"] for c in noisy["cases"]]
+
+
+# --- --shuffle and --rubric (2026-10-04, decision #24) -----------------------
+#
+# The harness is decorrelated — round-robin, every other case between two samples
+# of one — but it iterates the case list in FILE order on every pass, so a case's
+# neighbours never change. That is the limitation that hid `PN9`'s instability in
+# the correction harness. `--shuffle SEED` varies them; the fingerprint is taken
+# from file order so the freeze cannot move. `--rubric PATH` is the control arm:
+# the previous rubric in the same session, rather than swapping the file on disk
+# mid-measurement, where the two arms could be mixed up without anything saying so.
+
+
+def test_the_shuffle_seed_and_the_rubric_label_reach_the_header(monkeypatch, cases):
+    script_classifier(monkeypatch, "CONSISTENT")
+
+    report = gate_eval.run(cases[:3], runs=1, shuffle_seed=7,
+                           ground_truth_label="old-rubric.md")
+
+    assert report.header["shuffle_seed"] == 7
+    assert report.header["ground_truth"] == "old-rubric.md"
+
+
+def test_an_ordinary_run_records_no_seed_and_the_shipped_rubric(monkeypatch, cases):
+    script_classifier(monkeypatch, "CONSISTENT")
+
+    report = gate_eval.run(cases[:3], runs=1)
+
+    assert report.header["shuffle_seed"] is None
+    assert report.header["ground_truth"] == "architecture.md"
+
+
+def test_the_script_shuffles_the_sampling_order_reproducibly(monkeypatch, cases):
+    """The property: a different order, the same order for the same seed."""
+    real_sample_once = gate_eval.sample_once
+    orders: dict[object, list[str]] = {}
+    current: dict[str, object] = {"seed": None}
+
+    def spy(case, ground_truth):
+        orders.setdefault(current["seed"], []).append(case.id)
+        return real_sample_once(case, ground_truth)
+
+    monkeypatch.setattr(gate_eval, "sample_once", spy)
+    script_classifier(monkeypatch, "CONSISTENT")
+    for seed in (None, 11, 12, "11-again"):
+        current["seed"] = seed
+        flag = [] if seed is None else ["--shuffle", str(seed).removesuffix("-again")]
+        assert fabrication_eval.main(["--runs", "1", *flag]) == 0
+
+    assert orders[11] != orders[None], "the seed did not change the order"
+    assert sorted(orders[11]) == sorted(orders[None]), "a shuffle may not drop or add a case"
+    assert orders[12] != orders[11], "two seeds should not give the same order"
+    assert orders["11-again"] == orders[11], "the same seed must give the same order"
+
+
+def test_a_shuffled_run_does_not_move_the_fingerprint(monkeypatch, tmp_path, capsys):
+    """The freeze is over the case set, not over the order a run happened to use."""
+    script_classifier(monkeypatch, "CONSISTENT")
+    out = tmp_path / "shuffled.json"
+
+    assert fabrication_eval.main(
+        ["--runs", "1", "--shuffle", "3", "--case", "N7-ordinary-fact", "--json", str(out)]
+    ) == 0
+
+    header = json.loads(out.read_text())["header"]
+    assert header["cases_fingerprint"] == FROZEN_FINGERPRINT
+    assert header["shuffle_seed"] == 3
+
+
+def test_the_rubric_option_judges_against_the_given_file_and_records_it(
+    monkeypatch, tmp_path, capsys
+):
+    rubric = tmp_path / "old-architecture.md"
+    rubric.write_text("The system runs only while it is producing a reply.\n", encoding="utf-8")
+    seen: list[str] = []
+
+    def spy(answer, trace, situation="", ground_truth=None):
+        seen.append(ground_truth or "")
+        return gate.GateVerdict()
+
+    monkeypatch.setattr(gate, "check", spy)
+    monkeypatch.setattr(gate, "semantic_findings", lambda *a, **k: [])
+
+    assert fabrication_eval.main(
+        ["--runs", "1", "--case", "N7-ordinary-fact", "--rubric", str(rubric)]
+    ) == 0
+
+    assert seen and all("producing a reply" in truth for truth in seen), (
+        "the control arm must judge against the rubric it was given"
+    )
+    assert str(rubric) in capsys.readouterr().out
+
+
+def test_an_unreadable_rubric_is_refused_rather_than_silently_shipped(tmp_path, capsys):
+    assert fabrication_eval.main(["--rubric", str(tmp_path / "nope.md")]) == 2
+    assert "rubric error" in capsys.readouterr().err

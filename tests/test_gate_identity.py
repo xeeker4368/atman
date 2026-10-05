@@ -107,7 +107,12 @@ _REPLIES = (
 #: check_identity existed** (2026-09-30, commit 6bb50be), so this pins "unchanged
 #: from before", not merely "self-consistent". Changing check()'s output, its
 #: prompt or the frozen set moves it, and that is a reviewed change.
-BEFORE_DIGEST = "c3a01db6c03899a44f8a1fbfd7cf39e865c8d9a14c492e0198e2fb3c609ad488"
+#:
+#: **Re-taken 2026-10-04 (decision #24)**, c3a01db6... -> this: the classifier's prompt embeds
+#: architecture.md, so rewriting the rubric moves it by construction. Nothing about check()
+#: changed. Re-taken in a commit that touched only the three pinned digests, so the diff is the
+#: evidence, and the value was confirmed equal to the one computed in the design pass first.
+BEFORE_DIGEST = "9bf7f254e755b3c26be93957def898053dfba17c3b1316ad8f753a00e0a3a967"
 
 #: The eight cases piece 7 added (2026-10-02). The digest above was taken over the 41 that existed,
 #: so it is computed over those 41: the pin keeps proving "the gate's output on what it was

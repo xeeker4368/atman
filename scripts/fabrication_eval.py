@@ -17,10 +17,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import random
 import sys
 from pathlib import Path
 
-from program.integrity import gate_eval
+from program.integrity import gate, gate_eval
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -36,6 +37,19 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--json", type=Path, default=None, metavar="PATH",
                         help="also write the full report, every run included, as JSON")
+    parser.add_argument(
+        "--shuffle", type=int, default=None, metavar="SEED",
+        help="shuffle the sampling order with this seed. The harness is decorrelated "
+             "(round-robin) but iterates the case list in file order, so a case's "
+             "neighbours never change; this varies them. The fingerprint is computed "
+             "from FILE order, so shuffling does not move the freeze",
+    )
+    parser.add_argument(
+        "--rubric", type=Path, default=None, metavar="PATH",
+        help="judge identity claims against this rubric instead of the shipped "
+             "program/integrity/architecture.md. The control arm: the previous rubric, "
+             "in the same session, rather than swapping the file on disk mid-measurement",
+    )
     args = parser.parse_args(argv)
 
     if args.runs < 1:
@@ -58,7 +72,25 @@ def main(argv: list[str] | None = None) -> int:
             return 2
         cases = [c for c in cases if c.id in set(args.case)]
 
-    report = gate_eval.run(cases, args.runs, cases_fingerprint=full_fingerprint)
+    ground_truth = None
+    label = None
+    if args.rubric is not None:
+        try:
+            ground_truth = gate.load_architecture(args.rubric)
+        except gate.GroundTruthError as exc:
+            print(f"rubric error: {exc}", file=sys.stderr)
+            return 2
+        label = str(args.rubric)
+
+    if args.shuffle is not None:
+        # The fingerprint above was taken in file order, deliberately: `fingerprint`
+        # serialises the list, so hashing a shuffled one would move the freeze.
+        cases = list(cases)
+        random.Random(args.shuffle).shuffle(cases)
+
+    report = gate_eval.run(cases, args.runs, ground_truth=ground_truth,
+                           cases_fingerprint=full_fingerprint,
+                           shuffle_seed=args.shuffle, ground_truth_label=label)
     if args.case:
         report.header["filtered_to"] = list(args.case)
     print(gate_eval.render(report))

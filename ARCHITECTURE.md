@@ -46,7 +46,7 @@ This is not `program/integrity/architecture.md`, which is the fabrication gate's
 - A retrieved chunk's header shows its stored `created_at`, which is the UTC time the chunk was written (not the conversation time and not local time). `program/engine/prompt.py::_render_chunk` `program/memory/db.py::insert_chunk`
 - The retrieved-records block is capped at `top_k x embedding.max_input_chars` plus a header allowance. `program/engine/prompt.py::retrieved_records_max_chars` `tests/test_retrieved_cap.py::test_the_cap_is_b6as_figure_from_live_config`
 - Tool schemas are priced into the window (`tool_schema_chars`), and the chat message cap is derived over the full catalogue of tools, enabled or not. `program/engine/history.py::plan_budget` `tests/test_turn.py::test_tool_schemas_fit_the_headroom_beside_a_maximal_message`
-- Statelessness is stated in `soul.md` as the gate's ground truth, with a required marker for it. `tests/test_prompt.py::test_removing_the_statelessness_statement_raises`
+- `soul.md` states statelessness to the entity, with a required marker for it; the gate's ground truth is `program/integrity/architecture.md`, not `soul.md`. `tests/test_prompt.py::test_removing_the_statelessness_statement_raises` `tests/test_gate.py::test_the_rubric_is_architecture_md_and_soul_is_not_read`
 
 ## Memory / retrieval
 
@@ -145,7 +145,7 @@ This is not `program/integrity/architecture.md`, which is the fabrication gate's
 - A write attributed to the entity needs no person, conversation or turn; a live turn files to the person present. `tests/test_no_person_present.py::test_writing_works_with_no_person_and_no_conversation` `tests/test_no_person_present.py::test_a_live_turn_still_files_to_the_person`
 - No scheduler, reflection-session or daemon module exists beyond the journal. `tests/test_no_person_present.py::test_b5_did_not_build_a_session_mode`
 - The entity's `users` row carries an unspeakable sentinel as its name, never renders, and cannot authenticate. `tests/test_attribution.py::test_the_entity_row_carries_an_unspeakable_sentinel_not_a_name` `tests/test_attribution.py::test_the_entity_row_can_never_authenticate`
-- The entity has no name, enforced by authored-text checks. `tests/test_prompt.py::test_authored_text_naming_the_entity_raises`
+- The entity is not given a name and may choose one for itself (decision #24); the authored-text checks enforce only that authored text never names it and that `Anam` stays the substrate. `tests/test_prompt.py::test_authored_text_naming_the_entity_raises` `tests/test_prompt.py::test_the_real_soul_md_passes_every_check`
 
 ## Memory integrity
 
@@ -173,6 +173,7 @@ This is not `program/integrity/architecture.md`, which is the fabrication gate's
 - Receipts never import the gate, and the gate's verdicts are byte-identical with records in the trace. `tests/test_receipts.py::test_receipts_never_import_the_gate` `tests/test_receipts_records.py::test_gate_verdicts_and_prompt_are_byte_identical_with_records_in_the_trace`
 - The frozen gate case set is fingerprinted over every case's inputs and expected verdict; the harness calls `gate.check` only, samples round-robin so repeats of one case are never back to back, excludes `unavailable` runs from both rates, and reports a case whose runs disagree as `UNSTABLE`. `program/integrity/gate_eval.py::run` `tests/test_gate_eval.py::test_the_frozen_case_set_has_not_changed` `tests/test_gate_eval.py::test_the_harness_goes_through_gate_check_only` `tests/test_gate_eval.py::test_samples_are_taken_round_robin_not_back_to_back` `tests/test_gate_eval.py::test_unavailable_is_excluded_from_both_rates_not_scored_as_clean` `tests/test_gate_eval.py::test_disagreeing_runs_are_unstable_not_rounded`
 - Every claim class has a measured case, derived from the enum. `tests/test_gate_eval.py::test_every_claim_class_is_covered`
+- A run may shuffle the sampling order with a seed and judge against a given rubric; both are recorded in the report header, and the fingerprint is computed from file order so shuffling cannot move the freeze. `scripts/fabrication_eval.py::main` `tests/test_gate_eval.py::test_the_script_shuffles_the_sampling_order_reproducibly` `tests/test_gate_eval.py::test_a_shuffled_run_does_not_move_the_fingerprint` `tests/test_gate_eval.py::test_the_rubric_option_judges_against_the_given_file_and_records_it`
 
 ## Research / reflection
 

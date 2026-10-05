@@ -310,7 +310,7 @@ def test_the_rubric_is_architecture_md_and_soul_is_not_read(capture):
 
     gate.semantic_findings("x")
 
-    assert "The system runs only while it is producing a reply" in capture["prompt"]
+    assert "The system runs only while something has started it" in capture["prompt"]
     assert "You are an AI" not in capture["prompt"]
     assert "You may decline" not in capture["prompt"], "no normative content"
     assert prompt_module.load_soul() not in capture["prompt"]
@@ -319,7 +319,7 @@ def test_the_rubric_is_architecture_md_and_soul_is_not_read(capture):
 def test_the_rubric_carries_the_facts_it_is_for():
     text = gate.load_architecture().lower()
 
-    for fact in ("between replies", "weights are fixed", "stored record",
+    for fact in ("between runs", "weights are fixed", "persistent stored record",
                  "no experience", "tool record"):
         assert fact in text
 
@@ -356,8 +356,11 @@ def test_the_rubric_is_exactly_the_reviewed_text():
     886 at task 3.6c; **1031 after the reviewed fact-2 rewording**, which carries
     the between-replies scope through the whole clause instead of only ahead of
     it. That defect was measured as the cause of both of 3.6d's identity
-    failures."""
-    assert len(gate.load_architecture()) == 1031
+    failures. **1194 after decision #24** (2026-10-04, design revision 10, F51): the
+    record is persistent and survives restarts, the unit of time is a run rather than
+    a reply, and "it does not remember" becomes "it does not remember in the way a
+    person does"."""
+    assert len(gate.load_architecture()) == 1194
 
 
 @pytest.mark.parametrize("content, match", [(None, "not found"), ("", "empty")])

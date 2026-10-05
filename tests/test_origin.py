@@ -147,7 +147,12 @@ def existing_behaviour_digest(monkeypatch, actor):
 #: there and 3 after the edit. **The first pin of this digest was wrong and is not this one**: it
 #: changed every hour because the correction classifier's prompt prints a minute-granular time
 #: (`2026-10-02T16:00`); the scrubber now covers that form.
-BEFORE_PIECE_2 = "e5c92a423870182f2ceab088ba0663eb7e26881415b0208af3ab141a7d806762"
+#:
+#: **Re-taken 2026-10-04 (decision #24)**, e5c92a42... -> this: it covers every model call, whose
+#: system prompt holds soul.md, AND every gate prompt, which holds architecture.md — so both
+#: replaced texts move it. Nothing about the tool path or the turn changed. Re-taken in a commit
+#: that touched only the three pinned digests, and confirmed equal to the design pass's value.
+BEFORE_PIECE_2 = "107544e1f277291fa8218b86a6c15f64bde6197700a3df1cece3b4e289daed39"
 
 
 def test_existing_tools_and_turns_are_byte_identical_to_before_piece_2(store, monkeypatch):
