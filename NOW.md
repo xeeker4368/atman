@@ -45,12 +45,12 @@ Fix sequence `docs/FIX_PLAN_2026-10-04.md` (rulings and amendments at its top). 
   were measured and neither ships. Details and every number:
   `docs/FABRICATION_GATE_DESIGN.md` revision 10 (F54 to F57) and the changelog's "The measurement"
   section; the raw data is outside the repo (`~/anam-measurements/`, rule 3).
-- **Soul v2 (Tier 3: `soul.md` content and prompt assembly): built 2026-10-05, awaiting review**
-  (`git log --grep 'Soul v2'`; `changelog/2026-10-05-soul-v2.md`; `docs/SOUL_AND_PROMPT_DESIGN.md`
-  revision 6, `docs/FABRICATION_GATE_DESIGN.md` revision 11; decision #25). Taken **before** 3.1 by
-  Lyle's ruling: the authored text is not in the classifier prompt. Its gate measurement (the frozen set
-  as a session control, the block-bearing cases under old and new blocks, run 2's real replies
-  re-judged) is a separate step after review.
+- **Soul v2: merged 2026-10-05** (`git log --grep 'Soul v2'`; `changelog/2026-10-05-soul-v2.md`;
+  `docs/SOUL_AND_PROMPT_DESIGN.md` revision 6, `docs/FABRICATION_GATE_DESIGN.md` revision 11; decision
+  #25). Taken **before** 3.1 by Lyle's ruling: the authored text is not in the classifier prompt. **Still
+  owed:** the gate re-measurement for its situation-block change (`AGENTS.md` "Until go-live", item 4:
+  the block is something the classifier sees; `soul.md` and `operational.md` are not): the frozen set as
+  a session control, the block-bearing cases under old and new blocks, run 2's real replies re-judged.
 - **Next:** piece 3.1 (classifier options at temperature 0, and correction rendering behind a setting).
 
 ---

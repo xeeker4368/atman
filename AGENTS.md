@@ -46,8 +46,9 @@ pool for work that doesn't need it.
 
 The following categories of work require an explicit pause for Lyle's
 review before continuing to the next task, regardless of how confident the
-implementation feels. **Until Phase 10 begins, three entries below are Tier 2,
-not stops; see "Until go-live" after this list.**
+implementation feels. **Until Phase 10 begins, most entries below are Tier 2,
+not stops; each is marked, and "Until go-live" after this list gives the short Tier 3
+list that stays.**
 
 - Database schema (initial design and any migration). *(Until Phase 10:
   `working.db` schema changes are Tier 2; `archive.db` schema stays here.)* This applies at the
@@ -57,10 +58,10 @@ not stops; see "Until go-live" after this list.**
   a wrong column is permanent and one-directional, so raising it after the
   fact hands the reviewer a question already answered in code — which is a
   weaker review than being asked first.
-- Chunking / checkpointing pipeline design
-- Hybrid retrieval scoring (RRF fusion, relevance floors)
-- Retrieval changes that implement the supersedes/correction link
-- Provenance/source-trust semantics
+- Chunking / checkpointing pipeline design *(until Phase 10: Tier 2)*
+- Hybrid retrieval scoring (RRF fusion, relevance floors) *(until Phase 10: Tier 2)*
+- Retrieval changes that implement the supersedes/correction link *(until Phase 10: Tier 2)*
+- Provenance/source-trust semantics *(until Phase 10: Tier 2)*
 - `soul.md` and `operational.md` content and prompt assembly (both are the
   entity's authored text, decision #25) *(until Phase 10: Tier 2)*
 - Prompt-facing text (tool descriptions, result texts, refusal texts) *(until
@@ -74,7 +75,8 @@ not stops; see "Until go-live" after this list.**
   the lock-timeout symptom can weaken the guarantee without failing anything.
 - Restore-from-backup logic
 - The fabrication gate and the correction/supersession classifier (design
-  and eval harness — not each individual runtime classification call)
+  and eval harness — not each individual runtime classification call) *(until Phase 10: the
+  gate and classifier code are Tier 2; the frozen eval case sets and their harness stay here)*
 - Go-live reset and database wipe tooling
 - **Notes** (`docs/NOTES_BUILD_PLAN.md`), each Tier 3 piece, one stop per piece: migration 8
   and its triggers (database schema); the two tools' descriptions, quote resolution and
@@ -82,7 +84,8 @@ not stops; see "Until go-live" after this list.**
   note may say; the receipt and trace-key generalisation (gate-adjacent); the approval toggle,
   approval log and auto-apply (authorization semantics); the frozen gate cases and fingerprint
   move; and the CO15 composition test and pending-claim measurement (ship gates). `OriginContext`
-  (piece 2) is Tier 2 and needs diff review only.
+  (piece 2) is Tier 2 and needs diff review only. *(Until Phase 10: Notes work is Tier 2, except
+  a change to the frozen case sets or their fingerprint.)*
 
 This list is kept in sync with BUILD_PLAN.md's Tier 3 tasks. If a task is
 Tier 3 there, it belongs here — if you add a Tier 3 task without adding it
@@ -101,15 +104,25 @@ it relaxes apply again as written elsewhere in this file.**
 
 ### 1. Tiers
 
-- **Tier 2 until Phase 10:** prompt-facing text (tool descriptions, result texts, refusal
-  texts, `soul.md`, `operational.md`, prompt assembly) and `working.db` schema changes
-  (migrations).
-- **Tier 3 stays for:** authentication (credential verification, session tokens, which
-  `Actor` a request produces); `db.py` locking and atomicity (`busy_timeout`, write retry,
-  write serialisation, the cross-database guarantee); the `archive.db` schema; restore from
-  backup; the go-live reset and wipe; anything with external effect (posting, research
-  execution, the scheduler's `allow_*` flags).
-- Every other entry in "Stop-and-verify checkpoints" above is unchanged.
+- **Tier 3 stays for exactly these:**
+  - authentication (credential verification, session tokens, which `Actor` a request
+    produces);
+  - `db.py` locking and atomicity (`busy_timeout`, write retry, write serialisation, the
+    cross-database guarantee);
+  - the `archive.db` schema;
+  - restore from backup;
+  - the go-live reset and wipe;
+  - anything with external effect (posting, research execution, the scheduler's `allow_*`
+    flags);
+  - the frozen eval case sets and their harness (case files, fingerprints, the sampling
+    protocol).
+- **Everything else on the stop-and-verify list is Tier 2 until Phase 10**, including:
+  prompt-facing text (tool descriptions, result texts, refusal texts, `soul.md`,
+  `operational.md`, prompt assembly); `working.db` schema changes (migrations); the gate and
+  classifier code; provenance and source-trust semantics; retrieval scoring and the
+  supersedes retrieval change; chunking; Notes.
+- **Item 4 still applies to Tier 2 work:** a change to anything the classifier sees requires
+  the gate re-measurement, whatever its tier.
 
 ### 2. No separate design round for Tier 1 and Tier 2
 

@@ -23,12 +23,14 @@ tasks can often be parallelized if noted. Every task lists a **Tier**
 - **Tier 3** — hard gate. One task, plan-check loop fully intact, no
   chaining, no exceptions. Matches `AGENTS.md`'s stop-and-verify list.
 
-**Until Phase 10 begins** (`AGENTS.md` "Until go-live"): prompt-facing text (tool
-descriptions, result texts, refusal texts, `soul.md`, `operational.md`) and `working.db`
-schema changes are **Tier 2**, whatever a task row below says. Tier 3 stays for
+**Until Phase 10 begins** (`AGENTS.md` "Until go-live"): Tier 3 stays only for
 authentication, `db.py` locking and atomicity, the `archive.db` schema, restore, the go-live
-wipe, and anything with external effect (posting, research execution, the scheduler's
-`allow_*` flags). All of it re-tightens to the rows as written when Phase 10 starts.
+wipe, anything with external effect (posting, research execution, the scheduler's `allow_*`
+flags), and the frozen eval case sets and their harness. Every other Tier 3 row below,
+including prompt-facing text, `soul.md`, `operational.md`, `working.db` schema, the gate and
+classifier code, provenance, retrieval scoring, chunking and Notes, is **Tier 2** until then.
+A change to anything the classifier sees still needs the gate re-measurement. All of it
+re-tightens to the rows as written when Phase 10 starts.
 
 ---
 
