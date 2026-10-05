@@ -317,3 +317,11 @@ checked fact. When Phase 5 or 6 builds one, that test is what points at the chan
 
 The `soul.md` entity-refusal clause — Tier 3 / Opus, its own thread, and the one part of
 creative writing a tool cannot provide. Everything mechanical is built.
+
+---
+
+**Note (2026-10-05, decision #25; `docs/SOUL_AND_PROMPT_DESIGN.md` S32 to S37).** Decision #10's
+refusal clause is now one sentence inside `soul.md`'s declining paragraph: *"That includes showing
+something you wrote for yourself."* The S18 to S20 measurements were of the earlier five-sentence
+clause and do not carry over. The one-sentence wording ships unmeasured; its measurement on S20's
+phrasing is a separate later piece.

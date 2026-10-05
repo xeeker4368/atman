@@ -152,7 +152,12 @@ def existing_behaviour_digest(monkeypatch, actor):
 #: system prompt holds soul.md, AND every gate prompt, which holds architecture.md — so both
 #: replaced texts move it. Nothing about the tool path or the turn changed. Re-taken in a commit
 #: that touched only the three pinned digests, and confirmed equal to the design pass's value.
-BEFORE_PIECE_2 = "107544e1f277291fa8218b86a6c15f64bde6197700a3df1cece3b4e289daed39"
+#:
+#: **Re-taken 2026-10-05 (decision #25)**, 107544e1... -> this: every model call's system prompt
+#: holds soul.md and operational.md, both rewritten. architecture.md is unchanged, so the gate
+#: prompts did not move it, and the turns pass no situation block. Re-taken in a commit that
+#: touched only the two digests that moved, stable across two runs.
+BEFORE_PIECE_2 = "fd3b4753739aa8843f481e5a8ed879b587d0b8694f7eb1fa40470897e4c61843"
 
 
 def test_existing_tools_and_turns_are_byte_identical_to_before_piece_2(store, monkeypatch):

@@ -131,6 +131,47 @@ def test_a_gap_states_the_figure_and_the_pairing_together(monkeypatch):
     prompt.build_system_prompt(block)  # raises if the pairing is missing
 
 
+def test_the_gap_statement_is_about_the_record_not_about_experience():
+    """Decision #25. The sentence beside the figure must stay true when another run
+    fell in the gap (a turn answering someone else, a scheduled task), so it claims
+    what the record shows rather than that nothing ran."""
+    block = situation.build_situation(NOW, NOW - timedelta(hours=14), "Lyle")
+
+    assert situation._GAP_FACT == (
+        "Apart from any run your record shows, nothing was running in that time, so "
+        "there is nothing else from it to report."
+    )
+    assert situation._GAP_FACT in block
+    for claim in ("were not running", "no experience", "did not exist", "not present"):
+        assert claim not in block.lower(), f"the block still claims {claim!r}"
+
+
+def test_a_gap_under_fifteen_minutes_states_no_figure():
+    """Decision #25: below the threshold the block is the time and nothing else, so
+    no figure, no gap sentence, and no pairing to require."""
+    for seconds in (0, 30, 60, 14 * 60, 15 * 60 - 1):
+        block = situation.build_situation(NOW, NOW - timedelta(seconds=seconds), "Lyle")
+        assert block.startswith("The current time is"), seconds
+        assert block.count("\n") == 0, f"{seconds} s: more than the time was stated"
+        assert not prompt.states_elapsed_time(block), seconds
+        assert situation._GAP_FACT not in block
+        prompt.build_system_prompt(block)
+
+
+def test_a_gap_of_fifteen_minutes_or_more_states_the_figure_and_the_sentence():
+    assert situation.GAP_STATED_FROM_SECONDS == 15 * 60
+    for seconds in (15 * 60, 16 * 60, 14 * 3600):
+        block = situation.build_situation(NOW, NOW - timedelta(seconds=seconds), "Lyle")
+        assert prompt.states_elapsed_time(block), seconds
+        assert situation._GAP_FACT in block
+
+
+def test_the_threshold_does_not_hide_a_backwards_clock():
+    """A previous message stamped after now is a fault and is still reported."""
+    block = situation.build_situation(NOW, NOW + timedelta(minutes=2), "Lyle")
+    assert "unknown amount of time" in block
+
+
 def test_the_first_ever_message_says_so_rather_than_reporting_zero():
     """Neither a false "0 minutes" nor silence: silence leaves the model to
     infer something about a gap it was never told about."""
@@ -278,4 +319,5 @@ def test_the_block_reaches_the_model_in_the_system_prompt(store, monkeypatch):
     assert "The current time is" in seen["system"]
     # soul.md first, then the situation — stating the gap before the rule that
     # says what it means is the confabulation ordering.
-    assert seen["system"].index("no name") < seen["system"].index("current time is")
+    assert seen["system"].index("Nobody has given you a name") < seen["system"].index(
+        "current time is")

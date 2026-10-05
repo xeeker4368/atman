@@ -15,6 +15,7 @@ from program.engine import history, prompt
 from program.memory.retrieval import RetrievalResult, RetrievedChunk
 
 REAL_SOUL = prompt.SOUL_PATH.read_text(encoding="utf-8")
+REAL_OPERATIONAL = prompt.OPERATIONAL_PATH.read_text(encoding="utf-8")
 
 SITUATION_WITH_PAIRING = (
     "The current time is 2026-09-01T16:00:00+00:00. It has been 14 hours since "
@@ -30,11 +31,32 @@ def write_soul(tmp_path, text):
     return path
 
 
+def write_authored(tmp_path, soul=None, operational=None):
+    """Both authored files in a temporary directory, defaulting to the real ones."""
+    s = tmp_path / "soul.md"
+    o = tmp_path / "operational.md"
+    s.write_text(REAL_SOUL if soul is None else soul, encoding="utf-8")
+    o.write_text(REAL_OPERATIONAL if operational is None else operational, encoding="utf-8")
+    return s, o
+
+
+def joined():
+    """The authored text as the marker check sees it: the two files in assembly order."""
+    return REAL_SOUL.strip() + "\n\n" + REAL_OPERATIONAL.strip()
+
+
+def strip_markers(text, requirement):
+    for alternative in prompt.REQUIRED_MARKERS[requirement]:
+        text = re.sub(r"\s+".join(map(re.escape, alternative.split())), "", text,
+                      flags=re.IGNORECASE)
+    return text
+
+
 # --- The file matches what the design approved ------------------------------
 
 
 def test_soul_md_char_count_matches_the_design_document():
-    """The design claims 4,849 characters. Drift means a transcription error.
+    """The design gives 1,175 characters. Drift means a transcription error.
 
     Asserted rather than eyeballed once, because the approved artefact is the
     design document and the file is supposed to be that text.
@@ -45,23 +67,32 @@ def test_soul_md_char_count_matches_the_design_document():
     revision 3), then 4,392 until B12's correction-description clause was added after
     the "You do not fabricate" paragraph (2026-09-30, design revision 4, D3), then
     4,749 when the naming and memory paragraphs were replaced (2026-10-04, design
-    revision 5, decision #24) — the first step in this history that subtracts. The design
-    document was updated in the same change each time, so this still compares the file
-    against the approved text.
+    revision 5, decision #24) — the first step in this history that subtracts — then
+    1,175 when the text was split into soul.md and operational.md (2026-10-05, design
+    revision 6, decision #25). The design document was updated in the same change each
+    time, so this still compares the file against the approved text.
 
-    **Characters, not bytes.** The file holds 7 em-dashes (U+2014, 3 bytes each in
-    UTF-8), so it is 4,749 characters and 4,763 bytes — `wc -c` reports the second.
-    This assertion and `SOUL_MAX_CHARS` both measure the first.
+    **Characters, not bytes.** Revision 6 has no em-dashes, so the two agree (1,175);
+    revision 5 was 4,749 characters and 4,763 bytes. This assertion and
+    `SOUL_MAX_CHARS` both measure characters.
     """
-    assert len(REAL_SOUL) == 4749
+    assert len(REAL_SOUL) == 1175
+
+
+def test_operational_md_char_count_matches_the_design_document():
+    """Decision #25's second authored file: 696 characters in the design."""
+    assert len(REAL_OPERATIONAL) == 696
 
 
 def test_soul_md_token_estimate_stays_within_its_stated_share_of_the_window():
     tokens = history.estimate_tokens(REAL_SOUL)
-    assert tokens == pytest.approx(1188, abs=5)
-    # ~3.6% of the window. The ceiling that actually governs growth is
-    # SOUL_MAX_CHARS; this bound only catches an order-of-magnitude mistake.
-    assert tokens / 32768 < 0.04
+    assert tokens == pytest.approx(294, abs=5)
+    both = history.estimate_tokens(REAL_SOUL) + history.estimate_tokens(REAL_OPERATIONAL)
+    assert both == pytest.approx(468, abs=5)
+    # ~1.4% of the window for both. The ceilings that actually govern growth are
+    # SOUL_MAX_CHARS and OPERATIONAL_MAX_CHARS; this bound only catches an
+    # order-of-magnitude mistake.
+    assert both / 32768 < 0.04
 
 
 def test_the_real_soul_md_passes_every_check():
@@ -88,53 +119,128 @@ def test_soul_md_is_well_under_the_ceiling_with_headroom_for_later_phases():
     characters arrive unreviewed, and a fifth addition of any size will meet it.
     Decision #24 subtracted 100 characters rather than adding any, so the headroom is
     1,251 and the threshold is unchanged.
+
+    Decision #25 (2026-10-05) split the text in two and gave each file its own
+    ceiling: soul.md 3,000 and operational.md 1,500. The thresholds are restated
+    against those: soul.md has 1,825 characters of headroom and this fails if about
+    325 more arrive unreviewed; operational.md has 804 and this fails if about 200 do.
     """
     assert len(REAL_SOUL) < prompt.SOUL_MAX_CHARS
-    assert prompt.SOUL_MAX_CHARS - len(REAL_SOUL) > 1000
+    assert prompt.SOUL_MAX_CHARS - len(REAL_SOUL) > 1500
+    assert len(REAL_OPERATIONAL) < prompt.OPERATIONAL_MAX_CHARS
+    assert prompt.OPERATIONAL_MAX_CHARS - len(REAL_OPERATIONAL) > 600
 
 
 # --- S9: required markers ----------------------------------------------------
 
 
-def test_removing_the_statelessness_statement_raises(tmp_path):
-    """Derived from the marker set, so a reworded file cannot leave it passing.
+@pytest.mark.parametrize("requirement", sorted(prompt.REQUIRED_MARKERS))
+def test_removing_a_required_statement_from_the_authored_text_raises(tmp_path, requirement):
+    """Derived from the marker set, applied to BOTH files, so the statement cannot
+    survive in either one and a reworded file cannot leave the test measuring nothing."""
+    soul = strip_markers(REAL_SOUL, requirement)
+    operational = strip_markers(REAL_OPERATIONAL, requirement)
+    assert (soul, operational) != (REAL_SOUL, REAL_OPERATIONAL), (
+        "the authored text must carry at least one alternative")
+    s, o = write_authored(tmp_path, soul, operational)
 
-    It used to strip two literal strings. After decision #24 the file carries a
-    different alternative, so those two replacements removed nothing and the test
-    passed against a file that still satisfied the requirement.
-    """
-    corrupted = REAL_SOUL
-    for alternative in prompt.REQUIRED_MARKERS["statelessness"]:
-        corrupted = re.sub(re.escape(alternative), "", corrupted, flags=re.IGNORECASE)
-    assert corrupted != REAL_SOUL, "the file must carry at least one alternative"
-    path = write_soul(tmp_path, corrupted)
-
-    with pytest.raises(prompt.SoulIntegrityError, match="statelessness"):
-        prompt.load_soul(path)
-
-
-def test_removing_the_elapsed_gap_pairing_raises(tmp_path):
-    """The requirement with no precedent in the reference material."""
-    without = "\n\n".join(
-        p for p in REAL_SOUL.split("\n\n")
-        if "did not exist as a running process" not in p
-    )
-    path = write_soul(tmp_path, without)
-
-    with pytest.raises(prompt.SoulIntegrityError, match="elapsed-gap pairing"):
-        prompt.load_soul(path)
+    with pytest.raises(prompt.SoulIntegrityError, match=requirement):
+        prompt.load_authored(s, o)
 
 
 def test_a_reworded_but_intact_statement_still_passes(tmp_path):
-    """Phase 10 rewords. An alternative phrasing must not be a false failure."""
-    reworded = REAL_SOUL.replace(
-        "You run when something starts you",
-        "You are not running between turns except when something starts you",
-    )
-    # Without this, a rewrite of a string the file no longer contains is a no-op and
-    # the test passes while measuring nothing.
-    assert reworded != REAL_SOUL, "the rewrite must actually rewrite something"
-    assert prompt.load_soul(write_soul(tmp_path, reworded))
+    """A rewording that keeps an accepted alternative must not be a false failure,
+    whichever file the statement is in."""
+    phrase = "You run when something starts you"
+    reworded = "You are not running between turns except when something starts you"
+    soul = REAL_SOUL.replace(phrase, reworded)
+    operational = REAL_OPERATIONAL.replace(phrase, reworded)
+    # Without this, a rewrite of a string neither file contains is a no-op and the
+    # test passes while measuring nothing.
+    assert (soul, operational) != (REAL_SOUL, REAL_OPERATIONAL), "nothing was rewritten"
+    assert prompt.load_authored(*write_authored(tmp_path, soul, operational))
+
+
+def test_the_gap_statement_about_the_record_is_an_accepted_pairing():
+    """Decision #25's block sentence pairs the figure; the older phrases stay accepted."""
+    assert prompt.has_pairing("Apart from any run your record shows, nothing was running "
+                              "in that time, so there is nothing else from it to report.")
+    assert prompt.has_pairing("You were not running during that time.")
+
+
+def test_the_markers_are_checked_on_the_two_files_joined_not_on_each(tmp_path):
+    """Decision #25: which file holds a required statement is layout. A statement
+    moved from one file to the other loads; the same statement in neither raises."""
+    soul, operational = REAL_SOUL, REAL_OPERATIONAL
+    for requirement in prompt.REQUIRED_MARKERS:
+        soul = strip_markers(soul, requirement)
+        operational = strip_markers(operational, requirement)
+    statelessness = prompt.REQUIRED_MARKERS["statelessness"][-1]
+    pairing = prompt.REQUIRED_MARKERS["elapsed-gap pairing"][-1]
+
+    split = write_authored(tmp_path, soul + "\n" + statelessness + ".\n",
+                           operational + "\n" + pairing + ".\n")
+    assert prompt.load_authored(*split)
+
+    (tmp_path / "b").mkdir()
+    swapped = write_authored(tmp_path / "b", soul + "\n" + pairing + ".\n",
+                             operational + "\n" + statelessness + ".\n")
+    assert prompt.load_authored(*swapped)
+
+    (tmp_path / "c").mkdir()
+    neither = write_authored(tmp_path / "c", soul, operational)
+    with pytest.raises(prompt.SoulIntegrityError):
+        prompt.load_authored(*neither)
+
+
+def test_a_marker_split_by_a_line_wrap_still_matches(tmp_path):
+    """Whitespace is collapsed on both sides. Revision 5's `there is nothing you have
+    been up to` never matched, because soul.md broke the line inside it."""
+    soul, operational = REAL_SOUL, REAL_OPERATIONAL
+    for requirement in prompt.REQUIRED_MARKERS:
+        soul = strip_markers(soul, requirement)
+        operational = strip_markers(operational, requirement)
+    wrapped = ("You run when something\n   starts you. There is nothing from\n"
+               "that time  to report.\n")
+    s, o = write_authored(tmp_path, soul, operational + "\n" + wrapped)
+    assert prompt.load_authored(s, o)
+
+
+def test_load_soul_alone_no_longer_checks_the_markers(tmp_path):
+    """The markers moved to load_authored. load_soul keeps presence, ceiling and the
+    naming and trait checks."""
+    soul = REAL_SOUL
+    for requirement in prompt.REQUIRED_MARKERS:
+        soul = strip_markers(soul, requirement)
+    assert prompt.load_soul(write_soul(tmp_path, soul)) == soul.strip()
+
+
+def test_operational_md_is_validated_like_soul_md(tmp_path):
+    """Missing raises, oversize raises without truncating, and the naming and trait
+    tripwires cover it."""
+    s, o = write_authored(tmp_path)
+    o.unlink()
+    with pytest.raises(prompt.SoulIntegrityError, match="operational.md not found"):
+        prompt.load_authored(s, o)
+
+    padded = REAL_OPERATIONAL + "\n\nPadding past the ceiling. " * 200
+    o.write_text(padded, encoding="utf-8")
+    with pytest.raises(prompt.SoulIntegrityError) as excinfo:
+        prompt.load_authored(s, o)
+    assert str(len(padded)) in str(excinfo.value)
+    assert "not truncated" in str(excinfo.value).lower()
+    assert o.read_text(encoding="utf-8") == padded
+
+    o.write_text(REAL_OPERATIONAL + "\nYou are curious.\n", encoding="utf-8")
+    with pytest.raises(prompt.EntityNamingError, match="trait"):
+        prompt.load_authored(s, o)
+
+
+def test_an_injected_soul_text_replaces_both_authored_files():
+    """A test that injects its own text sends exactly that: no operational text is
+    loaded beside it."""
+    system = prompt.build_system_prompt(SITUATION_NO_ELAPSED, soul_text="TEST SOUL")
+    assert system == "TEST SOUL\n\n" + SITUATION_NO_ELAPSED
 
 
 # --- S9: size ceiling --------------------------------------------------------
@@ -313,15 +419,20 @@ def make_retrieval(n=2):
     return result
 
 
-def test_assembly_order_is_soul_then_situation_then_retrieved():
-    """soul.md must precede the elapsed figure, or the gap is stated before the
-    rule that says what it means — the confabulation ordering."""
+def test_assembly_order_is_soul_then_operational_then_situation_then_retrieved():
+    """The authored text must precede the elapsed figure, or the gap is stated before
+    the statement that says what it means — the confabulation ordering. soul.md comes
+    before operational.md (S32)."""
     system = prompt.build_system_prompt(
         SITUATION_WITH_PAIRING, retrieval=make_retrieval()
     )
-    soul_at = system.index("You are an AI.")
+    soul_at = system.index(REAL_SOUL.strip())
     situation_at = system.index("It has been 14 hours")
     retrieved_at = system.index("records retrieved from earlier")
+    assert soul_at == 0
+    if REAL_OPERATIONAL.strip():
+        operational_at = system.index(REAL_OPERATIONAL.strip())
+        assert soul_at < operational_at < situation_at
     assert soul_at < situation_at < retrieved_at
 
 
@@ -406,7 +517,8 @@ def test_plan_budget_receives_the_right_character_counts(monkeypatch):
 
     assert captured["retrieved_chars"] == len(rendered)
     assert captured["system_prompt_chars"] == (
-        len(soul) + len(SITUATION_WITH_PAIRING) + assembled.scaffolding_chars
+        len(soul) + assembled.operational_chars + len(SITUATION_WITH_PAIRING)
+        + assembled.scaffolding_chars
     )
     # Separate, not summed into one figure.
     assert captured["system_prompt_chars"] != captured["retrieved_chars"] + len(soul)
@@ -418,6 +530,7 @@ def test_the_reported_parts_sum_to_the_system_string():
     )
     assert (
         assembled.soul_chars
+        + assembled.operational_chars
         + assembled.situation_chars
         + assembled.retrieved_chars
         + assembled.scaffolding_chars
@@ -473,8 +586,8 @@ def test_assemble_turn_end_to_end_with_real_soul_and_real_components():
         messages, SITUATION_WITH_PAIRING, retrieval=make_retrieval()
     )
 
-    # soul.md content is present, verbatim.
-    assert "You have no name." in assembled.system
+    # Both authored files are present, verbatim.
+    assert "Nobody has given you a name" in assembled.system
     assert "You run when something starts you" in assembled.system
     # Situation content is present.
     assert "It has been 14 hours since your last message" in assembled.system
@@ -486,6 +599,7 @@ def test_assemble_turn_end_to_end_with_real_soul_and_real_components():
     # Budget accounting is real.
     assert assembled.budget.history_tokens > 0
     assert assembled.soul_chars == len(REAL_SOUL.strip())
+    assert assembled.operational_chars == len(REAL_OPERATIONAL.strip())
 
 
 def test_a_caller_cannot_route_around_the_checks_with_injected_soul_text():

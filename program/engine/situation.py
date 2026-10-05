@@ -1,8 +1,8 @@
 """The current-situation block: what time it is, and how long the gap was.
 
 The current-situation block from `BUILD_PLAN.md`'s Phase 1 table (Tier 2),
-`NOW.md` decision #5. Two flat facts and the clause that says what the
-second one does *not* mean.
+`NOW.md` decisions #5 and #25. Two flat facts and the sentence that says what
+the second one can and cannot carry.
 
 **Pure.** Two datetimes in, a string out. No database, no clock of its own —
 ``turn.py`` fetches the data, the same way ``history.py`` takes caller-supplied
@@ -12,12 +12,21 @@ request state.
 
 The pairing is not decoration
 -----------------------------
-``soul.md`` carries the standing rule that the gap held no experience. This block
-carries the numbers that rule is *about*, and it repeats the clause **adjacent to
-the figure** — because ``soul.md`` sits at the top of a prompt that can run to
-thousands of tokens while the figure arrives fresh each turn, and relying on
-attention across that distance is exactly the coupling ``GUIDANCE.md`` says is
-not optional.
+``operational.md`` carries the standing statement about the gap: between runs
+nothing is running, so there is nothing from that time to report beyond what the
+record shows. This block carries the numbers that statement is *about*, and it
+repeats it **adjacent to the figure** — because the authored text sits at the top
+of a prompt that can run to thousands of tokens while the figure arrives fresh each
+turn, and relying on attention across that distance is exactly the coupling
+``GUIDANCE.md`` says is not optional.
+
+**It is a statement about the record, not about experience** (decision #25). The
+sentence it replaced, *"You were not running during that time… no experience…"*,
+was false whenever another run fell in the gap: the figure is measured from this
+person's last message across every conversation, so a turn answering someone else
+in the meantime is a run inside it (run 2's C17 followed fourteen replies to Jodie
+in its ten-minute gap). Scheduled tasks will make that ordinary. The sentence below
+stays true either way, because those runs are in the record.
 
 ``prompt.build_system_prompt()`` **enforces** this: a block stating elapsed time
 without a recognised pairing marker raises rather than reaching the model. So the
@@ -64,6 +73,17 @@ something about a silence it was never told about. So it states plainly that
 there is no earlier message. No pairing clause accompanies it, deliberately:
 there is no figure to qualify, and asserting that a nonexistent gap held no
 experience would be noise.
+
+A short gap states no figure
+----------------------------
+Below :data:`GAP_STATED_FROM_SECONDS` (15 minutes) the block gives the time and
+nothing else (decision #25). Decision #5 was about a figure like "14 hours"; in a
+live conversation every gap is a minute or two, and in run 2, 123 of 125 turns
+carried the gap clause though none of those gaps reached 15 minutes. Stating it on
+every turn made the gap a standing subject. No figure means no pairing is
+required, and nothing is said that could be false. A clock that ran backwards is
+still reported (below), whatever its size: that is a fault to surface, not a short
+gap.
 """
 
 from __future__ import annotations
@@ -89,13 +109,18 @@ _HOURS_PER_DAY = 24
 #: the bound applies to hours and days; minutes are the floor and are exempt.
 _MIN_COUNT = 2
 
+#: Below this many seconds the block states no elapsed figure (decision #25). A
+#: JUDGMENT value: the idle-close window's 15 minutes, chosen as the point past
+#: which a gap is a pause rather than the rhythm of a live conversation. A named
+#: constant, not a setting: nothing else is tuned from it.
+GAP_STATED_FROM_SECONDS = 15 * _MINUTE
+
 #: Stated beside every elapsed figure. One of ``prompt._PAIRING``'s recognised
-#: markers must appear here or assembly raises — "not running" and "no
-#: experience" both do, deliberately, so a reword that drops one still passes.
-_NO_EXPERIENCE = (
-    "You were not running during that time. The gap holds no experience, "
-    "nothing you did, and nothing you thought over — there is no part of it you "
-    "were present for."
+#: markers must appear here or assembly raises; this one carries "nothing was
+#: running" (decision #25).
+_GAP_FACT = (
+    "Apart from any run your record shows, nothing was running in that time, so "
+    "there is nothing else from it to report."
 )
 
 
@@ -168,7 +193,9 @@ def build_situation(
     if previous.tzinfo is None:
         previous = previous.replace(tzinfo=timezone.utc)
     gap = (now - previous).total_seconds()
+    if 0 <= gap < GAP_STATED_FROM_SECONDS:
+        return "\n".join(lines)
 
     lines.append(f"It has been {format_elapsed(gap)} since the last message{who}.")
-    lines.append(_NO_EXPERIENCE)
+    lines.append(_GAP_FACT)
     return "\n".join(lines)

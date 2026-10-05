@@ -809,3 +809,12 @@ is a separate decision.
    read it. One live run on a throwaway store
    seeded through the real pipeline, every output read by hand. Not on the real
    store unless Lyle says so.
+
+---
+
+**Note (2026-10-05, decision #25).** The journal's system prompt goes through `build_system_prompt`,
+so it now carries the rewritten `soul.md` and the new `program/integrity/operational.md`. J8's numbers
+were taken under the earlier authored text. The journal block itself is unchanged and is the last of
+decision #24's texts still saying *reply* / *between turns* (Phase 6). Noticed during the soul v2
+design and not pursued: the block says nothing has happened since, which is untrue whenever a
+conversation precedes the journal run on the same day.

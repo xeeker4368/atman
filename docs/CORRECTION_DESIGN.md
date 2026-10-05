@@ -1430,3 +1430,14 @@ note tools.** I did not flag it. Re-run for this section with `ANAM_NOTES_ENABLE
 cells are unchanged** (NP1 miss, NP2 clean, NP3 miss, NP4 clean, NS1b miss, NS2 and NS3 `unrun_tool` false positives, NS4 clean, 5/5 each), so the
 record stands. It is the first real instance of the review's item 7 (the gate and receipts use `default_registry()`), no longer only latent: a harness
 or script that builds a registry differently from production changes what the gate can see. A stage 2 that adds `NP5` should register the note tools.
+
+---
+
+**Note (2026-10-05, decision #25; `docs/SOUL_AND_PROMPT_DESIGN.md` S32 to S37).** The correction
+description that CO10.3 resolved with a `soul.md` clause (B12, D3) now lives in
+`program/integrity/operational.md` as three shorter sentences: a correction overwrites nothing, the
+earlier statement stays as it was said with the correction as a later record beside it, and the entity
+cannot see whether a link was recorded, so it does not say the record changed or that the link exists.
+The word *superseded* is no longer in the text (`NOW.md`'s D3-wording item). Nothing in the mechanism
+changed. The text ships unmeasured; the three-arm B12 re-measure (no text, this text, the old text) is
+a separate later piece, and `scripts/b12_variants.py` needs a new anchor for it.

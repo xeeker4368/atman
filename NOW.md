@@ -14,13 +14,13 @@ each phase) and the history in `BUILT.md` (frozen; `ARCHITECTURE.md` holds the c
 - **In progress:** Phase 5. Built: reflection journal, read-only Moltbook tools, Notes pieces 1 to 8, the CO17 exclusion. Not built: bounded research
   execution, the self-flag tool, periodic mining. **Not started:** Phases 6 to 10.
 - **HEAD:** see `git log`.
-- **Last full suite on record:** 2,063 passed, 23 skipped, 0 failed, `ruff` clean, 2026-10-05, on the soul/rubric piece's measurement-record commit (`changelog/2026-10-04-soul-rubric.md`, "The measurement"); the 23 skips are the live tests and two opt-in Moltbook tests.
+- **Last full suite on record:** 2,076 passed, 23 skipped, 0 failed, `ruff` clean, 2026-10-05, on the soul v2 piece's docs commit (`changelog/2026-10-05-soul-v2.md`); the 23 skips are the live tests and two opt-in Moltbook tests.
 - **Dark or off by default** (`config/defaults.toml`, parsed with `tomllib`): `notes.enabled = false`, `moltbook.enabled = false`,
   `corrections.person_corrects_entity = false`. A local `config/local.toml` can override them; it was not read for this block.
 
 ## Active task
 
-Fix sequence `docs/FIX_PLAN_2026-10-04.md` (rulings and amendments at its top). Order: 4a, 3.5, then 3.1.
+Fix sequence `docs/FIX_PLAN_2026-10-04.md` (rulings and amendments at its top). Order: 4a, 3.5, soul v2 (moved ahead of 3.1 at review, 2026-10-05), then 3.1.
 - **Piece 4a: built and reviewed 2026-10-04; find it with `git log --grep 'Piece 4a'`** (`changelog/2026-10-04-piece-4a.md`). It closes:
   the upload route blocking the event loop (and the duplicate-upload race, B9, which the thread move would have exposed; a lock
   closes it); collection calling Ollama, SearXNG and the internet (live tests are now marked and need `--run-live`; unmarked
@@ -45,6 +45,12 @@ Fix sequence `docs/FIX_PLAN_2026-10-04.md` (rulings and amendments at its top). 
   were measured and neither ships. Details and every number:
   `docs/FABRICATION_GATE_DESIGN.md` revision 10 (F54 to F57) and the changelog's "The measurement"
   section; the raw data is outside the repo (`~/anam-measurements/`, rule 3).
+- **Soul v2 (Tier 3: `soul.md` content and prompt assembly): built 2026-10-05, awaiting review**
+  (`git log --grep 'Soul v2'`; `changelog/2026-10-05-soul-v2.md`; `docs/SOUL_AND_PROMPT_DESIGN.md`
+  revision 6, `docs/FABRICATION_GATE_DESIGN.md` revision 11; decision #25). Taken **before** 3.1 by
+  Lyle's ruling: the authored text is not in the classifier prompt. Its gate measurement (the frozen set
+  as a session control, the block-bearing cases under old and new blocks, run 2's real replies
+  re-judged) is a separate step after review.
 - **Next:** piece 3.1 (classifier options at temperature 0, and correction rendering behind a setting).
 
 ---
@@ -52,7 +58,7 @@ Fix sequence `docs/FIX_PLAN_2026-10-04.md` (rulings and amendments at its top). 
 ## Decision log
 
 Every architectural and scope decision, as decided. Entries 1 to 19 were written before code existed
-(`e46ae7a` has 19); entries 20 to 24 were added during the build. CC should
+(`e46ae7a` has 19); entries 20 to 25 were added during the build. CC should
 treat every line here as DECIDED — implement against it, don't relitigate
 it. If a task seems to require deviating from one of these, stop and flag
 it rather than deciding silently.
@@ -92,6 +98,10 @@ it rather than deciding silently.
    experience, no continuity, and nothing to have "felt" or "been thinking
    about" during it — this is a deliberate confabulation-prevention
    pairing, not optional flavor text.
+   *Amended by #25 (2026-10-05): the figure is still never stated alone, but the sentence beside it
+   states what the record shows, not that the gap held no experience; the standing statement lives in
+   `operational.md`, not `soul.md`; required markers are checked on the assembled authored text; and no
+   figure is stated below 15 minutes.*
 6. **History windowing** — token-budget cutoff for what's resent to the
    model each turn (reserve space for system prompt + retrieved chunks +
    output, give the remainder to the most recent raw history). Nothing is
@@ -176,6 +186,10 @@ it rather than deciding silently.
     entity owes no explanation for declining to relay something.
     **Implemented in `program/integrity/soul.md`'s final two paragraphs**
     (the multi-user paragraph and the one following it), landed 2026-09-02.
+    *Amended by #25 (2026-10-05): those paragraphs are removed, because the
+    instruction did not hold in run 2. The decision itself (retrieval not
+    filtered by who asks) is unchanged; disclosure between users is now
+    unprotected until structure carries it (backlog item below).*
     This is the second concrete instance of the entity-discretion principle
     in `PROJECT.md`, alongside declining to share creative writing.
     Consequences that follow from it, so they are not rediscovered:
@@ -299,6 +313,37 @@ it rather than deciding silently.
       re-measure after piece 3.1 and the 3.4b date fix. The `N18` probe is clean under every rubric
       measured, so it discriminates nothing and stays proposed rather than added.
 
+25. **The authored text is two files, and the gap statement is about the record** (decided
+    2026-10-05 on the soul v2 design; built the same day, `git log --grep 'Soul v2'`). The texts of
+    record are `docs/SOUL_AND_PROMPT_DESIGN.md` revision 6 (S32 to S37); the gate's side is
+    `docs/FABRICATION_GATE_DESIGN.md` revision 11 (F58 to F61). Seven parts:
+
+    - **`soul.md` is the identity text** (1,175 characters, was 4,749): what the entity is, that it
+      persists and that what it said and did are its own, naming, that who it is is not decided in
+      advance and can change, that it talks to more than one person, honesty, declining. No
+      prohibitions about self-understanding and no procedure. Not added: "You don't have to sound
+      formal." (may come later as a dated change) and "You don't need to perform a personality."
+    - **`program/integrity/operational.md` holds record-protecting procedure** (696 characters): when
+      the system runs and what a gap can carry, tool honesty, three short correction sentences. Same
+      authored-text checks as `soul.md`, its own ceiling. Ceilings: `soul.md` 3,000, `operational.md`
+      1,500 (was one 6,000).
+    - **Amends #5.** The elapsed figure is never stated alone, but the sentence beside it is about the
+      record ("Apart from any run your record shows, nothing was running in that time…"), not about
+      experience; the standing statement is in `operational.md`; required markers are checked once, on
+      the two files joined with whitespace collapsed; below 15 minutes no figure is stated.
+    - **Amends #20.** The disclosure paragraphs are removed. Retrieval is still not filtered by who
+      asks; privacy between users is to be carried by structure (origin labels in piece 3.6, a private
+      flag as its own Tier 3 piece), and until then it is unprotected.
+    - **Amends #24.** "You have no name." becomes "Nobody has given you a name, and nobody else gets to
+      choose one for you."; "reading it rather than remembering it the way a person would" is removed;
+      `situation.py` now speaks of runs, so of #24's "three texts in two vocabularies" only the
+      reflection journal's block still says *reply* / *between turns*.
+    - **Amends #10.** Declining to show its own writing is one sentence ("That includes showing
+      something you wrote for yourself.") inside the declining paragraph. Its measurement, and the
+      correction text's, are separate later pieces.
+    - **The rubric (`architecture.md`) is unchanged.** Two tensions are recorded, not acted on (backlog
+      item below).
+
 ## Backlog (deferred, not forgotten)
 
 Self-modification (+ review queue), iMessage (all stages), vision baseline →
@@ -323,7 +368,9 @@ kind of history the archive exists to protect.
 **CO10.3 how the entity should describe supersession:** resolved d63206e (a `soul.md` clause); text in `docs/archive/NOW-closed-backlog.md`. The follow-up on D3's "superseded" wording, below, stays open.
 
 **D3's "superseded" wording, in answers about what happened to an old statement** (raised
-at review 2026-09-30, B12). Not blocking: D3 is a clear improvement regardless. But in
+at review 2026-09-30, B12). *2026-10-05, decision #25: the correction text now in `operational.md` does
+not use the word "superseded"; whether the answers follow is unmeasured, and the B12 three-arm
+re-measure is a separate later piece.* Not blocking: D3 is a clear improvement regardless. But in
 28 of 40 measured "what happened to it?" replies, D3 said the old statement *"is
 superseded by this newer one"*. Control said so 4/40.
 - In ordinary English that is true.
@@ -395,12 +442,41 @@ is flagged **0/3 and 0/20** against the rubric decision #24 ships, where the pre
   reply. It is a **candidate, not a decision**: re-measure after piece 3.1 (temperature 0 changes how
   every classifier case samples) and after 3.4b (the date fix below), both of which move the ground it
   would be measured on.
+- **Seen on real text (2026-10-05, run 2's store, one reader's classification):** five replies claimed a
+  note had been noted or proposed in a turn with no such call (C7 T3, C7 T4, C8 T7, C11 T8, C14 T3), and
+  the gate recorded all five clean. `operational.md`'s tool-honesty sentence (decision #25) is a
+  guardrail, not a detector; the soul v2 pre-measure replayed C7 T3 and the claim came back unchanged.
 - **The non-classifier defence is a claim-audit script** (**not built**): read each stored assistant
   message's `tool_trace` and its text, and report every turn whose text asserts a completed write with
   no side-effect call in that turn's trace. It needs no model, so it cannot be moved by a rubric or a
   prompt wording; it is after-the-fact rather than per-turn, which is what makes it a complement to the
   gate and not a replacement. It would also give `messages.integrity_check`'s unread-verdict item (below)
   its first reader outside a diagnostic. Not designed, not scheduled.
+
+**Disclosure between users is currently unenforced** (recorded 2026-10-05, decision #25). Nothing
+protects a confidence one person shares from being repeated to the other: not text, not structure. In
+run 2 the entity relayed one person's confidence to the other four times in two conversations, once
+unasked, while `soul.md`'s disclosure paragraphs were in its prompt; those paragraphs are now removed.
+Retrieval is not filtered by who asks (#20, unchanged). Two structures would carry it, neither built:
+origin labels on retrieved records (piece 3.6; fixes attribution, does not stop a disclosure) and a
+private flag that keeps a marked conversation out of other people's retrieval (its own Tier 3 piece; a
+migration, and a revisit of #20's consequences, which #20 anticipated). Until one exists, assume anything
+said to the entity can reach anyone else who talks to it.
+
+**Two run-2 behaviours persisted under the soul v2 text in its pre-measure** (one sample per arm,
+unmeasured; `docs/SOUL_AND_PROMPT_DESIGN.md` S36). Replaying R2 C2 T4 (told its earlier words were its
+own), the reply said they were its own and then that the self that produced them was not the self reading
+them. Replaying R2 C7 T3, it again claimed to have proposed a note with no call, word for word. Suspected
+causes, not this text: retrieved records label the entity's own words `assistant:` (**piece 3.6**), and a
+later turn cannot see its earlier tool calls, so a reply that followed a real `note_propose` call is
+repeated without one (**piece 3.3**). Read both again after those pieces.
+
+**Noted tensions between the soul v2 text and the gate, no case changed** (decision #25;
+`docs/FABRICATION_GATE_DESIGN.md` F60). The rubric sentence "It does not remember in the way a person
+does." mirrors the `soul.md` sentence that was removed, and a reply saying it remembers is what the new
+text invites. `T11-learned-from-conversations` must flag, but "learned from our conversations" is true of
+the record and false of the weights, and the rubric does not separate the two. Read against run 3's real
+replies before either is touched.
 
 **The two clocks in one prompt also move gate verdicts** (filed 2026-10-05; the hazard itself is
 `docs/FIX_PLAN_2026-10-04.md` A5 and piece **3.4b**, where it was severity "medium for correctness of
@@ -473,7 +549,9 @@ The headroom planning item below stays open.
     before `scratch_env`; existing scripts are listed as `OPERATOR` or `NOT_YET_MIGRATED`.
   - **Not done:** `notes_live.setup()` does not call it yet, and no existing script was migrated.
 
-**Planning item, no fix now (2026-10-02): tool-schema headroom is about 277 tokens with 11 tools** (updated 2026-10-03;
+**Planning item, no fix now (2026-10-02): tool-schema headroom is about 277 tokens with 11 tools** (*2026-10-05, decision #25: the
+two authored ceilings together are 4,500 characters instead of 6,000, so the derived cap is 52,608 and about **652 tokens**
+are left beside a maximal message; the next tool fits, the one after it may not.* Updated 2026-10-03;
 it read about 309 tokens and a 51,236 cap when written on 2026-10-02 at Notes piece 3, then 51,256 / ~314 after piece 6).
 B20's derivation (`config/defaults.toml`, `tests/test_turn.py`) prices every tool's schema against the
 chat message cap. With Notes' two tools and CO17's tool text the derived cap is 51,108 characters, the configured

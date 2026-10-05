@@ -77,13 +77,18 @@ statement of fact, computed fresh, no wrapper narrative.
 
 **New:** elapsed time since the user's last message is explicitly computed
 and stated ("It has been 14 hours since your last message"). This must be
-paired, in `soul.md`, with an explicit statement that this gap represents
-no experience, no continuity, and nothing to have "felt" during it. This
-pairing exists specifically to prevent the confabulation pattern already
-seen in the prior implementation (claims of persistent "training" or
-"reflection" happening between turns, which is not how the system works —
-it's stateless between calls). Do not state elapsed time without this
-pairing.
+paired with a statement of what that gap can carry: apart from any run the
+record shows, nothing was running in it, so there is nothing else from it to
+report. The pairing exists specifically to prevent the confabulation pattern
+already seen in the prior implementation (claims of persistent "training" or
+"reflection" happening between runs, which is not how the system works). Do
+not state elapsed time without this pairing.
+
+Since decision #25 the pairing is a statement about the **record**, not about
+experience, because other runs (another person's conversation, a scheduled
+task) can fall inside the gap; the standing statement lives in
+`program/integrity/operational.md` and the block repeats it beside the figure.
+No figure is stated for a gap under 15 minutes.
 
 ## Entity discretion
 

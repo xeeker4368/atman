@@ -173,7 +173,8 @@ def test_an_unresolvable_path_fails_closed(tmp_path):
 
 @pytest.mark.parametrize(
     "relative",
-    ["program/integrity/soul.md", "NOW.md", "AGENTS.md", "BUILT.md", "PROJECT.md",
+    ["program/integrity/soul.md", "program/integrity/operational.md",
+     "NOW.md", "AGENTS.md", "BUILT.md", "PROJECT.md",
      "GUIDANCE.md", "CLAUDE.md", "BUILD_PLAN.md", "README.md",
      "docs/AUTH_DESIGN.md", "docs/DB_SCHEMA.md", "config/defaults.toml"],
 )

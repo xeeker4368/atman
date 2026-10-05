@@ -470,11 +470,19 @@ def _full_catalogue_schema_tokens() -> int:
     return history.estimate_tokens_from_chars(len(json.dumps(schemas)))
 
 
+def _authored_reserve_tokens() -> int:
+    """Both authored files at their enforced ceilings (decision #25)."""
+    from program.engine import history, prompt
+
+    return history.estimate_tokens_from_chars(
+        prompt.SOUL_MAX_CHARS + prompt.OPERATIONAL_MAX_CHARS)
+
+
 def _reserved_beside_a_maximal_message() -> int:
     """B6a's chain from LIVE config, now with B20's schema term."""
     from program.engine import history, prompt
 
-    soul = history.estimate_tokens_from_chars(prompt.SOUL_MAX_CHARS)
+    authored = _authored_reserve_tokens()
     situation = history.estimate_tokens_from_chars(600)  # judgment allowance; 206 measured
     retrieved_chars = (
         # The records cap itself (B17), not a copy of its arithmetic: top_k x
@@ -487,7 +495,7 @@ def _reserved_beside_a_maximal_message() -> int:
         config.history_output_reserve_tokens()
         + config.history_safety_margin_tokens()
         + config.history_message_overhead_tokens()
-        + soul + situation
+        + authored + situation
         + history.estimate_tokens_from_chars(retrieved_chars)
         + _full_catalogue_schema_tokens()
     )
@@ -506,6 +514,24 @@ def test_the_configured_limit_fits_the_context_window_by_its_own_derivation():
         f"chat.max_message_chars {config.chat_max_message_chars()} exceeds the "
         f"{fits_chars:.0f} characters that fit beside a maximal turn"
     )
+
+
+def test_the_derivation_reserves_both_authored_files_at_their_ceilings():
+    """Trap (a), soul v2: lowering SOUL_MAX_CHARS left the cap test passing with the
+    operational ceiling missing from the reserve, because a smaller reserve only makes
+    that test easier. So the authored term is pinned directly: it covers soul.md AND
+    operational.md at their enforced ceilings, and it is at least what the two cost
+    when each is filled to its ceiling and joined as assembly joins them."""
+    from program.engine import history, prompt
+
+    reserve = _authored_reserve_tokens()
+    assert reserve == history.estimate_tokens_from_chars(
+        prompt.SOUL_MAX_CHARS + prompt.OPERATIONAL_MAX_CHARS)
+    filled = "x" * prompt.SOUL_MAX_CHARS + "\n\n" + "y" * prompt.OPERATIONAL_MAX_CHARS
+    # The separator between them is scaffolding, priced with the other separators.
+    assert reserve >= history.estimate_tokens(filled.replace("\n\n", ""))
+    assert reserve > history.estimate_tokens_from_chars(prompt.SOUL_MAX_CHARS), (
+        "the operational ceiling is missing from the reserve")
 
 
 def test_tool_schemas_fit_the_headroom_beside_a_maximal_message():

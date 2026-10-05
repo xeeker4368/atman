@@ -697,6 +697,14 @@ def test_show_records_states_what_was_omitted_and_clipped(world, monkeypatch, ca
         say(world.lyle, "user", f"message-{i:02d} " + "w" * 1200,
             f"2026-09-21T13:{i:02d}:00+00:00", c)
 
+    class _Clock(datetime):
+        """The CLI's clock, pinned to the one the comparison below uses."""
+
+        @classmethod
+        def now(cls, tz=None):
+            return NOW
+
+    monkeypatch.setattr(journal, "datetime", _Clock)
     _, out = run_cli(monkeypatch, capsys, "--show-records", "2026-09-21")
 
     omitted = journal.prepare(DAY, now=NOW).messages_omitted

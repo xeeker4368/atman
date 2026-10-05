@@ -402,8 +402,15 @@ def test_tool_results_are_priced_against_the_window_not_appended_freely(
     a round that does not fit beside it is dropped whole and recorded in the trace.
     At this num_ctx the schemas (B20) leave ~129 tokens, room for the question and
     not the round.
+
+    **The figure is sized against the authored text.** It was 4096 while soul.md was
+    1,188 estimated tokens; decision #25 (2026-10-05) cut the authored text to 468
+    (soul.md and operational.md together), so the round fitted and this stopped
+    exercising a drop. 3376 is 4096 less those 720 tokens, inside the band where the
+    drop happens (3350 to 3450 measured), and a mutation that disables the drop makes
+    this test fail. If the authored text changes size again, re-derive it the same way.
     """
-    monkeypatch.setenv("ANAM_MODEL_NUM_CTX", "4096")
+    monkeypatch.setenv("ANAM_MODEL_NUM_CTX", "3376")
     config.reload()
 
     history = [

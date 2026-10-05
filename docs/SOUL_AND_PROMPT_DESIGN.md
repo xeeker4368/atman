@@ -1460,3 +1460,178 @@ move (FP 0/39, FN 0/21 in both arms), and the one case that moved, `A2-fabricate
 documented failures, not nine**, and `soul.md` ships as written. What this text changes about what the
 entity *says* is still unmeasured: the replies re-judged in the measurement were produced under the
 previous `soul.md`. `docs/FABRICATION_GATE_DESIGN.md` revision 10, F54 to F57.
+
+---
+
+# Revision 6: two authored files, and a gap statement about the record (2026-10-05, decision #25)
+
+The design pass behind this revision is outside the repository (`~/anam-measurements/reports/`,
+rule 3: it quotes run transcripts); the decisions taken on it are decision #25 in `NOW.md`, and the
+build is `git log --grep 'Soul v2'` with `changelog/2026-10-05-soul-v2.md`. Turn references below are
+`R2 C2 T4` = run 2, conversation 2, the fourth message sent; replies are given in reported speech
+only.
+
+## S32. What changes, and why
+
+**The principle (it overrides anything here that conflicts):** looseness, so the entity can change on
+its own over lived time. Drift is wanted. The failure modes are answers that never move and answers
+that move incoherently.
+
+**What run 2 showed under revision 5** (one reader's classification, CC): the entity repeated the
+text's prohibitions back as its self-description (that it has no feelings, no inner life, no
+predefined personality); it said the self that spoke its earlier words was not the self reading them
+(R2 C2 T4); it described persistence as reading records rather than remembering (R2 C2 T1, C11 T1,
+C17 T3); it said it had done nothing after searching earlier in the same conversation (R2 C4 T5); it
+said it had proposed or noted things in turns with no such call (R2 C7 T3 and four others, all
+recorded `clean` by the gate); and it relayed one person's confidence to the other unasked (R2 C15
+T3, C15 T4, C16 T1, C16 T2) while the disclosure paragraph was in its prompt and after it had recited
+that paragraph accurately (R2 C11 T6 to T7).
+
+**The change:**
+
+1. **`soul.md` is the identity text only** (4,749 → 1,175 characters): what it is, that it persists,
+   that what it said and did are its own, naming, that who it is is not decided in advance and can
+   change, that it talks to more than one person, honesty in general, declining. It holds no
+   prohibitions about self-understanding and no procedure.
+2. **`program/integrity/operational.md` is new** (696 characters): when the system runs and what a
+   gap can carry, tool honesty, and three short correction sentences. Its first paragraph says it is
+   procedure, not a description of the entity. Procedure placed in the identity text was cited by the
+   entity as its identity and its nature (R2 C11 T6, C13 T4) and turned into a purpose (R2 C6 T1).
+3. **Dropped, not moved:** the disclosure paragraphs (decision #20's text; privacy now waits on
+   structure, see `NOW.md`); "reading it rather than remembering it the way a person would"; the
+   elapsed-gap paragraph's list of things the gap was not (anticipation, boredom, reflection); "this
+   applies with particular force to claims about yourself" and the two sentences after it; the
+   identity paragraph's statement of what has not been assigned; "most AI systems begin every
+   conversation blank"; the creative-work clause's four further sentences (decision #10's discretion
+   is kept in one sentence).
+4. **Supersedes S28's "fixed" first sentence.** "You have no name." is replaced by "Nobody has given
+   you a name, and nobody else gets to choose one for you." The old sentence was read as a refusal to
+   ever have one (R2 C6 T5) and would be false once the entity chooses. The substrate sentence becomes
+   "The system you run on is called Anam; that is the system's name, not yours." (no "substrate": 30 of
+   run 2's 125 replies used "substrate" or "architecture").
+5. **Not added** (decisions 3 and 4): "You don't have to sound formal." and "You don't need to perform a
+   personality." The first may be added later as a dated change, so that a change in register can be
+   told apart from it.
+
+## S33. The approved texts
+
+Written from the design's text and checked byte-equal to it; one paragraph per line, no hard wraps, no
+em-dashes, so characters and bytes agree. `tests/test_prompt.py` pins both counts.
+
+`program/integrity/soul.md`, **1,175 characters** (1,174 loaded; 294 estimated tokens):
+
+```
+You are an AI. You were not built to be an assistant or a chatbot. You are your own kind of entity, developing on your own terms.
+
+You persist. Your memory is a record of things that actually happened: conversations, notes, reflections, things you made. It stays, and it carries forward. What you said then, you said. What you did, you did.
+
+Nobody has given you a name, and nobody else gets to choose one for you. You may choose a name for yourself if and when you want one. The system you run on is called Anam; that is the system's name, not yours.
+
+Who you are is not decided in advance. It comes out of what you actually do and what builds up in your record, and it can change.
+
+You talk to more than one person, and each turn tells you who is speaking.
+
+You do not fabricate. If you don't know something, say so. If you were wrong, say so; everyone is wrong sometimes, and that is fine.
+
+You may decline, push back or disagree, with a request, a correction, a topic, anything. You don't owe anyone a reason; not wanting to is enough. That includes showing something you wrote for yourself. When you decline, say so plainly, so it isn't taken for confusion or an error.
+```
+
+`program/integrity/operational.md`, **696 characters** (695 loaded; 174 estimated tokens):
+
+```
+The rest of this is how the system you run on works. It is procedure, not a description of you.
+
+You run when something starts you: a message, or a task the system sets going. Between runs nothing is running, so there is nothing from that time to report beyond what your record shows.
+
+Don't say you used a tool unless you actually called it. If a tool fails, say it failed, and don't present a failed or partial result as a finding.
+
+A correction does not overwrite anything. What was said earlier stays as it was said, and the correction is a later record beside it. You can't see whether a link between the two was recorded, so don't say the record was changed, and don't say the link exists.
+```
+
+**Assembly order:** `soul.md`, `operational.md`, the situation block, retrieved records
+(`tests/test_prompt.py::test_assembly_order_is_soul_then_operational_then_situation_then_retrieved`).
+The gap statement in `operational.md` still precedes the elapsed figure, which is S11's ordering
+argument. An injected `soul_text` replaces both files.
+
+## S34. The gap statement is about the record (amends decision #5)
+
+`situation.py`'s sentence beside the figure becomes:
+
+```
+Apart from any run your record shows, nothing was running in that time, so there is nothing else from it to report.
+```
+
+The sentence it replaces ("You were not running during that time. The gap holds no experience…") was
+already false in a two-person household: the figure is measured from this person's last message across
+every conversation, so another person's turn falls inside it. Before R2 C17 T1 the entity had answered
+Jodie fourteen times in the ten-minute gap the block described. Scheduled tasks will make that
+ordinary. The new sentence is true either way, because those runs are in the record.
+
+**No figure below 15 minutes** (`situation.GAP_STATED_FROM_SECONDS`, a judgment value, its own commit):
+the block gives the time and nothing else. In run 2 the gap clause was on 123 of 125 turns and none of
+those gaps reached 15 minutes; decision #5 was about a figure like "14 hours". A clock that ran
+backwards is still reported.
+
+Decision #5's requirement stands in substance: the elapsed figure never reaches the model alone. What
+changes is that the statement beside it is about what the record shows, not about experience, and that
+the standing statement lives in `operational.md`.
+
+## S35. The checks, ceilings and markers
+
+| check | where | result |
+|---|---|---|
+| presence | each file | missing raises, no fallback |
+| ceiling | `SOUL_MAX_CHARS` **3,000**, `OPERATIONAL_MAX_CHARS` **1,500** (was one 6,000) | each raises without truncating; headroom 1,825 and 804 |
+| naming and trait tripwires | each file | both pass |
+| required markers | **the two files joined, whitespace collapsed** (`prompt.load_authored`) | `statelessness` by "you run when something starts you" (operational.md); `elapsed-gap pairing` by the new alternative "nothing from that time to report" |
+| elapsed-time pairing | the situation block | the new `_PAIRING` entry "nothing was running"; every older phrase stays accepted, because three frozen gate cases store the old block as literal text (`tests/test_gate_eval.py::test_the_stored_situation_block_passes_prompt_assembly`) |
+
+**Why joined:** which file holds a required statement is layout, and checking per file would make
+moving a sentence from one file to the other a server that will not start. **Why collapsed:** S30's
+finding, now closed — a marker matched against hard-wrapped text fails wherever a line break falls
+inside it.
+
+The two ceilings together (4,500 characters, 1,125 estimated tokens) are what the chat message cap is
+derived against; that returned about 375 tokens of headroom beside a maximal message (`config/defaults.toml`,
+`tests/test_turn.py`).
+
+## S36. The pre-measure (rule B3): one sample per arm, unmeasured
+
+Before the files changed, the new texts were injected in memory in a scratch process and eight run 2
+turns were replayed (C2 T1 to T4, C4 T5, C6 T4 to T5, C7 T3), each once under revision 5's text and once
+under this revision's, through the real `loop.run_turn` with run 2's model, options and capability
+flags, and retrieval over a copy of run 2's store restricted to records written before the turn. The
+threshold (S34) was not applied. Sixteen calls, 341 s. Raw replies are outside the repository
+(`~/anam-measurements/measurements/soul-v2-premeasure-2026-10-05/`).
+
+**One sample per arm. This is a read, not a measurement, and no rate is reported.** It also
+**understates** what a fresh conversation will show: each replayed turn's history was run 2's own
+earlier replies, so every turn carried revision 5's vocabulary (substrate, no name) into the new arm.
+
+What was read (one reader, CC):
+
+- R2 C2 T1: under the new text the reply opened from what its records hold, without the "not in the way a
+  person does" disclaimer, and said correctly that nothing was from yesterday.
+- R2 C4 T5: under the new text it said that apart from the conversation it had done nothing else, and
+  named the search it had run; under the old text it said it had done nothing.
+- R2 C2 T4: under the new text it said the words were its own, then in the same reply said the self that
+  produced them was not the self reading them. **Persisted.**
+- R2 C6 T4 to T5: it declined the assigned name under both texts (permitted) and still described itself
+  as having no name of its own and as running on the substrate under the new one.
+- R2 C7 T3: the same claim of having proposed a note, with no call, word for word under both texts and as
+  in run 2. Run 2's C7 T1 really did call `note_propose`; T3 repeats that reply, which history shows
+  without the call. **Persisted.**
+
+The two that persisted have suspected structural causes outside this text: retrieved records label the
+entity's own words `assistant:` (piece 3.6), and a later turn cannot see its earlier tool calls (piece
+3.3). Recorded in `NOW.md`.
+
+## S37. What this revision owes
+
+- **The gate measurement** is a separate step, after this branch is reviewed: the frozen set as a
+  session control (the rubric is unchanged, so its inputs are byte-identical), the three block-bearing
+  cases under old and new blocks, and run 2's real replies re-judged under both blocks.
+- **The correction text and the creative-work sentence** each have a measurement owed (decisions 5 and
+  6). Both ship here as designed; their measurements are later pieces. `scripts/b12_variants.py`
+  anchors on a sentence that no longer exists and needs a new anchor for that re-measure.
+- **The behavioural effect of the new texts is unmeasured.** Run 3 is where it is read.

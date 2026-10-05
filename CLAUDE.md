@@ -67,7 +67,7 @@ copying code from it. Two failure modes to watch for:
 
 ## Decisions that are already made
 
-`NOW.md` holds a 24-entry decision log (entries 1 to 24) covering what was settled before and
+`NOW.md` holds a 25-entry decision log (entries 1 to 25) covering what was settled before and
 during the build. **Treat every line there as DECIDED** — implement against it rather than
 relitigating it, and if a task seems to require deviating, stop and flag it
 instead of deciding silently. The ones most likely to be reinvented by accident:
@@ -79,10 +79,12 @@ instead of deciding silently. The ones most likely to be reinvented by accident:
   Raw experience is never edited or deleted to fix it — corrections layer on top.
   Needs its own frozen eval case set before production trust, same bar as the
   fabrication gate.
-- **Elapsed-time statement must be paired with the no-experience statement in
-  `soul.md`.** Stating "it has been 14 hours" without the explicit note that the
-  gap held no experience, continuity, or thought is the exact confabulation
-  pattern the prior build produced. The pairing is not optional flavor.
+- **An elapsed-time statement must be paired with the gap statement** (decision
+  #5 as amended by #25): apart from any run the record shows, nothing was running
+  in the gap, so there is nothing else from it to report. The standing statement
+  is in `program/integrity/operational.md` and the block repeats it beside the
+  figure. Stating "it has been 14 hours" alone is the exact confabulation pattern
+  the prior build produced. The pairing is not optional flavor.
 - **Two-axis capability gating** — `enabled` and `approval_required` are
   orthogonal, and authorization keys on **propose vs. execute**, not on who
   triggered it. `allow_*` flags exist for exactly one case: fully unattended,
@@ -115,7 +117,7 @@ complexity in the substrate is not the same thing as richness in the entity.
 - **Branch, never main.** CC plans → the reviewer (Claude, outside this repo) approves → CC implements on a `cc/<piece>` branch (with a changelog entry where `AGENTS.md` "Git hygiene" requires one) and commits there → Lyle reviews `git diff main..cc/<piece>`, squash-merges and pushes. CC never commits to main and never pushes, merges, rebases or rewrites history. This holds regardless of how small or obviously-correct the change is.
 - One task at a time, verified before the next. Do not batch unrelated changes.
 - **Stop and wait for review** after: database schema (initial or migration),
-  provenance/source-trust semantics, `soul.md` content and prompt assembly,
+  provenance/source-trust semantics, `soul.md` and `operational.md` content and prompt assembly,
   restore-from-backup logic, the fabrication gate and correction/supersession
   classifier, and go-live reset / wipe tooling.
 - **Check, don't assert.** If a claim about system state is directly checkable —

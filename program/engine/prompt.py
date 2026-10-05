@@ -1,26 +1,32 @@
-"""System-prompt assembly: soul.md + situation + retrieved chunks + history.
+"""System-prompt assembly: soul.md + operational.md + situation + retrieved chunks + history.
 
 Design of record: ``docs/SOUL_AND_PROMPT_DESIGN.md`` (revision 2), cited here as
-S1–S12 rather than re-argued.
+S1–S12 rather than re-argued; revision 6 (S32 onward) adds the second authored file.
 
 What this assembles
 -------------------
-Every turn's prompt is four parts, in this order (S11):
+Every turn's prompt is five parts, in this order (S11, S32):
 
-1. ``soul.md``                — identity, constraints, values. Static.
-2. current-situation block    — timestamp, elapsed time, and its pairing.
-3. retrieved chunks           — each rendered with its ``created_at``.
-4. windowed history           — **not** text in the system prompt; the message
+1. ``soul.md``                — identity: what it is, persistence, naming, declining.
+2. ``operational.md``         — record-protecting procedure: when the system runs,
+                                tool honesty, the correction wording.
+3. current-situation block    — timestamp, elapsed time, and its gap statement.
+4. retrieved chunks           — each rendered with its ``created_at``.
+5. windowed history           — **not** text in the system prompt; the message
                                 array that follows it.
 
-Parts 1–3 are the system message. Part 4 is separate because that is what it
+Parts 1–4 are the system message. Part 5 is separate because that is what it
 structurally is, and because it puts the live conversation closest to the
 generation point.
 
-``soul.md`` comes first because it is the interpretive frame for everything after
-it, and specifically because the elapsed-time figure in part 2 must land *after*
-the rule that says what that figure means. Stating the gap before establishing
-that the gap held nothing is the confabulation ordering.
+The two authored files come first because they are the frame for everything after
+them, and specifically because the elapsed-time figure in part 3 must land *after*
+the standing statement of what that figure means (in ``operational.md``). Stating
+the gap before establishing what it held is the confabulation ordering.
+
+The two files are separate because procedure placed in the identity text is read
+as identity (S32): which file holds a sentence is layout, so the required markers
+are checked once, on the two joined (:func:`load_authored`).
 
 Why the checks raise
 --------------------
@@ -70,10 +76,17 @@ from program.memory.retrieval import RetrievalResult, RetrievedChunk
 #: that writes the entity's own artifacts can reach it.
 SOUL_PATH = Path(__file__).resolve().parent.parent / "integrity" / "soul.md"
 
-#: Fixed per-turn overhead ceiling (S10). JUDGMENT value, headroom-derived:
-#: the approved seed is 3,401 chars, so this leaves ~2x for Phase 4's refusal
-#: clause and Phase 10's wording pass without revisiting the ceiling.
-SOUL_MAX_CHARS = 6000
+#: The record-protecting procedure, kept out of the identity text (S32). Same
+#: directory as soul.md, so the governance blocklist's directory rule covers it.
+OPERATIONAL_PATH = SOUL_PATH.parent / "operational.md"
+
+#: Fixed per-turn overhead ceilings (S10, S35). JUDGMENT values (decision #25). The
+#: text was 4,749 characters under one 6,000 ceiling; it is two files now, each with
+#: its own ceiling, so procedure cannot grow into the identity text's room
+#: unnoticed. The two together (4,500) are what the chat message cap is derived
+#: against (``config/defaults.toml``, ``tests/test_turn.py``).
+SOUL_MAX_CHARS = 3000
+OPERATIONAL_MAX_CHARS = 1500
 
 
 class PromptError(RuntimeError):
@@ -114,13 +127,17 @@ REQUIRED_MARKERS: dict[str, tuple[str, ...]] = {
         # Decision #24 (2026-10-04): the memory paragraph drops the "do not wait,
         # idle" sentence, so none of the three above survives in the shipped text
         # and this one carries the requirement. The three stay as accepted
-        # rewordings — that is what this set is for.
+        # rewordings — that is what this set is for. Since decision #25 it lives
+        # in operational.md.
         "you run when something starts you",
     ),
     "elapsed-gap pairing": (
         "did not exist as a running process",
         "there is nothing you have been up to",
         "that description would be false",
+        # Decision #25 (2026-10-05): the gap statement is about the record, not
+        # about experience, and it lives in operational.md.
+        "nothing from that time to report",
     ),
 }
 
@@ -254,29 +271,22 @@ def check_authored_text(text: str, source: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-def load_soul(path: Path | None = None) -> str:
-    """Read and validate soul.md. Every failure raises; none is recoverable.
-
-    Validated rather than trusted because an edit that quietly drops a required
-    statement produces no symptom until a behavioural probe runs weeks later —
-    by which point memory has accumulated against a flawed foundation.
-    """
-    target = path or SOUL_PATH
+def _load_authored_file(target: Path, name: str, ceiling: int) -> str:
+    """One authored file: present, under its ceiling, and naming/trait clean."""
     try:
         text = target.read_text(encoding="utf-8")
     except FileNotFoundError as exc:
         raise SoulIntegrityError(
-            f"soul.md not found at {target}. It is package content and is "
+            f"{name} not found at {target}. It is package content and is "
             f"required for every turn; there is no default to fall back to."
         ) from exc
 
     # Size first, and it never truncates (S10). Truncating would silently drop
-    # whichever values sit at the end — on the current text, discretion and
-    # multi-user handling — which is exactly the invisible degradation this
-    # gate exists to prevent.
-    if len(text) > SOUL_MAX_CHARS:
+    # whichever values sit at the end of the file, which is exactly the
+    # invisible degradation this gate exists to prevent.
+    if len(text) > ceiling:
         raise SoulIntegrityError(
-            f"soul.md is {len(text)} characters, over the {SOUL_MAX_CHARS} "
+            f"{name} is {len(text)} characters, over the {ceiling} "
             f"ceiling. It is fixed overhead on every turn, subtracted from the "
             f"same context window history and retrieval share, so growth here "
             f"silently shrinks history for every future turn. This is not "
@@ -284,22 +294,69 @@ def load_soul(path: Path | None = None) -> str:
             f"of the file is not."
         )
 
-    lowered = text.lower()
+    check_authored_text(text, f"{name} ({target})")
+    return text.strip()
+
+
+def load_soul(path: Path | None = None) -> str:
+    """Read and validate soul.md alone: presence, ceiling, naming and traits.
+
+    The required markers are not checked here: they are checked on the authored
+    text as assembled, by :func:`load_authored`, because which of the two files
+    holds a required statement is layout (decision #25).
+    """
+    return _load_authored_file(path or SOUL_PATH, "soul.md", SOUL_MAX_CHARS)
+
+
+def load_operational(path: Path | None = None) -> str:
+    """Read and validate operational.md alone, under its own ceiling."""
+    return _load_authored_file(
+        path or OPERATIONAL_PATH, "operational.md", OPERATIONAL_MAX_CHARS)
+
+
+def _collapse(text: str) -> str:
+    return re.sub(r"\s+", " ", text.lower())
+
+
+def check_required_markers(authored: str) -> None:
+    """Every required statement must be somewhere in the authored text.
+
+    Validated rather than trusted because an edit that quietly drops a required
+    statement produces no symptom until a behavioural probe runs weeks later —
+    by which point memory has accumulated against a flawed foundation.
+
+    **Whitespace is collapsed on both sides.** The files may be hard-wrapped, and a
+    marker matched against wrapped text fails wherever a line break falls inside
+    it: revision 5's ``'there is nothing you have been up to'`` never matched for
+    that reason.
+    """
+    collapsed = _collapse(authored)
     for requirement, alternatives in REQUIRED_MARKERS.items():
-        if not any(alt.lower() in lowered for alt in alternatives):
+        if not any(_collapse(alt) in collapsed for alt in alternatives):
             raise SoulIntegrityError(
-                f"soul.md no longer contains its {requirement} statement. "
-                f"Expected one of: "
+                f"the authored text (soul.md and operational.md) no longer "
+                f"contains its {requirement} statement. Expected one of: "
                 + "; ".join(repr(a) for a in alternatives)
                 + ". This is required content, not stylistic — omitting the "
                 "elapsed-gap pairing is the exact mechanism that produced the "
-                "prior build's false-continuity claims (GUIDANCE.md, decision "
-                "#5). If a rewording is intended, add the new phrasing to "
+                "prior build's false-continuity claims (GUIDANCE.md, decisions "
+                "#5 and #25). If a rewording is intended, add the new phrasing to "
                 "REQUIRED_MARKERS deliberately."
             )
 
-    check_authored_text(text, f"soul.md ({target})")
-    return text.strip()
+
+def load_authored(
+    soul_path: Path | None = None, operational_path: Path | None = None,
+) -> tuple[str, str]:
+    """Both authored files, each validated alone, then the markers on the two joined.
+
+    Joined in assembly order with the section separator, so the check sees what
+    the model is shown.
+    """
+    soul = load_soul(soul_path)
+    operational = load_operational(operational_path)
+    check_required_markers(soul + _SECTION_SEP + operational)
+    return soul, operational
 
 
 # ---------------------------------------------------------------------------
@@ -322,6 +379,11 @@ _PAIRING = (
     "no continuity",
     "were not running",
     "nothing to have felt",
+    # Decision #25: the block's gap statement is about the record. The phrases
+    # above stay accepted: three frozen gate cases store the old block as literal
+    # text and must still assemble
+    # (tests/test_gate_eval.py::test_the_stored_situation_block_passes_prompt_assembly).
+    "nothing was running",
 )
 
 
@@ -698,6 +760,8 @@ class AssembledPrompt:
     system: str
     messages: list[dict[str, Any]] = field(default_factory=list)
     soul_chars: int = 0
+    #: operational.md, reported apart from soul.md so the budget stays legible.
+    operational_chars: int = 0
     situation_chars: int = 0
     retrieved_chars: int = 0
     scaffolding_chars: int = 0
@@ -728,19 +792,27 @@ class AssembledPrompt:
 _SECTION_SEP = "\n\n"
 
 
+def _authored(soul_text: str | None) -> tuple[str, str]:
+    """(soul, operational) for one assembly: the two files, or an injected text alone."""
+    if soul_text is None:
+        return load_authored()
+    check_authored_text(soul_text, "supplied soul text")
+    return soul_text, ""
+
+
 def build_system_prompt(
     situation: str,
     retrieval: RetrievalResult | None = None,
     soul_text: str | None = None,
 ) -> str:
-    """soul.md, then the situation block, then retrieved records (S11).
+    """soul.md, operational.md, the situation block, retrieved records (S11, S32).
 
-    ``soul_text`` is injectable for tests; it is validated either way, so a
-    caller cannot route around the constraints by supplying its own.
+    ``soul_text`` is injectable for tests; it is naming- and trait-checked, so a
+    caller cannot route around those constraints by supplying its own. An
+    injected text replaces **both** authored files, so no operational text is
+    loaded beside it and a test sends exactly what it supplies.
     """
-    soul = soul_text if soul_text is not None else load_soul()
-    if soul_text is not None:
-        check_authored_text(soul_text, "supplied soul text")
+    soul, operational = _authored(soul_text)
 
     situation = (situation or "").strip()
     _check_pairing(situation)
@@ -748,7 +820,7 @@ def build_system_prompt(
     check_authored_text(_SUPERSESSION_UNRESOLVED, "supersession-unresolved note")
 
     retrieved = render_retrieved(retrieval)
-    parts = [part for part in (soul, situation, retrieved) if part]
+    parts = [part for part in (soul, operational, situation, retrieved) if part]
     return _SECTION_SEP.join(parts)
 
 
@@ -791,21 +863,20 @@ def assemble_turn(
     Without ``current_turn_start`` the behaviour is the pre-B21 one apart from the
     schema term: the newest message is pinned and older ones fill the rest.
     """
-    soul = soul_text if soul_text is not None else load_soul()
-    if soul_text is not None:
-        check_authored_text(soul_text, "supplied soul text")
+    soul, operational = _authored(soul_text)
 
     situation = (situation or "").strip()
     _check_pairing(situation)
 
     def compose(retrieved: str) -> tuple[str, int, history.BudgetBreakdown]:
-        parts = [part for part in (soul, situation, retrieved) if part]
+        parts = [part for part in (soul, operational, situation, retrieved) if part]
         # Separators plus the retrieved header, which render_retrieved() folds into
         # the retrieved text. Counted against the system side so the two reported
         # figures sum to what was actually sent.
         scaffolding = max(0, len(parts) - 1) * len(_SECTION_SEP)
         budget = history.plan_budget(
-            system_prompt_chars=len(soul) + len(situation) + scaffolding,
+            system_prompt_chars=(
+                len(soul) + len(operational) + len(situation) + scaffolding),
             retrieved_chars=len(retrieved),
             context_tokens=context_tokens,
             tool_schema_chars=tool_schema_chars,
@@ -818,6 +889,7 @@ def assemble_turn(
             system=system,
             messages=window.messages,
             soul_chars=len(soul),
+            operational_chars=len(operational),
             situation_chars=len(situation),
             retrieved_chars=len(retrieved),
             scaffolding_chars=scaffolding,

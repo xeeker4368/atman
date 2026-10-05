@@ -56,7 +56,8 @@ implementation feels:
 - Hybrid retrieval scoring (RRF fusion, relevance floors)
 - Retrieval changes that implement the supersedes/correction link
 - Provenance/source-trust semantics
-- `soul.md` content and prompt assembly
+- `soul.md` and `operational.md` content and prompt assembly (both are the
+  entity's authored text, decision #25)
 - Prompt-facing text (tool descriptions, result texts, refusal texts)
 - Authentication: credential verification, session-token issue and expiry, and
   anything that decides which `Actor` a request produces

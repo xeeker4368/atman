@@ -370,7 +370,7 @@ meaningful until the full system, UI included, is actually usable.)*
 |---|---|---|
 | Go-live reset command | **3** | Sonnet |
 | Final model temperature | 2 | Sonnet |
-| `soul.md` final wording pass | **3** | **Opus** |
+| `soul.md` and `operational.md` final wording pass (two authored files since decision #25) | **3** | **Opus** |
 | Full database wipe execution (decision #16 — no partial-preservation exception) | **3** | Sonnet |
 | Final launch config/profile | 1 | Sonnet |
 | Run all eval/probe harnesses against the final pre-wipe build | 0 | Sonnet |
