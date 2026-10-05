@@ -24,6 +24,8 @@ finish line. The entity has no name; "Anam" is the substrate.
 
 - **Operator tools, run against the real store:** `backup.py`, `close_idle_conversations.py`, `note.py`,
   `reconcile_vectors.py`, `set_password.py`, `write_journal.py`.
+- **Before a push:** `leak_check.py` scans a commit range's diffs and messages against patterns kept outside the
+  repository (`docs/GIT_WORKFLOW.md`); it reads git only.
 - **Setup:** `seed_dataset.py` (a small corpus for a scratch store).
 - **Eval harnesses** (frozen cases against the live model): `fabrication_eval.py`, `correction_eval.py`;
   `measure_classifier_budget.py` sizes the classifier's output.

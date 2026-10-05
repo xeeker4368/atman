@@ -17,9 +17,18 @@ tasks can often be parallelized if noted. Every task lists a **Tier**
 - **Tier 1** — autonomous execution, reviewed in batches of a few tasks.
 - **Tier 2** — spec must be Lyle-approved before CC builds it (design already
   decided in `NOW.md`, so this mostly means "confirm before implementing,"
-  not "design from scratch").
+  not "design from scratch"). *Until Phase 10 there is no separate approval
+  round: the plan heads the report and the build is one pass (`AGENTS.md`
+  "Until go-live", item 2).*
 - **Tier 3** — hard gate. One task, plan-check loop fully intact, no
   chaining, no exceptions. Matches `AGENTS.md`'s stop-and-verify list.
+
+**Until Phase 10 begins** (`AGENTS.md` "Until go-live"): prompt-facing text (tool
+descriptions, result texts, refusal texts, `soul.md`, `operational.md`) and `working.db`
+schema changes are **Tier 2**, whatever a task row below says. Tier 3 stays for
+authentication, `db.py` locking and atomicity, the `archive.db` schema, restore, the go-live
+wipe, and anything with external effect (posting, research execution, the scheduler's
+`allow_*` flags). All of it re-tightens to the rows as written when Phase 10 starts.
 
 ---
 

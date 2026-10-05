@@ -31,11 +31,32 @@ echo "refused: pushes are Lyle's. Run: ALLOW_PUSH=1 git push"
 exit 1
 ```
 
+**The leak check in the pre-push hook.** Add this line to `.git/hooks/pre-push` **as the first
+line after `#!/bin/sh`**, before the `ALLOW_PUSH` line, so it runs on every push including an
+allowed one (CC does not edit `.git/hooks`; Lyle adds it):
+
+```sh
+"$(git rev-parse --show-toplevel)/venv/bin/python" "$(git rev-parse --show-toplevel)/scripts/leak_check.py" || exit 1
+```
+
+It scans `@{upstream}..HEAD` (every commit the push would publish), diffs and messages, against
+the patterns in `~/.config/anam/leak-patterns.txt` (or `$ANAM_LEAK_PATTERNS`): one plain-text
+pattern per line, case-insensitive, `#` comments and blank lines ignored. A missing or empty
+pattern file, or a branch with no upstream, stops the push (exit 2): the check fails closed.
+On a match it prints the pattern, the commit and the file, never the matched line. To check a
+branch before merging: `venv/bin/python scripts/leak_check.py main..cc/<piece>`.
+
 ## Lyle's review and merge
+
+**Who must look first** (until Phase 10, `AGENTS.md` "Until go-live", item 9): a Tier 0 to 2
+piece whose report's merge checklist is clean (suite green, `ruff` clean, `leak_check` clean,
+no stop condition, no file outside the plan) may be merged by Lyle without external review.
+A Tier 3 piece, or any report with a stop condition or an open decision, goes to the reviewer
+first. CC never merges either way.
 
 1. `git diff --stat main..cc/<piece>` and `git log -p main..cc/<piece>`: read both.
 2. `git switch main`, then `git merge --squash cc/<piece>`, then `git diff --cached`.
-3. Run the leak check over the branch history (step 1) and over the staged diff (step 2).
+3. Run the leak check over the branch history (`venv/bin/python scripts/leak_check.py main..cc/<piece>`) and read the staged diff (step 2); the pre-push hook runs it again over the squash commit.
 4. `ALLOW_MAIN=1 git commit`, then `ALLOW_PUSH=1 git push`.
 5. `git branch -D cc/<piece>`.
 
@@ -46,4 +67,5 @@ exit 1
 - **Stop rule:** a Tier 3 piece stops after each piece. The next branch is created only after the previous one is merged.
 - **Naming:** `cc/<piece>`, one branch per piece.
 - **Parallel sessions:** give each lane its own working directory with `git worktree add`, so two sessions never share one checkout.
+- **Two lanes until Phase 10** (`AGENTS.md` "Until go-live", item 6): two branches may be open at once if they touch no common file and only one makes model calls; not beside an unmerged Tier 3 branch.
 - A task report names the branch, shows `git diff --stat main..<branch>` and `git log --oneline main..<branch>`, and says which files another open branch also touches.

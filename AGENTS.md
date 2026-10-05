@@ -16,6 +16,9 @@ regardless of how small or obviously-correct a change seems.
 Work one task at a time. Verify before proceeding to the next. Do not batch
 unrelated changes into one patch.
 
+*Until Phase 10, a Tier 1 or Tier 2 piece has no separate plan-approval round: see
+"Until go-live", item 2.*
+
 ## The reference folder
 
 `reference/old-anam/` contains a prior implementation of this project. It is
@@ -43,9 +46,11 @@ pool for work that doesn't need it.
 
 The following categories of work require an explicit pause for Lyle's
 review before continuing to the next task, regardless of how confident the
-implementation feels:
+implementation feels. **Until Phase 10 begins, three entries below are Tier 2,
+not stops; see "Until go-live" after this list.**
 
-- Database schema (initial design and any migration). This applies at the
+- Database schema (initial design and any migration). *(Until Phase 10:
+  `working.db` schema changes are Tier 2; `archive.db` schema stays here.)* This applies at the
   column/field level on frozen tables too, not just at the whole-task level:
   a column decision inside an already-approved Tier 3 task still goes up
   before it is coded, not disclosed afterward. On a frozen table the cost of
@@ -57,8 +62,9 @@ implementation feels:
 - Retrieval changes that implement the supersedes/correction link
 - Provenance/source-trust semantics
 - `soul.md` and `operational.md` content and prompt assembly (both are the
-  entity's authored text, decision #25)
-- Prompt-facing text (tool descriptions, result texts, refusal texts)
+  entity's authored text, decision #25) *(until Phase 10: Tier 2)*
+- Prompt-facing text (tool descriptions, result texts, refusal texts) *(until
+  Phase 10: Tier 2)*
 - Authentication: credential verification, session-token issue and expiry, and
   anything that decides which `Actor` a request produces
 - Database concurrency and locking semantics in `program/memory/db.py` —
@@ -86,6 +92,103 @@ These are the categories where a wrong decision compounds silently across
 everything built afterward, and where this project's own history shows
 problems going unnoticed without a deliberate look.
 
+## Until go-live: the faster process
+
+**In force until Phase 10 begins** (decided 2026-10-05). The data is disposable test data
+until the go-live wipe (decision #16), so a wrong call before then costs a re-do, not a
+corrupted record. **When Phase 10 starts, every rule in this section lapses and the rules
+it relaxes apply again as written elsewhere in this file.**
+
+### 1. Tiers
+
+- **Tier 2 until Phase 10:** prompt-facing text (tool descriptions, result texts, refusal
+  texts, `soul.md`, `operational.md`, prompt assembly) and `working.db` schema changes
+  (migrations).
+- **Tier 3 stays for:** authentication (credential verification, session tokens, which
+  `Actor` a request produces); `db.py` locking and atomicity (`busy_timeout`, write retry,
+  write serialisation, the cross-database guarantee); the `archive.db` schema; restore from
+  backup; the go-live reset and wipe; anything with external effect (posting, research
+  execution, the scheduler's `allow_*` flags).
+- Every other entry in "Stop-and-verify checkpoints" above is unchanged.
+
+### 2. No separate design round for Tier 1 and Tier 2
+
+The implementer states its plan at the top of its report and builds in one pass, stopping
+only on a stop condition (the brief's, or item 7's). There is no plan-approval round before
+the build. **Tier 3 keeps the design round:** plan, review, then build.
+
+### 3. Docs per piece
+
+- A design file is **at most about one page**. Tier 3 is excepted.
+- A changelog entry is **at most about 30 lines**.
+- `ARCHITECTURE.md` changes only when an invariant changes (as "Git hygiene" already says).
+- **No design-doc revision for a small change.** A design doc gains a revision when a piece
+  changes what it decides, not to record that a piece happened; the changelog and the
+  commit message do that.
+
+### 4. When the gate must be re-measured
+
+A gate re-measurement is required **only when a change touches what the classifier sees**:
+the rubric (`program/integrity/architecture.md`), the classifier prompts, the situation
+block, or how the trace is rendered to the classifier. It is **not** required for a change to
+`soul.md` or `operational.md`, which the gate never reads
+(`tests/test_gate.py::test_the_rubric_is_architecture_md_and_soul_is_not_read`).
+
+### 5. Measurement rules: findings and descriptive numbers
+
+- **The independent-reader rule and the 20-run escalation apply only when a decision depends
+  on the finding**: a case is frozen or refrozen, a text ships or is withdrawn, a defect is
+  declared closed, a setting changes.
+- **Everything else is descriptive** and is labelled as descriptive where it is reported
+  ("descriptive: one reader, five runs"), so nobody later builds a decision on it unawares.
+- Unchanged: decorrelated, shuffled passes (never one prompt back to back), and a harness
+  builds what production builds. Those make even a descriptive number mean something.
+
+### 6. Two lanes
+
+Two branches may be open at once if **they touch no common file** and **only one of them
+makes model calls** (working rule 6: Ollama serves one model and samples correlate). Each
+lane has its own working directory (`git worktree add`, `docs/GIT_WORKFLOW.md`). Before a
+second branch is created, its report-to-be names the other open branch and confirms the two
+file lists do not overlap. The rule that a Tier 3 piece's branch is merged before the next
+branch is created still holds: a second lane does not open beside an unmerged Tier 3 branch.
+
+### 7. Stop conditions: the test-only exception
+
+A change to a **test** outside the plan's file list is **not** a stop condition when it
+removes a clock, date, environment or ordering dependence and **does not change what the test
+asserts**. Make it in its own commit, say in the message which dependence it removes, and list
+it in the report. (The precedent: soul v2's journal test compared a real-clock run with a
+fixed-clock run.) **Any change to non-test code outside the list is still a stop.**
+
+### 8. Reports
+
+The full report goes to `~/anam-measurements/reports/<piece>-<YYYY-MM-DD>.md` (outside the
+repository, rule 3). The reply gives **at most 20 lines**: what was done, where the report is,
+and the checklist's verdict. The report still carries the branch, `git diff --stat` and
+`git log --oneline` (working rule 7).
+
+Every report ends with a **MERGE CHECKLIST**:
+
+- branch;
+- tier;
+- full-suite result (without `--run-live`) and the `ulimit -n` it ran under;
+- `ruff`;
+- `scripts/leak_check.py` result over the branch's commits;
+- any stop condition hit;
+- any file changed outside the plan;
+- **DECISIONS NEEDED**, each with a recommendation. The operator may answer "take your
+  recommendations".
+
+### 9. Merge rule
+
+A **Tier 0 to 2** piece whose merge checklist is clean (suite green, `ruff` clean,
+`leak_check` clean, no stop condition hit, no file changed outside the plan) **may be merged
+by the operator without external review.** **Tier 3 pieces, and any report with a stop
+condition or an open decision, go to the reviewer first.** CC still never merges or pushes
+(working rule 1); this rule is about who must look before the operator does
+(`docs/GIT_WORKFLOW.md`).
+
 ## Verification discipline
 
 When a claim about system state could be checked directly (a config value,
@@ -109,7 +212,9 @@ case that comes back 0/5 or 5/5. It is not enough for anything in between: a
 case whose true rate is 20% lands unanimous in a five-run block often enough to
 mislead. **Any case returning non-unanimous in an initial five-run block goes to
 20 runs before its rate is reported as a finding**, and a rate is reported with
-an interval rather than as a bare count.
+an interval rather than as a bare count. *(Until Phase 10 this applies when a
+decision depends on the finding; otherwise the number is labelled descriptive:
+"Until go-live", item 5.)*
 
 **Do not sample the same prompt back to back.** Repeated identical calls to
 Ollama produce *correlated* results — measured on one borderline case the same
@@ -326,6 +431,8 @@ a project document, it says so. Rules B1 to B3 were proposed by CC
 - **Hand classification needs an independent reader** before it is a finding. Until then it is labelled "one reader's
   classification" (`BUILT.md` caveats on the journal and piece 8 tables). *(The independent-reader requirement: review
   conversation.)*
+- *Until Phase 10, both of the above apply only when a decision depends on the finding; a number nothing depends on
+  is reported and labelled as descriptive ("Until go-live", item 5).*
 - A harness builds what production builds (`AGENTS.md`). Read the primary source, not a derived one (`AGENTS.md`).
 
 **6. One model run at a time; every run resumable.**
@@ -336,7 +443,9 @@ a project document, it says so. Rules B1 to B3 were proposed by CC
 
 **7. Report in the body; flag rather than guess.**
 - Results go in the body of the reply in compact tables, and in a changelog file. Never "printed above" or "see the
-  attachment". *(Review conversation.)*
+  attachment". *(Review conversation.)* *Until Phase 10, the full report is a file and the reply is at most 20 lines
+  ending in its merge checklist ("Until go-live", item 8); "never see the attachment" then means the reply must still
+  state the outcome and every decision needed, not only point at the file.*
 - A finished task's report gives the branch name, `git diff --stat main..<branch>`, `git log --oneline main..<branch>`, and a note for any file another open branch also touches. *(Review conversation, 2026-10-04.)*
 - CC reports its own reading, not a recommendation to switch anything on. *(Review conversation.)*
 - **Anything uncertain is flagged as uncertain**, with what would settle it, rather than resolved by a guess. A status
@@ -365,7 +474,8 @@ text (tool descriptions, result texts, refusal texts) counts as Tier 3 and is li
 - Commit messages are public, so they follow the public-repo rules (rule 3): no keys, account names or real
   conversation text.
 - Changelog entries are for Tier 2 and Tier 3 work and for behaviour changes (what changed, why, what was tested,
-  known limitations, follow-up work). A docs-only fix goes in the commit message.
+  known limitations, follow-up work). A docs-only fix goes in the commit message. Until Phase 10, an entry is at
+  most about 30 lines ("Until go-live", item 3).
 - `BUILT.md` is frozen history and is not updated (see its header). `ARCHITECTURE.md` is updated in the same commit
   as the work **only when an invariant changes**.
 - `NOW.md` holds open items only. Closing an item moves it to `docs/archive/` with its ID, leaving a one-line index

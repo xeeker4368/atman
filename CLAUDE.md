@@ -120,6 +120,8 @@ complexity in the substrate is not the same thing as richness in the entity.
   provenance/source-trust semantics, `soul.md` and `operational.md` content and prompt assembly,
   restore-from-backup logic, the fabrication gate and correction/supersession
   classifier, and go-live reset / wipe tooling.
+  **Until Phase 10 begins, `AGENTS.md` "Until go-live" relaxes this:** prompt-facing text
+  (including `soul.md` and `operational.md`) and `working.db` schema changes are Tier 2.
 - **Check, don't assert.** If a claim about system state is directly checkable —
   a config value, a database row, whether a process actually died, whether a
   service is actually running — run the command. `ollama ps`, direct SQL, and

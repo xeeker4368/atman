@@ -251,6 +251,9 @@ it rather than deciding silently.
     came out of `N7`, whose rate read 10/10, 5/5, 3/20, 0/20 and 30/30 on one day
     with nothing changing underneath it, and which measures **50% [30–70%]** once
     decorrelated.
+    *Scoped 2026-10-05, until Phase 10 begins (`AGENTS.md` "Until go-live", item 5): the
+    20-run escalation applies when a decision depends on the finding; a number nothing
+    depends on is reported and labelled as descriptive. Decorrelation is unchanged.*
 
 23. **Fabrication gate: stage 1 is where it stops for Phase 3** (decided
     2026-09-18). The mechanism is complete and measured — identity false
