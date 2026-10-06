@@ -11,7 +11,7 @@ Every turn's prompt is five parts, in this order (S11, S32):
 2. ``operational.md``         — record-protecting procedure: when the system runs,
                                 tool honesty, the correction wording.
 3. current-situation block    — timestamp, elapsed time, and its gap statement.
-4. retrieved chunks           — each rendered with its ``created_at``.
+4. retrieved chunks           — each rendered with when it happened, in local time.
 5. windowed history           — **not** text in the system prompt; the message
                                 array that follows it.
 
@@ -58,13 +58,15 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping, Sequence
+from zoneinfo import ZoneInfo
 
 from program import config
 from program.engine import history
 from program.engine.history import BudgetBreakdown, HistoryWindow
-from program.memory import supersession
+from program.memory import db, supersession
 from program.memory.retrieval import RetrievalResult, RetrievedChunk
 
 #: soul.md lives beside the governance files the Phase 2 ingestion blocklist
@@ -423,9 +425,12 @@ def _check_pairing(situation: str) -> None:
 # ---------------------------------------------------------------------------
 
 _RETRIEVED_HEADER = (
-    "The following are records retrieved from earlier conversations. They are "
-    "stored records of things that were said before, not part of the "
-    "conversation happening now."
+    "The following are records from your memory, retrieved automatically for this "
+    "turn. They are a selection, not everything, and they are not part of the "
+    "conversation happening now. Each record says where it came from and ends with "
+    "an end line. In a conversation, a line that begins with a name and a colon is "
+    "what that person said, and a line that begins with \"you:\" is what you said. "
+    "An indented line is part of what was said before it."
 )
 
 
@@ -490,7 +495,7 @@ def _render_supersession(item, quote_budget: int) -> tuple[str, int]:
     message row at render time — it is never part of chunk text.
     """
     locator = _quote(item.superseded_text, SUPERSEDED_QUOTE_CHARS)
-    when = (item.superseding_timestamp or "")[:10] or "an unknown date"
+    when = local_day(item.superseding_timestamp) or "an unknown date"
     who = item.superseding_speaker
     if item.replacement == supersession.CONTRADICTED:
         head = f"Later contradicted by {who}, with no replacement given. {locator} was"
@@ -555,27 +560,157 @@ _SOURCE_LABELS = {
 }
 
 
-def _render_chunk(chunk: RetrievedChunk, marker: str) -> str:
-    """One chunk with its timestamp, and its kind when that is not a conversation.
+def _local(stamp: str | None) -> datetime | None:
+    """A stored timestamp (UTC ISO-8601) in the household's timezone, or None."""
+    if not stamp:
+        return None
+    try:
+        moment = datetime.fromisoformat(stamp)
+    except ValueError:
+        return None
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    return moment.astimezone(ZoneInfo(config.timezone()))
 
-    Task 1.3 deliberately stripped timestamps from chunk *text* so that date
-    strings would not enter the embedding or the BM25 index — a query naming a
-    month otherwise matched every chunk from that month. The timestamp lives on
-    the row and is rendered here, at presentation, which is where the capability
-    is restored without polluting either index. The kind label is here for the same
-    reason and by the same rule.
+
+def _day(moment: datetime) -> str:
+    return f"{moment:%A} {moment.day} {moment:%B %Y}"
+
+
+def local_day(stamp: str | None) -> str | None:
+    """"Monday 5 October 2026", in local time: the date the household would say."""
+    moment = _local(stamp)
+    return _day(moment) if moment else None
+
+
+def local_when(start: str | None, end: str | None = None) -> str:
+    """When something happened, in local time (``app.timezone``), never UTC (3.4b).
+
+    One instant: "Monday 5 October 2026 at 14:02 EDT". A range on one local day gives
+    the date once: "Monday 5 October 2026, 14:02 to 14:20 EDT". A range crossing local
+    midnight gives both dates. The zone is named once, or at each end if they differ.
     """
-    when = chunk.created_at or "time unknown"
-    label = _SOURCE_LABELS.get(chunk.source_type or "")
-    parts = [marker] + ([label] if label else []) + [when]
-    return f"[{' · '.join(parts)}]\n{chunk.text}"
+    first, last = _local(start), _local(end or start)
+    if first is None or last is None:
+        return "time unknown"
+    # Compared as instants to the minute, not as local wall-clock text: when clocks go
+    # back, 01:30 EDT and 01:30 EST read the same and are an hour apart.
+    if int(first.timestamp()) // 60 == int(last.timestamp()) // 60:
+        return f"{_day(first)} at {first:%H:%M %Z}"
+    zone_first = "" if first.tzname() == last.tzname() else f" {first:%Z}"
+    if first.date() == last.date():
+        return f"{_day(first)}, {first:%H:%M}{zone_first} to {last:%H:%M %Z}"
+    return f"{_day(first)}, {first:%H:%M}{zone_first} to {_day(last)}, {last:%H:%M %Z}"
 
 
-#: Characters of record headers (`[record N, continued M · kind · timestamp]`) allowed
-#: beside the record text. **B6a's own figure** (`config/defaults.toml`, the
-#: `chat.max_message_chars` derivation), reused rather than re-estimated so the cap and
-#: that derivation stay one set of numbers. The one estimate carried over.
-RECORD_HEADER_ALLOWANCE_CHARS = 1000
+def _chunk_when(chunk: RetrievedChunk) -> str:
+    """A conversation chunk's **conversation** time, from its messages; an artifact's
+    own time. Never a conversation chunk's ``created_at``, which is when the chunk was
+    written (an idle close can be hours later) and is stored in UTC."""
+    if chunk.messages:
+        return local_when(chunk.messages[0].timestamp, chunk.messages[-1].timestamp)
+    if chunk.first_message_id:
+        return "time unknown"
+    return local_when(chunk.created_at)
+
+
+#: A line that reads like a speaker label: a short run with no colon, then a colon and a
+#: space (or the end of the line). Inside a record, such a line in someone's text is held
+#: by indentation so it cannot pass as a new speaker (3.6). Deliberately broad: "Note: x"
+#: is held too, at the cost of two spaces. A URL ("https://") and a time ("12:30") are not.
+_SPEAKER_LIKE = re.compile(r"^[^\s:][^:\n]{0,40}:(?:\s|$)")
+
+#: How a held line is indented.
+_HOLD = "  "
+
+#: The entity's own lines. Chunk text says "assistant:", which is not how anyone, the
+#: entity included, would name it; its own words read as its own (3.6, decision #25).
+ENTITY_LABEL = "you"
+
+#: The longest person's name a record header shows (``users`` allows 128). Bounding it is
+#: what lets :data:`RECORD_HEADER_ALLOWANCE_CHARS` cover every ranked header by construction.
+HEADER_NAME_MAX_CHARS = 40
+
+
+def _hold(text: str, keep_first: bool = False) -> str:
+    """Indent every speaker-like line, so none can pass as a speaker label."""
+    lines = text.split("\n")
+    return "\n".join(
+        line if (keep_first and i == 0) or not _SPEAKER_LIKE.match(line) else _HOLD + line
+        for i, line in enumerate(lines)
+    )
+
+
+def _name(speaker: str | None) -> str | None:
+    """A person's name for display, or None. The entity's sentinel never renders."""
+    if not speaker or speaker == db.ENTITY_USER_NAME:
+        return None
+    return speaker if len(speaker) <= HEADER_NAME_MAX_CHARS else (
+        speaker[:HEADER_NAME_MAX_CHARS - 1] + "…")
+
+
+def _origin(chunk: RetrievedChunk) -> str:
+    """Where a record came from, in plain words: whose conversation, or what kind of thing."""
+    if chunk.first_message_id:
+        people = [_name(m.speaker) for m in chunk.messages or () if m.role == "user"]
+        person = next((p for p in people if p), None)
+        return f"from a conversation with {person}" if person else "from a conversation"
+    return _SOURCE_LABELS.get(chunk.source_type or "") or "a stored record"
+
+
+def _label(message) -> str | None:
+    return ENTITY_LABEL if message.role == "assistant" else _name(message.speaker)
+
+
+def _body(chunk: RetrievedChunk) -> str:
+    """The record's text with true speaker labels, from the messages it was built from.
+
+    Chunk text is ``"<name>: <content>"`` per message, joined by newlines (or a piece of
+    one long message). The messages are read at render time, so the text is checked
+    against them: when it matches, each message is rendered with its speaker's current
+    name (``you`` for the entity) and its own speaker-like lines are held. When it does
+    not match, or there are no messages, **every** speaker-like line is held, so a line
+    that cannot be verified never reads as a speaker. Nothing in the stored text changes.
+    """
+    messages = chunk.messages
+    if not messages:
+        return _hold(chunk.text)
+    stored = [f"{m.speaker if m.role == 'user' else 'assistant'}: {m.content}"
+              for m in messages]
+    labels = [_label(m) for m in messages]
+    if None in labels:
+        return _hold(chunk.text)
+    whole = "\n".join(stored)
+    if chunk.text == whole:
+        return "\n".join(f"{label}: {_hold(m.content, keep_first=True)}"
+                         for label, m in zip(labels, messages))
+    if len(messages) == 1 and chunk.text and chunk.text in whole:
+        prefix = stored[0][:len(stored[0]) - len(messages[0].content)]
+        if chunk.text.startswith(prefix):
+            return f"{labels[0]}: {_hold(chunk.text[len(prefix):], keep_first=True)}"
+        return f"{labels[0]} (continued): {_hold(chunk.text, keep_first=True)}"
+    return _hold(chunk.text)
+
+
+def _render_chunk(chunk: RetrievedChunk, marker: str) -> str:
+    """One record: an opening line saying where it came from and when, its text, an end line.
+
+    Task 1.3 deliberately stripped timestamps from chunk *text* so that date strings
+    would not enter the embedding or the BM25 index; the time is rendered here, from the
+    rows, at presentation. The origin and the speakers are here by the same rule: names
+    come from ``users`` at render time, never from chunk text (3.6).
+    """
+    return (f"[{marker} · {_origin(chunk)}, {_chunk_when(chunk)}]\n"
+            f"{_body(chunk)}\n[end of {marker}]")
+
+
+#: Characters allowed beside the record text for each record's opening and end lines,
+#: across all ``top_k`` ranked records. Was 1,000 (B6a's figure); 3.6's opening line says
+#: whose conversation and when, and each record now has an end line, so it is 2,000:
+#: 200 per ranked record, which covers the longest header this module can produce
+#: (``tests/test_record_origin.py::test_the_longest_header_fits_the_allowance``).
+#: ``config/defaults.toml``'s derivation of the chat message cap uses the same figure.
+RECORD_HEADER_ALLOWANCE_CHARS = 2000
 
 
 def retrieved_records_max_chars() -> int:

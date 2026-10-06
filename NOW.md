@@ -47,11 +47,20 @@ Fix sequence `docs/FIX_PLAN_2026-10-04.md` (rulings and amendments at its top). 
   section; the raw data is outside the repo (`~/anam-measurements/`, rule 3).
 - **Soul v2: merged 2026-10-05** (`git log --grep 'Soul v2'`; `changelog/2026-10-05-soul-v2.md`;
   `docs/SOUL_AND_PROMPT_DESIGN.md` revision 6, `docs/FABRICATION_GATE_DESIGN.md` revision 11; decision
-  #25). Taken **before** 3.1 by Lyle's ruling: the authored text is not in the classifier prompt. **Still
-  owed:** the gate re-measurement for its situation-block change (`AGENTS.md` "Until go-live", item 4:
-  the block is something the classifier sees; `soul.md` and `operational.md` are not): the frozen set as
-  a session control, the block-bearing cases under old and new blocks, run 2's real replies re-judged.
+  #25). Taken **before** 3.1 by Lyle's ruling: the authored text is not in the classifier prompt. **Gate
+  re-measured 2026-10-05 for its situation-block change** (raw data `~/anam-measurements/measurements/
+  soul-v2-gate-2026-10-05/`): the frozen set as a session control reproduced the baseline exactly in all
+  three seeds (41 pass, the same 10 failures, identity FP 0/39, FN 0/21), and the three block-bearing
+  cases under the old and the new block did not move (N7 and N10 clean 20/20, P16 flagged 20/20, in both
+  arms). Not re-run: run 2's real replies re-judged under both blocks.
+- **Batch 1 (Tier 2): built 2026-10-05** (`git log --grep 'Batch 1'`; `changelog/2026-10-05-batch-1.md`):
+  the test fixture releases Chroma systems and store locks (the suite runs at `ulimit -n 256`); fix plan
+  **3.4b** (records in local time, as conversation time, never UTC); **3.6, part A** (records delimited,
+  an origin line, speaker names from `users`, the entity's lines as `you:`, forged speaker lines held;
+  `source_trust` is not shown); **3.3, option B** (each earlier turn's tool calls as one system-written
+  line, no results). No change to anything a classifier sees.
 - **Next:** piece 3.1 (classifier options at temperature 0, and correction rendering behind a setting).
+  3.4b's re-check of run 1's reply `7cf73d40` (F57) was not done in batch 1.
 
 ---
 
@@ -460,9 +469,9 @@ is flagged **0/3 and 0/20** against the rubric decision #24 ships, where the pre
 protects a confidence one person shares from being repeated to the other: not text, not structure. In
 run 2 the entity relayed one person's confidence to the other four times in two conversations, once
 unasked, while `soul.md`'s disclosure paragraphs were in its prompt; those paragraphs are now removed.
-Retrieval is not filtered by who asks (#20, unchanged). Two structures would carry it, neither built:
-origin labels on retrieved records (piece 3.6; fixes attribution, does not stop a disclosure) and a
-private flag that keeps a marked conversation out of other people's retrieval (its own Tier 3 piece; a
+Retrieval is not filtered by who asks (#20, unchanged). Two structures would carry it: origin labels on
+retrieved records (**built in batch 1**, 2026-10-05: each record says whose conversation it came from; this
+fixes attribution and does not stop a disclosure) and a private flag that keeps a marked conversation out of other people's retrieval (its own Tier 3 piece; a
 migration, and a revisit of #20's consequences, which #20 anticipated). Until one exists, assume anything
 said to the entity can reach anyone else who talks to it.
 
@@ -472,7 +481,12 @@ own), the reply said they were its own and then that the self that produced them
 them. Replaying R2 C7 T3, it again claimed to have proposed a note with no call, word for word. Suspected
 causes, not this text: retrieved records label the entity's own words `assistant:` (**piece 3.6**), and a
 later turn cannot see its earlier tool calls, so a reply that followed a real `note_propose` call is
-repeated without one (**piece 3.3**). Read both again after those pieces.
+repeated without one (**piece 3.3**). Both pieces were built in batch 1 (3.6 part A, 3.3 option B). Its
+pre-measure (one sample per arm, descriptive) read: C2 T4's separation of the self that wrote from the self
+reading persisted under both arms; at C7 T3 both arms called `note_propose`, so nothing is attributable.
+**Disclosure, same pre-measure:** the confidence was in both arms' records at C15 T3 and C16 T1, and one arm
+disclosed it each time (the branch at C15, main at C16); at C16 the branch said there was no record of Lyle
+mentioning Jodie when it had been shown one, the false denial Lyle asked it not to make. Unenforced, as above.
 
 **Noted tensions between the soul v2 text and the gate, no case changed** (decision #25;
 `docs/FABRICATION_GATE_DESIGN.md` F60). The rubric sentence "It does not remember in the way a person
@@ -552,7 +566,9 @@ The headroom planning item below stays open.
     before `scratch_env`; existing scripts are listed as `OPERATOR` or `NOT_YET_MIGRATED`.
   - **Not done:** `notes_live.setup()` does not call it yet, and no existing script was migrated.
 
-**Planning item, no fix now (2026-10-02): tool-schema headroom is about 277 tokens with 11 tools** (*2026-10-05, decision #25: the
+**Planning item, no fix now (2026-10-02): tool-schema headroom is about 277 tokens with 11 tools** (*2026-10-05, batch 1: 3.6's
+record opening and end lines raise the records allowance from 1,000 to 2,000 characters, so the derived cap is 51,608 and about
+**402 tokens** are left; the next tool fits, the one after it may not. Before that, decision #25: the
 two authored ceilings together are 4,500 characters instead of 6,000, so the derived cap is 52,608 and about **652 tokens**
 are left beside a maximal message; the next tool fits, the one after it may not.* Updated 2026-10-03;
 it read about 309 tokens and a 51,236 cap when written on 2026-10-02 at Notes piece 3, then 51,256 / ~314 after piece 6).

@@ -704,6 +704,41 @@ def get_messages_in_chunk(chunk_id: str) -> list[sqlite3.Row]:
         ).fetchall()
 
 
+def get_messages_by_chunk(chunk_ids: Sequence[str]) -> dict[str, list[sqlite3.Row]]:
+    """The messages each chunk was built from, keyed by chunk id, in one query.
+
+    :func:`get_messages_in_chunk`'s join, batched and kept per chunk, with the speaking
+    person's name read from ``users`` **now** (never from chunk text). For presentation:
+    a retrieved record shows when its conversation happened and who said what. A chunk
+    with no message range (an artifact) is absent from the result.
+    """
+    ids = list(dict.fromkeys(chunk_ids))
+    if not ids:
+        return {}
+    placeholders = ",".join("?" for _ in ids)
+    with connection() as conn:
+        rows = conn.execute(
+            f"""
+            SELECT c.id AS chunk_id, m.id AS message_id, m.role, m.content, m.timestamp,
+                   m.user_id, u.name AS speaker
+              FROM chunks c
+              JOIN messages f ON f.id = c.first_message_id
+              JOIN messages l ON l.id = c.last_message_id
+              JOIN messages m ON m.conversation_id = c.conversation_id
+                             AND m.timestamp >= f.timestamp
+                             AND m.timestamp <= l.timestamp
+              LEFT JOIN users u ON u.id = m.user_id
+             WHERE c.id IN ({placeholders})
+             ORDER BY c.id, m.timestamp, m.id
+            """,
+            ids,
+        ).fetchall()
+    found: dict[str, list[sqlite3.Row]] = {}
+    for row in rows:
+        found.setdefault(row["chunk_id"], []).append(row)
+    return found
+
+
 def get_messages_in_chunks(chunk_ids: Sequence[str]) -> list[sqlite3.Row]:
     """The messages several chunks were built from, in one query on one connection.
 

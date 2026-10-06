@@ -363,3 +363,13 @@ def test_the_chroma_stale_reader_recovery_api_exists():
         "recovery was measured against the pinned version in requirements.lock; "
         "re-measure both shapes before changing the pin."
     )
+    # The test fixture's descriptor release (tests/conftest.py::release_test_stores) relies on
+    # two more pieces of the same internal API: the class-level cache of systems, and stop().
+    assert isinstance(getattr(SharedSystemClient, "_identifier_to_system", None), dict), (
+        "chromadb no longer has SharedSystemClient._identifier_to_system. The test fixture "
+        "stops every cached system through it; without it each Chroma test leaks ~10 "
+        "descriptors and the suite fails at ulimit -n 256."
+    )
+    from chromadb.config import System
+
+    assert callable(getattr(System, "stop", None)), "chromadb's System.stop() is gone"

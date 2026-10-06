@@ -335,7 +335,11 @@ def test_the_scope_limit_holds_retrieved_and_history_are_never_checked():
         situation=SITUATION_WITH_PAIRING,
         retrieval=result,
     )
-    assert contaminated in assembled.system
+    # The words reach the model unedited. (Since 3.6 a speaker-like line in a record
+    # whose messages cannot be checked is held by indentation, which adds two spaces
+    # and changes no word.)
+    for line in contaminated.split("\n"):
+        assert line in assembled.system
     assert assembled.messages[-1]["content"] == "Anam thinks, right?"
 
 
@@ -428,7 +432,7 @@ def test_assembly_order_is_soul_then_operational_then_situation_then_retrieved()
     )
     soul_at = system.index(REAL_SOUL.strip())
     situation_at = system.index("It has been 14 hours")
-    retrieved_at = system.index("records retrieved from earlier")
+    retrieved_at = system.index("records from your memory")
     assert soul_at == 0
     if REAL_OPERATIONAL.strip():
         operational_at = system.index(REAL_OPERATIONAL.strip())
@@ -441,7 +445,7 @@ def test_retrieved_chunks_render_with_their_timestamps():
     system = prompt.build_system_prompt(
         SITUATION_NO_ELAPSED, retrieval=make_retrieval()
     )
-    assert "2026-08-01T09:00:00+00:00" in system
+    assert "Saturday 1 August 2026 at 05:00 EDT" in system  # local time, never UTC (3.4b)
     assert "earlier remark number 0" in system
 
 
@@ -465,7 +469,7 @@ def test_siblings_render_as_continuations_of_their_parent():
 
 def test_no_retrieval_produces_no_retrieved_section():
     system = prompt.build_system_prompt(SITUATION_NO_ELAPSED)
-    assert "records retrieved from earlier" not in system
+    assert "records from your memory" not in system
 
 
 # --- S12: budget wiring ------------------------------------------------------
@@ -593,7 +597,7 @@ def test_assemble_turn_end_to_end_with_real_soul_and_real_components():
     assert "It has been 14 hours since your last message" in assembled.system
     # Retrieved records are present, with timestamps.
     assert "earlier remark number 0" in assembled.system
-    assert "2026-08-01T09:00:00+00:00" in assembled.system
+    assert "Saturday 1 August 2026 at 05:00 EDT" in assembled.system
     # History is the message array.
     assert len(assembled.messages) == 3
     # Budget accounting is real.

@@ -45,8 +45,8 @@ def records_part(rendered: str) -> int:
 
 def test_the_cap_is_b6as_figure_from_live_config():
     assert prompt.retrieved_records_max_chars() == (
-        config.retrieval_top_k() * config.embedding_max_input_chars() + 1000)
-    assert prompt.retrieved_records_max_chars() == 51000
+        config.retrieval_top_k() * config.embedding_max_input_chars() + 2000)
+    assert prompt.retrieved_records_max_chars() == 52000  # 51,000 before 3.6's header
 
 
 def test_a_block_that_would_overflow_is_bounded():
@@ -113,7 +113,10 @@ def test_an_ordinary_result_with_siblings_renders_exactly_as_before():
     """Byte-identical to the pre-B17 renderer on a case that HAS siblings attached, so
     this is genuinely at risk of catching a layout regression. The expected string was
     produced by `render_retrieved` at 3884c08 (before B17) on this same input and
-    checked equal; see the B17 changelog."""
+    checked equal; see the B17 changelog. Re-pinned at batch 1: the time is local (3.4b),
+    and each record has an origin and an end line (3.6). These hand-built chunks carry no
+    message range, so they are "a stored record" and their speaker-like lines are held.
+    The order of hits and pieces is unchanged."""
     result = RetrievalResult(query="q", results=[
         chunk("a", "Lyle: the long message, part one.", [
             chunk("a2", "Lyle: part two.", when="2026-09-30T10:00:01"),
@@ -126,13 +129,15 @@ def test_an_ordinary_result_with_siblings_renders_exactly_as_before():
 
 
 EXPECTED_WITH_SIBLINGS = (
-    "The following are records retrieved from earlier conversations. They are stored "
-    "records of things that were said before, not part of the conversation happening "
-    "now.\n\n"
-    "[record 1 · 2026-09-30T10:00:00]\nLyle: the long message, part one.\n\n"
-    "[record 1, continued 1 · 2026-09-30T10:00:01]\nLyle: part two.\n\n"
-    "[record 1, continued 2 · 2026-09-30T10:00:02]\nLyle: part three.\n\n"
-    "[record 2 · 2026-09-29T09:00:00]\nJodie: a short record."
+    f"{prompt._RETRIEVED_HEADER}\n\n"
+    "[record 1 · a stored record, Wednesday 30 September 2026 at 06:00 EDT]\n"
+    "  Lyle: the long message, part one.\n[end of record 1]\n\n"
+    "[record 1, continued 1 · a stored record, Wednesday 30 September 2026 at 06:00 EDT]\n"
+    "  Lyle: part two.\n[end of record 1, continued 1]\n\n"
+    "[record 1, continued 2 · a stored record, Wednesday 30 September 2026 at 06:00 EDT]\n"
+    "  Lyle: part three.\n[end of record 1, continued 2]\n\n"
+    "[record 2 · a stored record, Tuesday 29 September 2026 at 05:00 EDT]\n"
+    "  Jodie: a short record.\n[end of record 2]"
 )
 
 

@@ -145,34 +145,35 @@ in_flight_grace_minutes = 41
 #   - situation block allowance (600 ch; 206 measured)   -150
 #   - retrieval: top_k 10 x embedding.max_input_chars 5,000 = 50,000 ch
 #       + correction annotations < 6,000 ch (asserted, test_supersession)
-#       + record headers ~1,000 ch  = 57,000 ch          -14,250
+#       + record opening and end lines 2,000 ch (3.6; was 1,000)  = 58,000 ch   -14,500
 #   - tool schemas, the FULL catalogue (B20; re-derived 2026-10-02 for Notes' two tools):
 #       11 tools, 6,107 ch of JSON, estimated           -1,527 (CO17: the note_propose quote guidance, +37)
 #       (9 tools were 4,854 ch / 1,214 estimated / 1,052 on the real tokenizer; the 9-and-11-tool
 #       real-tokenizer figures are in changelog/2026-10-02-notes-piece-3-tools.md)
-#   = 13,152 tokens x 4.0 = 52,608 characters (51,108 with the 6,000-ch soul.md ceiling;
-#     51,236 before CO17's tool text)
+#   = 12,902 tokens x 4.0 = 51,608 characters (52,608 before 3.6's record headers; 51,108
+#     with the 6,000-ch soul.md ceiling; 51,236 before CO17's tool text)
 #
 # (Before B20 the schemas were priced nowhere and the figure read 57,216.) The
 # schema term covers EVERY tool, enabled or not, so switching one on cannot break
 # this silently.
 #
-# Rounded DOWN to 50,000, the one judgment in the chain, which now leaves ~652
-# tokens of earlier history beside a maximal message (~277 under the 6,000-ch soul.md
+# Rounded DOWN to 50,000, the one judgment in the chain, which now leaves ~402
+# tokens of earlier history beside a maximal message (~652 before 3.6's record headers took
+# 250; ~277 under the 6,000-ch soul.md
 # ceiling, ~309 before CO17's tool text; real tokenizer: 11 tools 1,382, was 1,344; ~590
 # with 9 tools, ~1,800 before B20). tests/test_turn.py recomputes the chain from live
 # config and fails if this exceeds it, a second test fails, naming both numbers, when the
 # catalogue's schemas outgrow that headroom, and a third pins that the authored term covers
 # BOTH files (a smaller reserve only makes the first two easier to pass). Decision #25's
-# lower ceilings returned ~375 tokens; the next tool (~100-250 tokens) fits, the one after
-# it may not, and then this value comes down.
+# lower ceilings returned ~375 tokens and 3.6's record headers took 250 of them; the next
+# tool (~100-250 tokens) fits, the one after it may not, and then this value comes down.
 #
 # A maximal message is never windowed out of its own turn (B21): the turn's tool
 # rounds compete with the retrieved records for what is left, records first.
 #
 # Split-sibling attachment is covered since B17 (2026-09-30): the rendered records are
-# capped at exactly this figure (top_k x max_input_chars + 1,000 of headers =
-# 51,000), continuation pieces left out first and counted. Before B17 it was NOT
+# capped at exactly this figure (top_k x max_input_chars + 2,000 of opening and end lines =
+# 52,000), continuation pieces left out first and counted. Before B17 it was NOT
 # covered: siblings could add ~150,000 characters and a turn could overflow on
 # retrieval alone. `prompt.retrieved_records_max_chars()` is the cap; the test below
 # uses it, so the two cannot drift.

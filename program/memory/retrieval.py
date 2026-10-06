@@ -165,6 +165,17 @@ class LegReport:
     skip_reason: str | None = None
 
 
+@dataclass(frozen=True)
+class ChunkMessage:
+    """One message a conversation chunk was built from, for presentation only."""
+
+    role: str
+    content: str
+    timestamp: str
+    #: The person's name from ``users`` at render time; ``None`` if unknown.
+    speaker: str | None = None
+
+
 @dataclass
 class RetrievedChunk:
     """One result, carrying where it came from and why it ranked where it did."""
@@ -194,6 +205,10 @@ class RetrievedChunk:
     #: corrected. Empty for the ordinary case, so every existing consumer is
     #: unaffected.
     supersessions: list[Supersession] = field(default_factory=list)
+    #: The messages this chunk was built from, attached after fusion for presentation
+    #: (when the conversation happened, who said what). ``None`` for an artifact, or
+    #: when the lookup failed; read by nothing in the ranking path.
+    messages: list[ChunkMessage] | None = None
 
     @property
     def legs(self) -> list[str]:
@@ -614,7 +629,32 @@ def search(
         _attach_siblings(result.results, config.retrieval_max_siblings_per_hit())
 
     _attach_supersessions(result)
+    _attach_messages(result)
     return result
+
+
+def _attach_messages(result: RetrievalResult) -> None:
+    """Attach each conversation chunk's source messages, for presentation (3.4b, 3.6).
+
+    Degrades like the supersession step: a failed lookup leaves ``messages`` as
+    ``None``, which renders as "time unknown" and with every speaker-like line held
+    inside the record, never as a guessed time or a guessed speaker.
+    """
+    chunks = [c for item in result.results for c in (item, *item.siblings)
+              if c.first_message_id]
+    if not chunks:
+        return
+    try:
+        by_chunk = db.get_messages_by_chunk([c.chunk_id for c in chunks])
+    except Exception as exc:  # noqa: BLE001 — degrades to "time unknown", logged
+        logger.warning("could not read the messages behind retrieved records: %s", exc)
+        return
+    for chunk in chunks:
+        rows = by_chunk.get(chunk.chunk_id)
+        if rows:
+            chunk.messages = [ChunkMessage(role=r["role"], content=r["content"],
+                                           timestamp=r["timestamp"], speaker=r["speaker"])
+                              for r in rows]
 
 
 def _attach_supersessions(result: RetrievalResult) -> None:

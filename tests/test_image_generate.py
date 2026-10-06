@@ -484,8 +484,9 @@ def test_a_retrieved_image_announces_itself_as_an_image(store):
 
 
 def test_a_conversation_chunk_renders_byte_identically_to_before(store):
-    """The label is additive. A conversation record must render exactly as it did
-    before A3, or every existing prompt test is measuring something new."""
+    """The label is additive: a record with no kind label gets none. Re-pinned at batch 1
+    (3.4b local time; 3.6 origin and end lines). A hand-built chunk with no message range
+    is "a stored record" and its speaker-like lines would be held."""
     from program.engine import prompt
     from program.memory import retrieval
 
@@ -495,7 +496,8 @@ def test_a_conversation_chunk_renders_byte_identically_to_before(store):
             created_at="2026-09-21T16:57:00", source_type=source_type,
         )
         assert prompt._render_chunk(chunk, "record 1") == (
-            "[record 1 · 2026-09-21T16:57:00]\nwe talked about kettles"
+            "[record 1 · a stored record, Monday 21 September 2026 at 12:57 EDT]\n"
+            "we talked about kettles\n[end of record 1]"
         )
 
 

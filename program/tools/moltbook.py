@@ -42,8 +42,10 @@ from __future__ import annotations
 import logging
 import time
 import uuid
+from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urlsplit
+from zoneinfo import ZoneInfo
 
 import requests
 
@@ -208,8 +210,20 @@ def _name(obj: Any) -> str:
 
 
 def _date(value: Any) -> str:
-    text = str(value or "")
-    return text[:10] if len(text) >= 10 else "date unknown"
+    """The platform's timestamp as a **local** date (``app.timezone``), never a UTC one.
+
+    Moltbook sends UTC. Cutting its first ten characters gave the UTC date, which for an
+    evening post is tomorrow beside the situation block's local clock (fix plan 3.4b). A
+    value that does not parse as a timestamp has no knowable zone, so it is unknown.
+    """
+    text = str(value or "").strip()
+    try:
+        moment = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return "date unknown"
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    return moment.astimezone(ZoneInfo(config.timezone())).date().isoformat()
 
 
 def _score(item: dict[str, Any]) -> str:

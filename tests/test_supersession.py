@@ -357,9 +357,10 @@ def test_the_two_states_render_differently(store):
     replaced = render_one(make_item(REPLACED))
     contradicted = render_one(make_item(REPLACED if False else CONTRADICTED))
 
-    assert "Later corrected by" in replaced and "superseded on 2026-09-19" in replaced
+    assert "Later corrected by" in replaced
+    assert "superseded on Saturday 19 September 2026" in replaced
     assert "no replacement given" in contradicted
-    assert "contradicted on 2026-09-19" in contradicted
+    assert "contradicted on Saturday 19 September 2026" in contradicted
     assert "no replacement given" not in replaced
 
 
@@ -420,12 +421,12 @@ def test_the_quote_budget_shortens_annotations_before_dropping_them():
     text = prompt.render_retrieved(retrieval.RetrievalResult(query="q", results=chunks))
 
     assert text.count("Later corrected by") == prompt.SUPERSESSION_MAX_ANNOTATIONS
-    quoted = text.count('2026-09-19: "')
+    quoted = text.count('Saturday 19 September 2026: "')
     assert 0 < quoted < prompt.SUPERSESSION_MAX_ANNOTATIONS, (
         "the budget should have run out part-way, leaving later annotations unquoted"
     )
     # The unquoted ones still say what happened and to which line.
-    assert text.count("superseded on 2026-09-19.") == (
+    assert text.count("superseded on Saturday 19 September 2026.") == (
         prompt.SUPERSESSION_MAX_ANNOTATIONS - quoted)
 
 
@@ -464,13 +465,15 @@ def config_top_k():
 def test_an_unannotated_result_renders_exactly_as_before(store):
     """The annotation is additive. A chunk with no corrections must render byte-for-
     byte as it did before task 3.5, or every existing prompt test is measuring
-    something new."""
+    something new. Re-pinned at batch 1 for 3.4b (local time) and 3.6 (origin and end
+    lines); a hand-built chunk with no message range is "a stored record"."""
     chunk = make_chunk(text="nothing was corrected here", created_at="2026-09-19T10:00:00")
     text = prompt.render_retrieved(retrieval.RetrievalResult(query="q", results=[chunk]))
 
     assert text == (
         f"{prompt._RETRIEVED_HEADER}\n\n"
-        f"[record 1 · 2026-09-19T10:00:00]\nnothing was corrected here"
+        "[record 1 · a stored record, Saturday 19 September 2026 at 06:00 EDT]\n"
+        "nothing was corrected here\n[end of record 1]"
     )
 
 

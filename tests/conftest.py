@@ -64,6 +64,7 @@ import requests.sessions
 
 from program import config
 from program.memory import vectors
+from program.ops import store_lock
 
 # Captured at import — before any test can patch config.
 REAL_DATA_DIR = str(config.data_dir())
@@ -428,6 +429,30 @@ def _guard_runtime_store():
     )
 
 
+def release_test_stores() -> None:
+    """Close what a test's stores hold open: every cached Chroma system, and store locks.
+
+    ``vectors.reset_vector_store()`` empties only this project's cache. Chroma keeps its
+    own process-wide cache of systems (``SharedSystemClient._identifier_to_system``), and a
+    system keeps about ten descriptors open until it is **stopped**; clearing the cache
+    alone releases nothing (measured 2026-10-04, ~2,050 descriptors over the suite, fatal at
+    ``ulimit -n 256``). Order matters: our cache first, so no later test is handed a client
+    whose system is stopped; then ``stop()``, which closes the descriptors; then Chroma's
+    cache. Both are internal Chroma API, pinned and checked in
+    ``tests/test_store_lock.py::test_the_chroma_stale_reader_recovery_api_exists``.
+
+    A script's ``main()`` run in-process keeps its ``store_lock`` for the life of the
+    process by design; a test process runs many stores, so it is released here too.
+    """
+    from chromadb.api.shared_system_client import SharedSystemClient
+
+    vectors.reset_vector_store()
+    for system in list(SharedSystemClient._identifier_to_system.values()):
+        system.stop()
+    SharedSystemClient.clear_system_cache()
+    store_lock.release_for_process()
+
+
 @pytest.fixture(autouse=True)
 def isolated_data_dir(tmp_path, monkeypatch):
     """Point the configured data directory at a temporary path — for EVERY test.
@@ -479,4 +504,4 @@ def isolated_data_dir(tmp_path, monkeypatch):
     monkeypatch.delenv("ANAM_MOLTBOOK_API_KEY", raising=False)
     monkeypatch.delenv("ANAM_NOTES_ENABLED", raising=False)
     config.reload()
-    vectors.reset_vector_store()
+    release_test_stores()

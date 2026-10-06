@@ -112,7 +112,10 @@ def test_continuation_pieces_go_before_any_ranked_hit(monkeypatch):
     give way only once this turn's tool rounds need room. Moderate pressure: pieces
     are withheld and every ranked hit is kept."""
     sent, present, result = run_with_records(
-        monkeypatch, short_hits_long_siblings(), 50_000, 1, 5)
+        monkeypatch, short_hits_long_siblings(), 50_000, 1, 6)
+    # Six calls, not five: the records' header length sets how many pieces fit under the
+    # cap, so it sets the pressure. With 3.4b's local-time headers five calls fitted with
+    # no shrink at all and the test exercised nothing; six restores moderate pressure.
 
     assert all(present)
     [event] = events(result)
@@ -121,7 +124,7 @@ def test_continuation_pieces_go_before_any_ranked_hit(monkeypatch):
     assert event["records_chars_after"] < event["records_chars_before"]
     second_call_messages = sent[1]["messages"]
     roles = [m["role"] for m in second_call_messages]
-    assert roles[-7:] == ["user", "assistant", *["tool"] * 5], "the round was kept whole"
+    assert roles[-8:] == ["user", "assistant", *["tool"] * 6], "the round was kept whole"
 
 
 def test_hits_go_from_the_lowest_rank_and_are_counted(monkeypatch):
@@ -273,7 +276,11 @@ def _probe_call(name, **arguments):
 #: soul.md and operational.md, both rewritten. The scenarios pass no situation block, so
 #: situation.py's change does not reach it. Re-taken in a commit that touched only the two
 #: digests that moved, stable across two runs.
-BEFORE_B20_B21 = "f118c933619aba06d162a3fe0b44bba6fa655d7753393571de5e17f811059754"
+#:
+#: **Re-taken 2026-10-05 (batch 1)**, f118c933... -> this: the scenarios' retrieved records render
+#: with local times (3.4b) and an origin and end line (3.6), and the records header is reworded.
+#: What a fitting turn sends is otherwise unchanged. Stable across two runs.
+BEFORE_B20_B21 = "443de41e033b49e10ef9f410d1b4c48212ba153e922adbd8b93e7fab3a149fe2"
 
 
 def test_a_turn_that_fits_sends_what_it_sent_before_b20_b21(monkeypatch):

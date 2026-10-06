@@ -157,7 +157,11 @@ def existing_behaviour_digest(monkeypatch, actor):
 #: holds soul.md and operational.md, both rewritten. architecture.md is unchanged, so the gate
 #: prompts did not move it, and the turns pass no situation block. Re-taken in a commit that
 #: touched only the two digests that moved, stable across two runs.
-BEFORE_PIECE_2 = "fd3b4753739aa8843f481e5a8ed879b587d0b8694f7eb1fa40470897e4c61843"
+#:
+#: **Re-taken 2026-10-05 (batch 1)**, fd3b4753... -> this: a later turn's history now carries the
+#: earlier turn's one-line tool record (3.3, option B). The gate prompts did not move (the gate's
+#: own digest holds). Stable across two runs.
+BEFORE_PIECE_2 = "8f209f8c28b228bde46720a5870732f314249ba4917c6dec9b3f9c8a5ba49e8c"
 
 
 def test_existing_tools_and_turns_are_byte_identical_to_before_piece_2(store, monkeypatch):

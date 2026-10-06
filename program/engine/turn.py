@@ -106,7 +106,7 @@ from typing import Any
 
 from program import config
 from program.attribution import AttributionContext
-from program.engine import loop, turn_locks
+from program.engine import earlier_tools, loop, turn_locks
 from program.engine import situation as situation_block
 
 # Re-exported deliberately: a caller catches one name from this module beside the
@@ -553,7 +553,9 @@ def _answer(
     retrieved = _retrieve(content)
     history = db.get_conversation_messages(conversation_id)
     result = loop.run_turn(
-        history,
+        # Earlier turns carry a one-line system record of the tools they called (3.3, B);
+        # the rows themselves stay as stored, for the origin below.
+        earlier_tools.with_tool_records(history),
         situation,
         retrieved,
         registry=registry,

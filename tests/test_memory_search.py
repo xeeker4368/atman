@@ -145,7 +145,7 @@ def test_the_rendering_is_the_passive_retrieval_renderer_not_a_second_format(
 
     assert passive, "the fixture produced no retrievable records"
     assert through_tool == passive
-    assert "records retrieved from earlier conversations" in through_tool
+    assert "records from your memory, retrieved automatically" in through_tool
     assert "record 1 · " in through_tool, "timestamps are rendered at presentation"
 
 
