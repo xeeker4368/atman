@@ -11,7 +11,7 @@ Design step only (Tier 3 review). **No code changed.**
 - `docs/MOLTBOOK_READ_DESIGN.md` (new, revision 1): M0–M11. Four read tools,
   live-measured API shape, timeout derivation, rate-limit handling, key
   hygiene, provenance recorded design-only (DECIDED).
-- `NOW.md` backlog: *corrections do not reach reflection-journal chunks*, filed
+- `NOW.md` backlog (now `docs/BACKLOG.md`): *corrections do not reach reflection-journal chunks*, filed
   as unresolved (decided at review).
 - `BUILD_PLAN.md`: read-only Moltbook tools moved from Phase 8 to Phase 5
   (decided at review). Both Phase 5 rows point at their design docs. The Phase 5

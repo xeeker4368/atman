@@ -559,7 +559,7 @@ to memory").
 indexing decision in Notes' shared `approval_log` (`NOTES_DESIGN.md` N10, capability
 `journal.index`), and a decline becomes a recorded decision rather than an absence.
 Until then a declined entry looks exactly like one nobody has read, and
-`--list-unindexed` shows both. Filed in `NOW.md`'s backlog.
+`--list-unindexed` shows both. Filed in the backlog (`docs/BACKLOG.md`).
 
 **Owed to Phase 6, not built here:** once the scheduler runs this unattended,
 nobody is at the terminal. Phase 6 has to give flagged entries a reader:
@@ -741,7 +741,7 @@ decisions are for review.
 ## J9 — Relation to Notes, self-observation and self-flag
 
 **No in-repo design exists for the Notes layer or the self-observation layer.**
-`NOW.md` mentions a future Notes feature only in the CO10.2/PN9 backlog items.
+The backlog (`docs/BACKLOG.md`) mentions a future Notes feature only in the CO10.2/PN9 backlog items.
 So this design cannot be checked against them. It stays separate by
 construction instead:
 
@@ -765,8 +765,8 @@ journal entries is its own decision, not taken here.
 Supersession resolves links message → chunk by a timestamp-window join
 (`db.get_supersedes_for_chunks`). Artifact chunks carry no message ids, so
 that join cannot reach a journal chunk. A claim restated in an entry and later
-corrected keeps surfacing from the entry, unannotated. **Filed in `NOW.md`'s
-backlog as unresolved, not accepted** (decided 2026-09-30). Whether to fix it
+corrected keeps surfacing from the entry, unannotated. **Filed in the backlog (`docs/BACKLOG.md`)
+as unresolved, not accepted** (decided 2026-09-30). Whether to fix it
 is a separate decision.
 
 ## J11 — Tests the build owes

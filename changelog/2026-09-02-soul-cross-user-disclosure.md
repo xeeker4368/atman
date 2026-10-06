@@ -6,7 +6,7 @@
 
 S7's single closing sentence is replaced by two paragraphs stating how
 cross-conversation retrieval actually behaves, and placing the judgment at the
-point of disclosure rather than retrieval. `NOW.md` decision #20 records it.
+point of disclosure rather than retrieval. `NOW.md` decision #20 (now `docs/DECISIONS.md`) records it.
 
 ## Files changed
 

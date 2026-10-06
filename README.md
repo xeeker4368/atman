@@ -50,7 +50,7 @@ under the scratch root. `tests/test_scratch_helper.py` lists the scripts that do
 
 - `AGENTS.md` how Claude Code works here; `CLAUDE.md` its entry point.
 - `PROJECT.md` what and why; `GUIDANCE.md` behavioural principles.
-- `NOW.md` current state, the decision log and open items; `BUILD_PLAN.md` the phases and their status.
+- `NOW.md` current state, the active task and the decision index; `docs/DECISIONS.md` the decision log; `docs/BACKLOG.md` open items; `BUILD_PLAN.md` the phases and their status.
 - `ARCHITECTURE.md` the current invariants, each cited to a test or code; `BUILT.md` frozen history.
 - `docs/` design docs; `changelog/` dated task records; `docs/archive/` closed items; `docs/measurements/` measurement detail.
 

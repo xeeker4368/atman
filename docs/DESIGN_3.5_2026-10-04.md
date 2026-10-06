@@ -78,7 +78,7 @@ rather than a preference.
 
 ### 0.3 Premise correction 2 — B23 has a **second, silent** shape the plan does not describe
 
-The plan (and `NOW.md` B23) describe one failure: a Chroma `InternalError` from a query. Measured
+The plan (and `docs/BACKLOG.md` B23) describe one failure: a Chroma `InternalError` from a query. Measured
 in this session, chromadb 1.5.9, two real processes, fake vectors:
 
 | long-lived process's first query | another process then upserts | long-lived process's next query |

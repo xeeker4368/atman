@@ -201,6 +201,6 @@ retrieve, answer — exercised end to end.
 ## Left open
 
 `extracted_text` is stored on the row (O3, as directed). O4 is recorded in
-`NOW.md`'s backlog: ingested files have no archive presence, so "provenance is
+`NOW.md`'s backlog (now `docs/BACKLOG.md`): ingested files have no archive presence, so "provenance is
 sacred" holds more weakly for them than for conversation messages. O7 (whether
 ingestion should also be model-callable) stays endpoint-only for this task.

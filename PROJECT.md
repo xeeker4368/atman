@@ -68,7 +68,7 @@ attribution, eval/probe harnesses, go-live hardening.
 
 - **Self-modification** and its only consumer, the **review queue**. No
   integration seam is being left for either — see the decision log in
-  `NOW.md` (entries 14–15) for the reasoning. When self-mod is picked back
+  `docs/DECISIONS.md` (entries 14–15) for the reasoning. When self-mod is picked back
   up, it gets its own full design
   pass, including a real answer to the sandboxing/execution question that
   was never resolved in the prior implementation.

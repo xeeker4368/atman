@@ -95,7 +95,7 @@ needs first.
 
 **Confirmed: `memory_search` does not filter by the calling actor.** The handler
 takes `query` and nothing else — there is no actor to filter by, which a test
-asserts against the handler's own signature. `NOW.md` decision #20 is already
+asserts against the handler's own signature. `NOW.md` decision #20 (now `docs/DECISIONS.md`) is already
 settled: retrieval is not scoped by who is asking, `user_id` rides along as
 metadata, and the judgment sits at **disclosure** — whether to say a thing once
 it has surfaced.

@@ -1,7 +1,7 @@
 # 2026-09-15 — Current-situation block
 
 **Tier 2 · Sonnet**, read from `BUILD_PLAN.md`'s Phase 1 row rather than
-assumed. Spec approved before building. `NOW.md` decision #5.
+assumed. Spec approved before building. `NOW.md` decision #5 (now `docs/DECISIONS.md`).
 
 ## Summary
 

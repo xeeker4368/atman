@@ -31,7 +31,7 @@ Turning `approval_required` off for anything with real external effect
 becomes a pending change, a Save button appears, clicking Save commits it
 and it's live immediately. No special extra confirmation step. This was a
 deliberate choice to keep the panel uniform rather than special-case one
-toggle — see `NOW.md` decision log entry 9 if this needs revisiting.
+toggle — see `docs/DECISIONS.md` entry 9 if this needs revisiting.
 
 ## Memory integrity
 
@@ -40,10 +40,14 @@ fabrication (invented artifact IDs, claimed actions that didn't happen) and
 identity-claim fabrication (false statements about the entity's own nature
 or mechanism). Do not build these as two separate systems.
 
+**Reading replies.** The entity's replies are read as an ordinary person would hear them; human words that approximate its own processes are not errors in themselves
+(`docs/DECISIONS.md` #29; the gate's application of it, #28, is approved and
+not built).
+
 **Corrections and supersession.** When something said earlier is
 corrected, the correction should be retrievable as current going
 forward — not sitting alongside the original wrong claim with no signal
-about which one is current. Who may correct what (`NOW.md` decision #21,
+about which one is current. Who may correct what (`docs/DECISIONS.md` #21,
 CO4 as amended in `docs/CORRECTION_DESIGN.md`):
 
 - A person may correct their own earlier statements.

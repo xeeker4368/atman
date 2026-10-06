@@ -11,6 +11,40 @@ this document asks for is collected in N17. Known gaps are collected in N18.
 
 ---
 
+## Governing intent (decision #27, 2026-10-06): above everything below
+
+This section governs the rest of the document. Where a later section conflicts with it, this section
+wins and the later section is to be revised by the Notes v2 design (open questions:
+`docs/BACKLOG.md`, "Notes v2 implementation"). Nothing below has been rewritten yet.
+
+**Purpose.** The entity keeps notes by its own judgment under explicit criteria, the way a careful
+memory system does. It is not a note-taking service for whatever it is told: a request like "make a
+note that Tuesday is trash day" is something it may weigh and decline.
+
+**Criteria**, verbatim from the decision:
+
+1. **Durable:** still true and worth knowing a month from now, in a conversation about something else;
+   a task's moving state fails, a project's existence, decisions and constraints pass.
+2. **Said by a person:** only what a person stated directly, never the entity's own conclusions, advice
+   or guesses.
+3. **The right kind:** who a person is; people in their life, as relationship context; ongoing projects
+   and responsibilities (decisions, constraints, current status); how a person wants to be spoken with;
+   tastes and habits only once they recur.
+4. **Calibrated:** one mention is recorded as one mention, never inflated into a trait.
+5. **Not a duplicate:** a correction revises the existing note.
+6. **Never stored:** health, finances, religion, politics, sexuality and similar sensitive categories;
+   identification numbers; abuse or self-harm.
+
+**Known conflicts with the sections below**, recorded rather than resolved here:
+- N0's **FIXED** *"No note categories are off-limits … reviewer approval is the only control"*
+  conflicts with criterion 6. How criterion 6 is enforced is open question (b).
+- N0's example *"Jodie takes her coffee with oat milk"* is a taste; under criterion 3 it qualifies
+  only once it recurs.
+- N0's *"The entity proposes, a human approves"* stands for now; whether approval stays required is
+  open question (c) (recommended: until the web UI has a Notes page).
+
+---
+
 ## N0 — What a note is, and what it is not
 
 A note is a short, reviewed statement about a **person**, a **topic** or a
@@ -346,7 +380,7 @@ for the renamed key.
 
 ## N9 — Ship gates
 
-1. **The CO15 composition test on the empty-search wording** (`NOW.md` backlog:
+1. **The CO15 composition test on the empty-search wording** (`docs/BACKLOG.md`:
    "Notes must be tested against CO10.2 before it ships").
    - The entity's claim, in N6's shape: *"I have searched/looked through my
      [notes/records/memory] and [do not find/there is nothing] about X"*, followed

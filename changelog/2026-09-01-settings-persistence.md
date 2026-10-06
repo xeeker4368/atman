@@ -50,7 +50,7 @@ Two documents disagree and I did not settle it:
 - `config.py`'s module docstring lists the keys the settings table **never**
   owns as "data paths, ports, **the Ollama host**, anything needed before the
   database can be opened."
-- `NOW.md` decision #9 gives "any setting representing a connection to an
+- `NOW.md` decision #9 (now `docs/DECISIONS.md`) gives "any setting representing a connection to an
   external system" an automatic Check/Verify button — which presumes such
   settings are in the panel, and the Ollama host is the obvious instance.
 

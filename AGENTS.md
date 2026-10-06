@@ -1,8 +1,9 @@
 # AGENTS.md
 
 Instructions for Claude Code (CC) working in this repo. Read this file, plus
-`PROJECT.md`, `ARCHITECTURE.md`, `NOW.md`, and `GUIDANCE.md`, at the start of every
-session before touching anything. `BUILT.md` is the frozen history: search it by
+`PROJECT.md`, `NOW.md`, and `GUIDANCE.md`, at the start of every session before
+touching anything; before changing a subsystem, also read its section of
+`ARCHITECTURE.md` and the decisions in `docs/DECISIONS.md` that touch it. `BUILT.md` is the frozen history: search it by
 heading, never load it whole.
 
 ## The loop
@@ -49,6 +50,10 @@ review before continuing to the next task, regardless of how confident the
 implementation feels. **Until Phase 10 begins, most entries below are Tier 2,
 not stops; each is marked, and "Until go-live" after this list gives the short Tier 3
 list that stays.**
+
+**Before changing a subsystem, read its section of `ARCHITECTURE.md` (invariants, each cited to a test)
+and the decisions in `docs/DECISIONS.md` that touch it.** This applies to every piece, whatever its tier,
+and is not itself a stop.
 
 - Database schema (initial design and any migration). *(Until Phase 10:
   `working.db` schema changes are Tier 2; `archive.db` schema stays here.)* This applies at the
@@ -203,6 +208,9 @@ condition or an open decision, go to the reviewer first.** CC still never merges
 (`docs/GIT_WORKFLOW.md`).
 
 ## Verification discipline
+
+**Reading the entity's replies.** The entity's replies are read as an ordinary person would hear them; human words that approximate its own processes are not errors in themselves. (`docs/DECISIONS.md` #29.) A reply is wrong when, read that way,
+it asserts something false about what happened, not because a person would have put it differently.
 
 When a claim about system state could be checked directly (a config value,
 a database row, whether a process actually died, whether a service is
@@ -419,7 +427,7 @@ a project document, it says so. Rules B1 to B3 were proposed by CC
 
 **2. Point every scratch directory before importing `program.*`.**
 - A script that imports `program` with the default directories reads the real store. The settings-backed accessors
-  read `working.db`'s settings table (2026-10-03 occurrence, `NOW.md`).
+  read `working.db`'s settings table (2026-10-03 occurrence, `docs/BACKLOG.md`).
 - Call `scripts._scratch.scratch_env(name)` before any `program` import. `tests/test_scratch_helper.py` fails on a new
   script that does not. Operator tools meant to use the real store are listed there with a reason.
 - Confirm the real `data/` is untouched: record a fingerprint (every file's mtime and size) before and after any model
@@ -440,7 +448,7 @@ a project document, it says so. Rules B1 to B3 were proposed by CC
   - shuffle each pass with a recorded seed;
   - never loop one prompt back to back (`AGENTS.md` "Sampling a model's behaviour").
 - **Escalate anything non-unanimous:** a case that is not unanimous in five runs goes to 20 runs before its rate is
-  reported, and a rate is reported with an interval (`AGENTS.md`; `NOW.md` decision #22).
+  reported, and a rate is reported with an interval (`AGENTS.md`; `docs/DECISIONS.md` #22).
 - **Hand classification needs an independent reader** before it is a finding. Until then it is labelled "one reader's
   classification" (`BUILT.md` caveats on the journal and piece 8 tables). *(The independent-reader requirement: review
   conversation.)*
@@ -491,8 +499,9 @@ text (tool descriptions, result texts, refusal texts) counts as Tier 3 and is li
   most about 30 lines ("Until go-live", item 3).
 - `BUILT.md` is frozen history and is not updated (see its header). `ARCHITECTURE.md` is updated in the same commit
   as the work **only when an invariant changes**.
-- `NOW.md` holds open items only. Closing an item moves it to `docs/archive/` with its ID, leaving a one-line index
-  entry.
+- `NOW.md` holds the current state, the active task, the decision index and the go-live checklist. A decision goes in
+  `docs/DECISIONS.md` (next free number) with a one-line index entry in `NOW.md`. Open items are in `docs/BACKLOG.md`;
+  closing one moves it to `docs/archive/` with its ID, leaving a one-line index entry.
 - A statement of what the system does belongs in a test or in the code; the docs explain why.
 - A status claim cites a commit or a test.
 

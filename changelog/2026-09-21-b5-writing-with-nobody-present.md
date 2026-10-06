@@ -77,7 +77,7 @@ schema detail away from not working at all, and nothing would have said so.
   retrieved months later and read back by the entity as its own past work. That is the
   interesting case and it needs time rather than a test.
 - **The entity row remains one `set_password.py` away from being an account** — tracked
-  in `NOW.md`'s backlog since P0, unchanged here.
+  in `NOW.md`'s backlog (now `docs/BACKLOG.md`) since P0, unchanged here.
 
 ## Cluster A and B are complete except the soul.md thread
 

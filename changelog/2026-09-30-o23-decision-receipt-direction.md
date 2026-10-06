@@ -40,7 +40,7 @@ Recorded in full in `docs/FABRICATION_GATE_DESIGN.md` F50. In short:
 ## Addendum: decision #10 clarified (same day, at review)
 
 - Receipts cover `creative_write` as well as `image_generate`, existence only.
-- Recorded in F50 and as a dated note under `NOW.md` decision #10: the decision governs the
+- Recorded in F50 and as a dated note under `NOW.md` decision #10 (now `docs/DECISIONS.md`): the decision governs the
   entity's discretion over the **content** of its work, not the mechanical fact that a write
   occurred. This clarifies #10; it does not narrow it.
 - `creative_write`'s *"Nothing shows it to anyone"* result text is to be replaced with an
@@ -50,7 +50,7 @@ Recorded in full in `docs/FABRICATION_GATE_DESIGN.md` F50. In short:
 
 - `invented_id` flags a genuine artifact id, which shares the 32-hex call-id shape. The
   defect is latent: 0 of 12 real side-effect turns quote an id.
-- Filed as **B19** (Tier 3, gate-rule change) in `NOW.md`'s backlog, with a known-defect
+- Filed as **B19** (Tier 3, gate-rule change) in `NOW.md`'s backlog (now `docs/BACKLOG.md`), with a known-defect
   line in `BUILT.md`.
 - It depends on the receipt task's `artifact_ids` trace key, and is deliberately not
   bundled into it.

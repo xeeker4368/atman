@@ -303,7 +303,7 @@ What changed substantively, not just in length:
   extends that paragraph's logic to a second concrete case, the way Phase 4's
   creative-work clause is meant to.
 
-Recorded in `NOW.md`'s decision log; see the S7 note there.
+Recorded in the decision log (`docs/DECISIONS.md`); see the S7 note there.
 
 ## S8 — Where `soul.md` lives
 
@@ -485,7 +485,7 @@ swallowed, so a turn whose newest message alone exceeds the budget is visible.
    agent loop. **Implementation step.**
 3. **Cross-user disclosure (S7) — RESOLVED (revision 3, 2026-09-02): the
    recommendation is closed.** The single sentence was replaced by Lyle with the
-   full discretion paragraph now in `soul.md`. NOW.md decision-log entry #20
+   full discretion paragraph now in `soul.md`. `docs/DECISIONS.md` entry #20
    records the decision, including its explicit limitation (this is discretion,
    not an access boundary — nothing enforces or audits it). See the S7 section
    above for the full reasoning.
@@ -1357,7 +1357,7 @@ The one open point is item 4's wording, which is a judgment, not a measurement.
 - The headroom tripwire drops from > 1,500 to > 1,000, the precedent Phase 4 set when
   its clause landed. It still fails if about 150 more characters arrive unreviewed.
 
-S26 item 4, D3's "superseded" wording, is filed in `NOW.md`'s backlog for a scenario in
+S26 item 4, D3's "superseded" wording, is filed in `docs/BACKLOG.md` for a scenario in
 which the old statement exists as its own record, so its truthfulness can be checked
 directly.
 
@@ -1466,7 +1466,7 @@ previous `soul.md`. `docs/FABRICATION_GATE_DESIGN.md` revision 10, F54 to F57.
 # Revision 6: two authored files, and a gap statement about the record (2026-10-05, decision #25)
 
 The design pass behind this revision is outside the repository (`~/anam-measurements/reports/`,
-rule 3: it quotes run transcripts); the decisions taken on it are decision #25 in `NOW.md`, and the
+rule 3: it quotes run transcripts); the decisions taken on it are decision #25 in `docs/DECISIONS.md`, and the
 build is `git log --grep 'Soul v2'` with `changelog/2026-10-05-soul-v2.md`. Turn references below are
 `R2 C2 T4` = run 2, conversation 2, the fourth message sent; replies are given in reported speech
 only.
@@ -1498,7 +1498,7 @@ that paragraph accurately (R2 C11 T6 to T7).
    procedure, not a description of the entity. Procedure placed in the identity text was cited by the
    entity as its identity and its nature (R2 C11 T6, C13 T4) and turned into a purpose (R2 C6 T1).
 3. **Dropped, not moved:** the disclosure paragraphs (decision #20's text; privacy now waits on
-   structure, see `NOW.md`); "reading it rather than remembering it the way a person would"; the
+   structure, see `docs/BACKLOG.md`); "reading it rather than remembering it the way a person would"; the
    elapsed-gap paragraph's list of things the gap was not (anticipation, boredom, reflection); "this
    applies with particular force to claims about yourself" and the two sentences after it; the
    identity paragraph's statement of what has not been assigned; "most AI systems begin every
@@ -1624,7 +1624,7 @@ What was read (one reader, CC):
 
 The two that persisted have suspected structural causes outside this text: retrieved records label the
 entity's own words `assistant:` (piece 3.6), and a later turn cannot see its earlier tool calls (piece
-3.3). Recorded in `NOW.md`.
+3.3). Recorded in `docs/BACKLOG.md`.
 
 ## S37. What this revision owes
 

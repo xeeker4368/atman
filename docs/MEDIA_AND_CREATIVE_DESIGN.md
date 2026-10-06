@@ -117,7 +117,7 @@ makes it safe under two concurrent first writes.
 `require_actor` would accept it. Closing it needs an auth-side guard — refusing
 credential operations and token issue for the reserved id — which falls under
 `AGENTS.md`'s authentication checkpoint, so it is its own Tier 3 change.
-**Tracked as a named item in `NOW.md`'s backlog**, not left in a changelog.
+**Tracked as a named item in `docs/BACKLOG.md`**, not left in a changelog.
 
 ### Q3 — provisional provenance vocabulary
 

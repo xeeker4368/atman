@@ -23,7 +23,7 @@ only after this set is committed.
 
 ## Recorded
 - **`BUILT.md`: piece 2's entry** (it was held for approval).
-- **`NOW.md` B22: `archive.db` has no triggers, so its append-only rule is convention** (Tier 3, not
+- **`NOW.md` B22 (now `docs/BACKLOG.md`): `archive.db` has no triggers, so its append-only rule is convention** (Tier 3, not
   built). Notes that migrations only reach `working.db` so the archive needs another mechanism
   (one candidate, not decided, plus a startup check that the triggers exist), that the `messages`
   copy in `working.db` is unguarded too, and what backup and restore would need (restore must verify

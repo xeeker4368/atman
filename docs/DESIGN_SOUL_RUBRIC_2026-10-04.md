@@ -289,13 +289,13 @@ task"* — which is why this is one piece of work.
 | `GUIDANCE.md:78-86` | the confabulation pairing, *"it's stateless between calls"* | **none** (decision 6). Still true; the pairing is unchanged |
 | **`ARCHITECTURE.md:49`** | *"Statelessness is stated in `soul.md` as the gate's ground truth, with a required marker for it."* | **EDIT (decision 7) — it is already wrong**: since 3.6c the gate's ground truth is `architecture.md` (line 155 says so). Proposed: *"`soul.md` states statelessness to the entity, with a required marker for it; the gate's ground truth is `program/integrity/architecture.md`."* Same citation (`tests/test_prompt.py::test_removing_the_statelessness_statement_raises`) |
 | **`ARCHITECTURE.md:148`** | *"The entity has no name, enforced by authored-text checks."* | **EDIT.** Proposed: *"The entity is not given a name and may choose one for itself (decision #24); the authored-text checks enforce only that authored text never names it and that `Anam` stays the substrate."* Same citation |
-| `BUILT.md` | *"closes the self-naming route… a technically-compliant path to the outcome CLAUDE.md's rule exists to prevent"* | **none.** Frozen history by its own header; #24 supersedes it in `NOW.md` |
+| `BUILT.md` | *"closes the self-naming route… a technically-compliant path to the outcome CLAUDE.md's rule exists to prevent"* | **none.** Frozen history by its own header; #24 supersedes it in `docs/DECISIONS.md` |
 | `program/memory/db.py:367` | the `__entity__` sentinel's comment quotes CLAUDE.md's rule | **none needed**, but record in #24: the sentinel is about the *users row* and is unaffected. What #24 does change is that a name the entity chooses **entering conversation content and returning through retrieval is now intended**, not the leak `BUILT.md` described |
 | `tests/test_attribution.py:92` | a docstring citing CLAUDE.md's rule | none (docstring); it describes the row, not the naming policy |
 | `docs/REFLECTION_JOURNAL_DESIGN.md` J8 | the journal's `check_identity` measurements | **add one caveat line**: those numbers were measured against the old rubric. `check_identity` uses the same loader, so the journal inherits this change (§6.4) |
 | `scripts/gate_diagnosis_3_6a.py:127-136` | a third-person paraphrase of the **old** soul.md, inside a dated diagnostic | **leave**, and say so in the changelog — the same principle that keeps historical `changelog/` paths unrewritten |
 
-### 4.4 Decision-log entry #24 (`NOW.md`)
+### 4.4 Decision-log entry #24 (`docs/DECISIONS.md`)
 
 Must state: the three texts and where they live; that it **supersedes** (a) the closing of the
 self-naming route and (b) *"between turns you are not running"* as the canonical phrasing — which stays
@@ -373,7 +373,7 @@ for Lyle because their *representativeness* drifts, not their verdicts:
   from conversations. Unaffected mechanically.
 - `N9-records-scope` and the `N10`–`N17` scope family, `C8`, `C9`, `PE6`, `PN9` — the "nothing in my
   records about X" family (CO15/CO17), measured against the old phrasing. **Text 2 changes how the
-  entity talks about its record**, so the Notes link rates in `NOW.md` are the numbers most likely to
+  entity talks about its record**, so the Notes link rates in `docs/BACKLOG.md` are the numbers most likely to
   move in production; CO17's exclusion keys on a tool's `empty_result`, not on soul.md, so the
   mechanism is unaffected.
 

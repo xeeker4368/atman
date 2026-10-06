@@ -150,7 +150,7 @@ removed lines were the two headings.
 
 - ~~Scope the C4 / C6 correction above as its own task.~~ **Done** — drafted,
   reviewed and applied as its own change covering all three spots.
-- D4's lexical floor stays in `NOW.md`'s "Retrieval floor calibration" backlog
+- D4's lexical floor stays in `NOW.md`'s "Retrieval floor calibration" backlog (now `docs/BACKLOG.md`)
   entry; the marker now points at it from the design doc.
 
 ## Project Anam alignment check

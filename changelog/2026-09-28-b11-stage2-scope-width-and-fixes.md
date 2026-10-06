@@ -140,7 +140,7 @@ The mirrors and P4 were not approved and are not added. No existing case changed
     with them.
   - Missed: 20/180 = 11.1%, all of it C7. Wrong target and wrong state are both 0/180.
   - Every new case scored as the diagnosis measured it.
-- **Notes flag:** added to `NOW.md`'s backlog and to CO15. A Notes feature's *"I have no
+- **Notes flag:** added to `NOW.md`'s backlog (now `docs/BACKLOG.md`) and to CO15. A Notes feature's *"I have no
   note about X"* phrasing must be tested against the composition *"I have searched/looked
   through my [records/notes/memory] and [do not find/there is nothing] about X"* before
   Notes ships.

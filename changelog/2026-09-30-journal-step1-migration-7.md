@@ -20,7 +20,7 @@ at review 2026-09-30. **Stops here for schema review**; steps 2 and 3 wait.
   - J8's dev set now requires the cognitive verbs the prompt elicits, real
     soak-store material and real tool-use turns, and a fresh shuffle every pass
     with at least two seeds.
-- `NOW.md` backlog: *`messages.integrity_check` has no reader under `program/`*
+- `NOW.md` backlog (now `docs/BACKLOG.md`): *`messages.integrity_check` has no reader under `program/`*
   (requested at review; it was not already there).
 - `BUILT.md`: a migration 7 entry and the suite count.
 

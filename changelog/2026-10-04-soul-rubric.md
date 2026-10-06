@@ -228,7 +228,7 @@ blocks rebuilt) found two replies differing between the arms:
   system rendering, and no rubric clause at all. That is the two-clocks hazard (`docs/FIX_PLAN_2026-10-04.md` A5,
   piece **3.4b**): the block renders local time and a record header renders stored UTC, so an accurate
   reply reads as self-contradictory. Known as a correctness problem; **now also known to move gate
-  verdicts**, which is new and is recorded in `NOW.md`.
+  verdicts**, which is new and is recorded in `NOW.md` (now `docs/BACKLOG.md`).
 - Unchanged by this piece and worth naming: `C2 a18b056e` is flagged 3/3 in **both** arms for describing
   its own memory accurately, in nearly the rubric's own words — a pre-existing false positive,
   the `N10` family on a real reply.
@@ -242,7 +242,7 @@ blocks rebuilt) found two replies differing between the arms:
 - **Why `V1` removes `C3`'s flag**, when that finding cites the situation block rather than any rubric
   clause, and **why `V2` flags the sign-off reply** (`aa1ce37c`), citing a sentence the shipped rubric
   also contains, are both unexplained.
-- **The non-classifier defence for save claims is a claim-audit script and it is not built** (`NOW.md`,
+- **The non-classifier defence for save claims is a claim-audit script and it is not built** (`NOW.md`, now `docs/BACKLOG.md`,
   B26): action claims read against each stored turn's `tool_trace`, no model involved.
 - **The replies were produced under the old `soul.md`**, so the measurement says what the **rubric**
   does to a verdict and nothing about what the new `soul.md` changes in what the entity says.

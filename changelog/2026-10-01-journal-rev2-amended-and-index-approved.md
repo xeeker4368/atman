@@ -27,7 +27,7 @@ Review decisions (2026-10-01). Design and tooling; **no production code changed.
   - the report reads arm names from the data;
   - resuming the as-designed block is retired, because the new cases change its
     replayed order.
-- `NOW.md` backlog: the held/declined known gap.
+- `NOW.md` backlog (now `docs/BACKLOG.md`): the held/declined known gap.
 
 ## Checked
 

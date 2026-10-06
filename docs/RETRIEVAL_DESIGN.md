@@ -395,7 +395,7 @@ The corpus was built for this. Planned assertions:
    cannot be settled from this corpus: `bm25()` magnitude scales with query term
    count (D1, measured), so an absolute threshold means different things for a
    one-term and a five-term query. Carried in `config/defaults.toml`'s
-   `[retrieval]` block and in `NOW.md`'s **"Retrieval floor calibration"**
+   `[retrieval]` block and in `docs/BACKLOG.md`'s **"Retrieval floor calibration"**
    backlog entry. **Do not read this as decided.**
 
 4. **D1's OR semantics** — measured-necessary, but it means the lexical leg

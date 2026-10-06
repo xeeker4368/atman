@@ -173,7 +173,7 @@ phrasing does not shelter a continuity claim.
 
 **Scope of that result:** it says the identity gate does not object to this register. It
 says **nothing about CO10.2**, which is a *correction classifier* defect on turns. The
-`NOW.md` Notes check (the *"I have searched/looked through my [records/notes/memory]…"*
+`NOW.md` Notes check (now `docs/BACKLOG.md`) (the *"I have searched/looked through my [records/notes/memory]…"*
 composition against the classifier with production order and 20 passes) is still owed and
 is not touched by this run.
 

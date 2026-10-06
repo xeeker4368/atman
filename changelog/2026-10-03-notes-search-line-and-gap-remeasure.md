@@ -13,7 +13,7 @@ Follow-up to CO17 (`changelog/2026-10-03-notes-exclusion-and-tool-text.md`), in 
   `working.db` settings table**, which is empty. The NOW.md item (item 6) proposes a guard.
 
 ## 1. Retrieval floors and CO10.2 (docs only)
-`NOW.md`'s "Retrieval floor calibration" item now records what calibrated floors would change.
+`NOW.md`'s "Retrieval floor calibration" item (now `docs/BACKLOG.md`) now records what calibrated floors would change.
 - A weak-match `memory_search` would return its empty sentence.
 - That brings "nothing found" claims made after a `memory_search` (the CO10.2 original among them) under CO17's exclusion
   and symmetric skip.

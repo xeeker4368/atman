@@ -133,7 +133,7 @@ corpus's shape, not retrieval quality, which is the checkpoint's job.
 ## Known limitations
 
 - **Eight conversations is a handful, not a corpus.** Enough to judge ranking on
-  known pairs; nowhere near enough to calibrate a floor. NOW.md's backlog entry
+  known pairs; nowhere near enough to calibrate a floor. NOW.md's backlog entry (now `docs/BACKLOG.md`)
   on floor calibration is unaffected by this and still needs real usage data.
 - **Single source_type**, as above — so anything about provenance competing for
   retrieval slots cannot be exercised yet.

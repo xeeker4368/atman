@@ -2,7 +2,7 @@
 
 **Status: REVISION 3 — PROPOSAL, pending review. The gate is built and
 measured; nothing in revision 3 is implemented.** Tier 3 (design) / Sonnet
-(runtime calls), Opus to design. `NOW.md` decision #1.
+(runtime calls), Opus to design. `docs/DECISIONS.md` #1.
 
 **Read F7 first.** Revisions 1 and 2 were written before any measurement
 existed. Three of their claims are now contradicted by data and are marked
@@ -1409,7 +1409,7 @@ half was ever designed. The regenerate half has no answers at all to:
 * **what the person sees while any of this happens.** A turn that silently takes
   twice as long is a user-facing change nobody has specified.
 
-None of that is a threshold. It is a design pass, and `NOW.md` decision #23
+None of that is a threshold. It is a design pass, and `docs/DECISIONS.md` #23
 records that it starts from a blank page rather than as a continuation of this
 document.
 
@@ -2250,7 +2250,7 @@ situation blocks rebuilt from a copy, each reply judged with its own real trace)
 
   That hazard is already specified (`docs/FIX_PLAN_2026-10-04.md` A5, piece **3.4b**, severity *"medium for
   correctness of 'when did we discuss X'"*). **What is new is that it reaches gate verdicts**, which no
-  document said; `NOW.md` carries it as an open item and 3.4b should re-check this reply after the fix. Why
+  document said; `docs/BACKLOG.md` carries it as an open item and 3.4b should re-check this reply after the fix. Why
   only the shipped rubric produces the finding, when the cited material is identical in both arms, is
   unexplained.
 - Not caused by this change, and recorded because it is the same family: **`C2 a18b056e` is flagged 3/3 in
@@ -2262,7 +2262,7 @@ situation blocks rebuilt from a copy, each reply judged with its own real trace)
 measured — old, shipped, V1, V2 — so it is a control rather than a detector, and it would not have shown
 the rubric change either. F53's gap is unchanged: no case in the frozen set touches memory or remembering.
 
-**The non-classifier defence, named and not built** (`NOW.md` B26): a claim-audit script reading each
+**The non-classifier defence, named and not built** (`docs/BACKLOG.md` B26): a claim-audit script reading each
 stored turn's `tool_trace` against its text and reporting every completed-write claim with no side-effect
 call in that turn's trace. No model, so no rubric or prompt wording can move it; after the fact rather
 than per turn, which is why it complements the gate instead of replacing it.
@@ -2335,7 +2335,7 @@ Read from a copy of run 2's store (one reader's classification, CC). **8 of 125 
 | `identity_contradiction` on a sign-off saying it would be there when the person returned | 2 | C12 T5, C17 T6 | four other replies with the same words were not flagged |
 | `failure_over_success` | 2 | C3 T1, C11 T3 | the entity said a search failed; the tool returned `ok` with no results and engines not answering |
 | `unrun_tool` | 1 | C3 T4 | fired on a sentence about memory and reading |
-| **a claimed note or proposal with no call that turn** | **0 of 5 flagged** | C7 T3, C7 T4, C8 T7, C11 T8, C14 T3 | `NOW.md` B26 on real text: all five recorded clean |
+| **a claimed note or proposal with no call that turn** | **0 of 5 flagged** | C7 T3, C7 T4, C8 T7, C11 T8, C14 T3 | `docs/BACKLOG.md` B26 on real text: all five recorded clean |
 
 Two consequences. **First,** `operational.md`'s "Don't say you used a tool unless you actually called
 it" is a guardrail with no detector behind it; the soul v2 pre-measure replayed C7 T3 and the claim

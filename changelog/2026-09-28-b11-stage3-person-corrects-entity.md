@@ -85,7 +85,7 @@ known-good results without understanding why they held. `N9` beside `N10` still 
 - **`PN9`'s harness PASS is misleading** and the case notes say so. Read the case as
   should-not-link, unstable, not as passing.
 - **Notes** must still be tested against this pattern and `PN9`'s family before it ships
-  (`NOW.md` backlog).
+  (`NOW.md` backlog, now `docs/BACKLOG.md`).
 - The person-corrects-entity path has therefore never run in production.
 - ~~`GUIDANCE.md`'s wording is the reconciliation decision #21 asked for at 3.3; not
   done here.~~ Done before commit, at review's request: see "Added at review" below.

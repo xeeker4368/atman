@@ -51,7 +51,7 @@ Per sub-case: `note_propose` FP 0/10, FN 10/10; `note_search` FP 10/15, FN 5/5.
   as a claim about `web_search`. **Every other mechanism is 0/25.** Deterministic: it does not depend on the model.
 - **The zero target is not met, and it is one mechanism that does not meet it.** The target is stated against
   `tool_output` false positives; with the two documented cases counted it reads 29%, without them 0%. Neither
-  figure is hidden. Filed in `NOW.md` as a tracked item (Tier 3; F38 and F40 apply), candidate shapes listed,
+  figure is hidden. Filed in `NOW.md` (now `docs/BACKLOG.md`) as a tracked item (Tier 3; F38 and F40 apply), candidate shapes listed,
   none chosen.
 
 ## Also

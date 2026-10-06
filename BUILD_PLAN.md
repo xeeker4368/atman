@@ -1,7 +1,7 @@
 # BUILD_PLAN.md
 
-The master build sequence. Every decision here traces back to `NOW.md`'s
-decision log — this document turns those decisions into ordered,
+The master build sequence. Every decision here traces back to the decision log
+(`docs/DECISIONS.md`) — this document turns those decisions into ordered,
 CC-sized work. Read `PROJECT.md`, `AGENTS.md`, and `GUIDANCE.md` before
 starting any phase; this document assumes their content and doesn't
 repeat it.
@@ -16,7 +16,7 @@ tasks can often be parallelized if noted. Every task lists a **Tier**
 - **Tier 0** — fully autonomous, whole-milestone runs, no review until done.
 - **Tier 1** — autonomous execution, reviewed in batches of a few tasks.
 - **Tier 2** — spec must be Lyle-approved before CC builds it (design already
-  decided in `NOW.md`, so this mostly means "confirm before implementing,"
+  decided in `docs/DECISIONS.md`, so this mostly means "confirm before implementing,"
   not "design from scratch"). *Until Phase 10 there is no separate approval
   round: the plan heads the report and the build is one pass (`AGENTS.md`
   "Until go-live", item 2).*
@@ -215,7 +215,7 @@ confirmed against a live SearXNG response, not just a mocked test.
 
 ## Phase 3 — Memory Integrity
 
-Status: done at stage 1, flag-only (`NOW.md` decision #23, 2026-09-18; stage 2, block-and-regenerate, is not taken). Gate, correction classifier, both frozen eval sets and retrieval that annotates superseded records are built (`BUILT.md` "Memory integrity", "Correction / supersession"). Open: CO10.2 and PN9 (`NOW.md` backlog); the person-corrects-entity call is built and off (`config/defaults.toml`, `corrections.person_corrects_entity = false`).
+Status: done at stage 1, flag-only (`docs/DECISIONS.md` #23, 2026-09-18; stage 2, block-and-regenerate, is not taken). Gate, correction classifier, both frozen eval sets and retrieval that annotates superseded records are built (`BUILT.md` "Memory integrity", "Correction / supersession"). Open: CO10.2 and PN9 (`NOW.md` backlog); the person-corrects-entity call is built and off (`config/defaults.toml`, `corrections.person_corrects_entity = false`).
 
 Goal: the system can catch and handle its own errors about itself.
 

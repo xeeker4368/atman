@@ -64,7 +64,7 @@ verbatim in `scripts/b12_variants.py`.
   one.
 - `NOW.md`: the CO10.3 backlog item ("should anything teach the accurate framing?") is
   marked resolved by this.
-- **New `NOW.md` backlog item:** D3's "superseded" wording (below).
+- **New `NOW.md` backlog item (now `docs/BACKLOG.md`):** D3's "superseded" wording (below).
 - `BUILT.md`: the `soul.md` entry updated and a B12 entry added.
 
 ## Known limitations

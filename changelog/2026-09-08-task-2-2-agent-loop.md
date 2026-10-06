@@ -161,7 +161,7 @@ cannot be used to discover which ids exist.
 **No capability is registered for chat.** `permissions.py`'s rule is that only
 capabilities something actually enforces get registered. What this enforces is
 ownership, which keys on `conversations.user_id`, not on `role`. Retrieval
-remains unfiltered by actor per `NOW.md` decision #20; nothing here changes that.
+remains unfiltered by actor per `NOW.md` decision #20 (now `docs/DECISIONS.md`); nothing here changes that.
 
 A **closed** conversation starts a new one rather than being reopened, and the
 response says so via `new_conversation`. Closing is what triggers final chunking

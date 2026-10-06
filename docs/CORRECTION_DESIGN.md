@@ -2,7 +2,7 @@
 
 **Status: APPROVED AND BUILT** (2026-09-18), CO1–CO7 resolved at the end of this
 document. Task 3.3,
-**Tier 3 (design) / Sonnet (runtime calls)**, `NOW.md` decision #2. Its eval
+**Tier 3 (design) / Sonnet (runtime calls)**, `docs/DECISIONS.md` #2. Its eval
 harness is task 3.4 (Tier 2) and retrieval respecting the link is task 3.5
 (Tier 3); this document owes both something and says what.
 
@@ -1020,7 +1020,7 @@ V1–V7 are added as `N11`–`N17` and V8 as `C9`. The mirrors and P4 are not ad
 `a7e005cf…` → `b27f3843…`, 19 → 28 cases.
 
 **Carried forward:** a Notes feature's *"I have no note about X"* phrasing must be tested
-against this pattern before Notes ships (`NOW.md` backlog). It would put a standard
+against this pattern before Notes ships (`docs/BACKLOG.md`). It would put a standard
 scope claim on every miss, so if its wording falls inside the trigger, the defect stops
 being rare.
 
@@ -1305,7 +1305,7 @@ match finds 11 replies; read by hand, **9 are "nothing found" claims** (three wo
 search call in their trace** (*"I have no record of us discussing pottery"*, *"I have no records of trains or travel times"*, *"Nothing about
 Saturday has come up"*): they were said from the passively retrieved block or from nothing. Only one (the CO10.2 original) has a `memory_search`.
 So the rule would have covered **1 of 9 (11%)** in that population, and 12 of 12 in the piece 8 captures, which were *engineered* to make the
-entity search. **CORRECTED 2026-10-03 (CO17 build, sizing run on the soak store): the rule as built covers 0 of those 9, not 1.** The CO10.2 original did call `memory_search`, but that call returned records (a hit), because `memory_search` returns its nearest neighbours whatever their relevance (the retrieval floors are unset), so its empty sentence occurs only on an empty corpus. A claim of "nothing found" after a `memory_search` that returned unrelated records is **not covered**. *What would cover it: calibrated retrieval floors, which would let a weak-match `memory_search` return its empty sentence; recorded in `NOW.md`'s backlog under "Retrieval floor calibration" (2026-10-03), with what floors would not cover.* In the piece 8 captures the rule excludes 13 of 24 assistant messages. A claim made from passive retrieval leaves nothing in the trace
+entity search. **CORRECTED 2026-10-03 (CO17 build, sizing run on the soak store): the rule as built covers 0 of those 9, not 1.** The CO10.2 original did call `memory_search`, but that call returned records (a hit), because `memory_search` returns its nearest neighbours whatever their relevance (the retrieval floors are unset), so its empty sentence occurs only on an empty corpus. A claim of "nothing found" after a `memory_search` that returned unrelated records is **not covered**. *What would cover it: calibrated retrieval floors, which would let a weak-match `memory_search` return its empty sentence; recorded in `docs/BACKLOG.md` under "Retrieval floor calibration" (2026-10-03), with what floors would not cover.* In the piece 8 captures the rule excludes 13 of 24 assistant messages. A claim made from passive retrieval leaves nothing in the trace
 to key on. A possible extension, not part of this design: record the passive retrieval's emptiness in the trace as a marker entry
 (`messages.tool_trace` has a column for it, no migration), at the cost B21 recorded (it makes `tool_trace` non-null on most turns). Until
 then this is a partial fix and says so.
@@ -1438,6 +1438,6 @@ description that CO10.3 resolved with a `soul.md` clause (B12, D3) now lives in
 `program/integrity/operational.md` as three shorter sentences: a correction overwrites nothing, the
 earlier statement stays as it was said with the correction as a later record beside it, and the entity
 cannot see whether a link was recorded, so it does not say the record changed or that the link exists.
-The word *superseded* is no longer in the text (`NOW.md`'s D3-wording item). Nothing in the mechanism
+The word *superseded* is no longer in the text (`docs/BACKLOG.md`, the D3-wording item). Nothing in the mechanism
 changed. The text ships unmeasured; the three-arm B12 re-measure (no text, this text, the old text) is
 a separate later piece, and `scripts/b12_variants.py` needs a new anchor for it.
