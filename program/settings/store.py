@@ -90,7 +90,7 @@ class SettingSpec:
 #:
 #: ``ollama.host`` is deliberately ABSENT and this is flagged for review, not
 #: settled. ``config.py``'s module docstring names "the Ollama host" among the
-#: keys the settings table *never* owns, but ``NOW.md`` decision #9 gives every
+#: keys the settings table *never* owns, but ``docs/DECISIONS.md`` decision #9 gives every
 #: setting representing a connection to an external system a Check/Verify
 #: button — which presumes such settings live in the panel, and the Ollama host
 #: is the obvious one. Left bootstrap-only because that is the reversible

@@ -24,8 +24,8 @@ scope decision and is left to the reviewer rather than taken silently.
 
 Cross-user disclosure is not handled here, on purpose
 -----------------------------------------------------
-This tool does **not** filter by the calling actor. That is ``NOW.md`` decision
-#20, already made: retrieval is not scoped by who is asking, ``user_id`` rides
+This tool does **not** filter by the calling actor. That is ``docs/DECISIONS.md``
+decision #20, already made: retrieval is not scoped by who is asking, ``user_id`` rides
 along as metadata, and the judgment sits at the point of **disclosure** —
 whether to say a thing once it has surfaced — exercised as discretion each time
 rather than as a rule applied for it.

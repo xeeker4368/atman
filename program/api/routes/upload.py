@@ -16,7 +16,7 @@ mounted on nothing, which this build has repeatedly refused to build.
 What *is* enforced is **ownership**, the same axis `turn.py` uses: the uploader
 is the authenticated actor, taken from the token and never from the request
 body. Retrieval over the resulting chunks stays unfiltered by actor, per
-`NOW.md` decision #20 — an ingested file is memory like any other, and the
+`docs/DECISIONS.md` decision #20 — an ingested file is memory like any other, and the
 judgment about disclosing it sits with the entity at the point of response.
 """
 

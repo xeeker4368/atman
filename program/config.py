@@ -424,7 +424,7 @@ def _settings_first(section_name: str, key: str, default: Any = None) -> Any:
 def ollama_host() -> str:
     """Bootstrap-only, per this module's docstring — not settings-backed.
 
-    Flagged rather than settled: ``NOW.md`` #9's Check/Verify button implies
+    Flagged rather than settled: ``docs/DECISIONS.md`` #9's Check/Verify button implies
     external-connection settings belong in the panel. See the settings
     registry's note and the task 1.11 changelog.
     """

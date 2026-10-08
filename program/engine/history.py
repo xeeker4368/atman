@@ -1,6 +1,6 @@
 """Token-budgeted history windowing: what gets resent to the model each turn.
 
-Decision #6 in ``NOW.md``. The window is a **token budget**, not a message
+Decision #6 in ``docs/DECISIONS.md``. The window is a **token budget**, not a message
 count. Reserve space for the system prompt, the retrieved chunks and the
 model's own output; whatever remains goes to the most recent raw history,
 newest-first, until the next message would not fit.

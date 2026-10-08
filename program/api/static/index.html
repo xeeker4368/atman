@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>Anam</title>
+  <link rel="stylesheet" href="/static/app.css">
+  <script type="module" src="/static/app.js"></script>
+</head>
+<body>
+  <main id="login-view" class="login" hidden>
+    <form id="login-form" class="login-form" autocomplete="on">
+      <h1>Anam</h1>
+      <label for="login-name">Name</label>
+      <input id="login-name" name="name" autocomplete="username" required>
+      <label for="login-password">Password</label>
+      <input id="login-password" name="password" type="password" autocomplete="current-password" required>
+      <button type="submit" id="login-button">Log in</button>
+      <p id="login-error" class="error" role="alert" hidden></p>
+    </form>
+  </main>
+
+  <div id="chat-view" class="chat" hidden>
+    <aside class="sidebar">
+      <div class="who">
+        <span id="who-label"></span>
+        <button type="button" id="logout-button" class="link-button">Log out</button>
+      </div>
+      <button type="button" id="new-button">New conversation</button>
+      <ul id="conversation-list" class="conversation-list"></ul>
+    </aside>
+
+    <section class="conversation">
+      <p id="notice" class="notice" role="status" hidden></p>
+      <div id="messages" class="messages" aria-live="polite"></div>
+      <p id="waiting" class="waiting" hidden>Waiting for the reply. It is shown once it is complete and has been checked.</p>
+      <p id="send-error" class="error" role="alert" hidden></p>
+      <form id="send-form" class="send-form">
+        <label for="message-input" class="visually-hidden">Message</label>
+        <textarea id="message-input" rows="3" placeholder="Write a message" required></textarea>
+        <button type="submit" id="send-button">Send</button>
+      </form>
+    </section>
+  </div>
+</body>
+</html>

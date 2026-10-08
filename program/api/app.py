@@ -14,9 +14,11 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 
 from program import config
-from program.api.routes import auth, chat, health, upload
+from program.api.headers import SecurityHeaders
+from program.api.routes import auth, chat, conversations, health, ui, upload
 from program.memory import capability, db, vectors
 from program.ops import store_lock
 
@@ -83,6 +85,12 @@ def create_app() -> FastAPI:
     app.include_router(auth.router)
     app.include_router(chat.router)
     app.include_router(upload.router)
+    app.include_router(conversations.router)
+    # The chat page (decision #31). Assets under /static only, never a mount at the root,
+    # so no /api path can be shadowed by a file.
+    app.include_router(ui.router)
+    app.mount("/static", StaticFiles(directory=ui.STATIC_DIR), name="static")
+    app.add_middleware(SecurityHeaders)
     return app
 
 

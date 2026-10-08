@@ -1,4 +1,4 @@
-"""The correction/supersession classifier. `NOW.md` decision #2, task 3.3.
+"""The correction/supersession classifier. `docs/DECISIONS.md` decision #2, task 3.3.
 
 Design of record: ``docs/CORRECTION_DESIGN.md`` (C1–C13, CO1–CO7).
 

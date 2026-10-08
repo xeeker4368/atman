@@ -4,7 +4,7 @@ Moved out of `NOW.md` on 2026-10-06 (docs sync), unchanged except for this headi
 cross-references to the backlog, which is now `docs/BACKLOG.md`. `NOW.md` keeps a one-line index.
 
 Every architectural and scope decision, as decided. Entries 1 to 19 were written before code existed
-(`e46ae7a` has 19); entries 20 to 30 were added during the build. CC should
+(`e46ae7a` has 19); entries 20 to 31 were added during the build. CC should
 treat every line here as DECIDED — implement against it, don't relitigate
 it. If a task seems to require deviating from one of these, stop and flag
 it rather than deciding silently.
@@ -357,3 +357,18 @@ it rather than deciding silently.
     caught all three. **The fix:** one list in the system section ("Earlier in this conversation: turn 2
     used web_search ... (succeeded)") instead of a line inside the entity's messages. Built with #28, in
     one branch.
+
+31. **The chat interface is a no-build static page** (decided by Lyle 2026-10-06). Plain HTML, CSS and
+    vanilla JavaScript in `program/api/static/`, served by the FastAPI app (`GET /`, assets under
+    `/static/`): no framework, no bundler, no CDN, no node toolchain in the repository. **Replaces #7's
+    React/reducer/streaming plan for the chat interface only**; #7's server-rendered admin panel is
+    unchanged, and so is #7's reason (one place holds the page's state, no competing pollers).
+    - **No streaming.** `POST /api/chat` answers once, after the gate has run. Streaming would show words
+      before the verdict exists, and it would be a backend change.
+    - **The trace panel is a display choice, not an access control.** It is shown when `/api/me` says
+      the role is `admin`, but every person's own trace already comes back to them from `POST /api/chat`;
+      hiding the panel protects nothing.
+    - **Each person sees and opens only their own conversations in the page.** This is separate from #26,
+      which is about what the entity may repeat between people; retrieval stays unfiltered by who asks
+      (#20) and is not touched.
+    - Receipts (F50) render beside each reply, live and stored, never styled as part of it.

@@ -1,7 +1,7 @@
 """The current-situation block: what time it is, and how long the gap was.
 
 The current-situation block from `BUILD_PLAN.md`'s Phase 1 table (Tier 2),
-`NOW.md` decisions #5 and #25. Two flat facts and the sentence that says what
+`docs/DECISIONS.md` decisions #5 and #25. Two flat facts and the sentence that says what
 the second one can and cannot carry.
 
 **Pure.** Two datetimes in, a string out. No database, no clock of its own —

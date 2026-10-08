@@ -227,7 +227,7 @@ def test_a_missing_query_is_invalid_arguments_before_anything_runs(store):
 
 
 def test_results_are_not_filtered_by_who_is_asking(isolated_data_dir, monkeypatch):
-    """`NOW.md` #20: retrieval is not scoped by actor, and this tool adds no
+    """`docs/DECISIONS.md` #20: retrieval is not scoped by actor, and this tool adds no
     scoping of its own. The judgment sits at disclosure, not retrieval."""
     monkeypatch.setattr(chunking.ollama, "embed", _deterministic_embedding)
     monkeypatch.setattr(retrieval.ollama, "embed", _deterministic_embedding)

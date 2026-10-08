@@ -54,7 +54,9 @@ is indistinguishable from a leak, and reporting it is safer than filtering it ou
 import builtins
 import io
 import os
+import shutil
 import sqlite3
+import tempfile
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
@@ -331,6 +333,48 @@ def _guarded_session_request(self, method, url, *args, **kwargs):
 requests.sessions.Session.request = _guarded_session_request
 
 
+#: A copy of the repository's tracked ``config/`` files, without ``local.toml``; set by
+#: :func:`pytest_configure`.
+TRACKED_CONFIG_DIR: Path | None = None
+_CONFIG_DIR_BEFORE: str | None = None
+
+
+def pytest_configure(config):
+    """Point the whole session at the tracked config files, never ``config/local.toml``.
+
+    ``config/local.toml`` is this machine's own file (gitignored), so a test that read it
+    passed or failed by what the developer put there: with a session secret in it, the two
+    missing-secret tests stopped raising. This runs **before collection**, because some
+    modules read config at import (``NOTE_PROPOSE``'s schema states a derived limit), and
+    **after this module's import**, so the ``REAL_*`` paths and the real Ollama host above
+    are still resolved from the real layers, local.toml included, on purpose: they say
+    where the real things are, which is what the guards must watch.
+    """
+    global TRACKED_CONFIG_DIR, _CONFIG_DIR_BEFORE
+    import program.config as program_config
+
+    TRACKED_CONFIG_DIR = Path(tempfile.mkdtemp(prefix="anam-test-config-"))
+    source = Path(program_config.PROJECT_ROOT) / "config"
+    for name in ("defaults.toml", "local.example.toml"):
+        shutil.copy2(source / name, TRACKED_CONFIG_DIR / name)
+    _CONFIG_DIR_BEFORE = os.environ.get("ANAM_CONFIG_DIR")
+    os.environ["ANAM_CONFIG_DIR"] = str(TRACKED_CONFIG_DIR)
+    program_config.reload()
+
+
+def pytest_unconfigure(config):
+    import program.config as program_config
+
+    if TRACKED_CONFIG_DIR is None:
+        return
+    if _CONFIG_DIR_BEFORE is None:
+        os.environ.pop("ANAM_CONFIG_DIR", None)
+    else:
+        os.environ["ANAM_CONFIG_DIR"] = _CONFIG_DIR_BEFORE
+    shutil.rmtree(TRACKED_CONFIG_DIR, ignore_errors=True)
+    program_config.reload()
+
+
 def pytest_addoption(parser):
     parser.addoption("--run-live", action="store_true", default=False,
                      help="run tests marked live (a real Ollama, SearXNG, ComfyUI or the internet)")
@@ -471,6 +515,9 @@ def isolated_data_dir(tmp_path, monkeypatch):
     call time rather than binding module-level constants at import — see the
     module docstring in ``program/config.py`` for why that distinction matters.
     """
+    # The tracked config files only, never the developer's config/local.toml (see
+    # pytest_configure). Set again per test so a test that repoints it is undone after.
+    monkeypatch.setenv("ANAM_CONFIG_DIR", str(TRACKED_CONFIG_DIR))
     monkeypatch.setenv("ANAM_DATA_DIR", str(tmp_path))
     # The backup directory resolves from its own config key, so repointing the
     # data directory alone leaves backups writing into the real one.
@@ -496,6 +543,7 @@ def isolated_data_dir(tmp_path, monkeypatch):
     # its own vector store rather than one another test built for another path.
     vectors.reset_vector_store()
     yield tmp_path
+    monkeypatch.delenv("ANAM_CONFIG_DIR", raising=False)
     monkeypatch.delenv("ANAM_DATA_DIR", raising=False)
     monkeypatch.delenv("ANAM_BACKUP_DIR", raising=False)
     monkeypatch.delenv("ANAM_ARTIFACT_DIR", raising=False)

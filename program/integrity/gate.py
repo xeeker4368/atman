@@ -1,4 +1,4 @@
-"""The unified fabrication gate. `NOW.md` decision #1.
+"""The unified fabrication gate. `docs/DECISIONS.md` decision #1.
 
 Design of record: ``docs/FABRICATION_GATE_DESIGN.md``. One gate, one entry point,
 one verdict type, one policy — over **two evidence sources**, because the two

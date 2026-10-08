@@ -27,15 +27,11 @@ Options:
 Environment:
   ANAM_API_PORT   Backend port, default 8000.
 
-There is no frontend to start yet; it arrives in a later phase. When it does,
-its dev server must stay bound to 127.0.0.1 even under --lan. This is
-load-bearing, not a convenience: the dev server proxies /api to the backend on
-loopback, so every request arriving through it looks local to the backend. No
-admin surface and no loopback gate exist yet (the routes are auth, chat, health
-and upload; BUILD_PLAN.md Phase 9 owes the gate). Once it does, it will trust the
-peer address, so exposing the dev server on the LAN would hand every LAN client a
-loopback-looking path straight through it. LAN clients use the backend port
-directly.
+The chat page is served by the backend itself: open http://127.0.0.1:${ANAM_API_PORT:-8000}/
+(no separate frontend or dev server). Without --lan only this machine can reach it;
+nothing in the code enforces that, it is where the server binds. With --lan, household
+devices use http://<this machine>:PORT/ directly. No admin surface and no loopback gate
+exist yet (BUILD_PLAN.md Phase 9 owes the gate, which will trust the peer address only).
 EOF
 }
 

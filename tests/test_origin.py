@@ -161,7 +161,13 @@ def existing_behaviour_digest(monkeypatch, actor):
 #: **Re-taken 2026-10-05 (batch 1)**, fd3b4753... -> this: a later turn's history now carries the
 #: earlier turn's one-line tool record (3.3, option B). The gate prompts did not move (the gate's
 #: own digest holds). Stable across two runs.
-BEFORE_PIECE_2 = "8f209f8c28b228bde46720a5870732f314249ba4917c6dec9b3f9c8a5ba49e8c"
+#:
+#: **Re-taken 2026-10-06 (chat page, decision #31)**, 8f209f8c... -> this: creative_write's
+#: description and its result's last line say that the person is shown a note that a piece was
+#: saved, because the page now renders receipts. Both are in every model call (the tool schema)
+#: or tool message. Confirmed by restoring only creative_write.py, which gives the old value.
+#: Stable across two runs.
+BEFORE_PIECE_2 = "a4cf7c4824b4f3ffd62d9ff0558f3d07af38a62715644159f11b0fbe26c03a5f"
 
 
 def test_existing_tools_and_turns_are_byte_identical_to_before_piece_2(store, monkeypatch):

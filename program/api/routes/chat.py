@@ -45,6 +45,7 @@ import logging
 from fastapi import APIRouter, BackgroundTasks, HTTPException, status
 from pydantic import BaseModel, Field
 
+from program.api import trace_view
 from program.api.routes.auth import CurrentActor
 from program.engine import ollama, turn, turn_locks
 from program.memory import chunking, idle
@@ -71,9 +72,9 @@ class ChatResponse(BaseModel):
     iterations: int
     stop_reason: str
     new_conversation: bool
-    #: The turn's tool-call trace, exactly as task 3.1 will read it. Returned
-    #: rather than logged: it is what the Phase 8 interface renders as
-    #: tool-call activity, and a first-class value in both places.
+    #: The turn's tool-call trace, as stored, except that the entity's own writing is
+    #: replaced by its length (``trace_view``, decision #10). The stored trace is unchanged.
+    #: Returned rather than logged: the chat page's trace panel renders it.
     trace: list[dict] = Field(default_factory=list)
     #: What the person is shown about any side-effect tool this turn (O23, F50):
     #: mechanical facts from the trace and the artifacts rows, never the entity's
@@ -195,6 +196,6 @@ def chat(
         iterations=outcome.iterations,
         stop_reason=outcome.stop_reason,
         new_conversation=outcome.new_conversation,
-        trace=outcome.trace,
+        trace=trace_view.for_response(outcome.trace),
         receipts=[r.to_dict() for r in receipts.for_trace(outcome.trace)],
     )

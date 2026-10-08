@@ -84,11 +84,10 @@ def write_creatively(
         "creative_write kept %s (%d chars) for user %s",
         stored.artifact_id[:8], stored.characters, attribution.user_id[:8],
     )
-    # MUST CHANGE WHEN PHASE 9 RENDERS RECEIPTS (F50, timing (a) decided at review):
-    # once a person is shown that something was kept, the last line below becomes
-    # false and is replaced with an accurate one, e.g. that the person sees something
-    # was kept, with no content, and that sharing the piece stays the entity's call.
-    # Until then it is true, because nothing yet renders the receipt to anyone.
+    # The chat page renders receipts (F50; decision #31), so the person whose turn this is
+    # sees a system note that a piece was saved: its type, a short id and a time, never its
+    # title or text. The last line says exactly that, and that sharing the piece stays the
+    # entity's call (decision #10). Prompt-facing text: a change goes to review.
     return ToolOutput(text=(
         f"Saved.\n"
         f"  title: {stored.title!r}\n"
@@ -96,7 +95,9 @@ def write_creatively(
         f"  file: {stored.storage_path} ({stored.characters:,} characters)\n"
         f"  indexed into memory as {stored.chunks_written} record(s), so it can be "
         f"found again later.\n"
-        f"\nIt is kept, not published. Nothing shows it to anyone unless it comes up."
+        f"\nIt is kept, not published. The person you are talking with is shown a short "
+        f"system note that a piece was saved, without its title or its text. Whether to "
+        f"show them the piece is up to you."
     ), artifact_ids=(stored.artifact_id,))
 
 
@@ -106,8 +107,8 @@ CREATIVE_WRITE = Tool(
         "Keep a piece of your own creative writing — a story, a poem, a fragment. "
         "Write the piece in full and pass it as `text`; this saves it and indexes it "
         "so it can be found again. It does not write anything for you. Saved work is "
-        "private in the sense that nothing announces it, but it can surface later "
-        "like any other record."
+        "private: the person you are talking with sees only a note that a piece was "
+        "saved, not the piece, but it can surface later like any other record."
     ),
     parameters={
         "type": "object",

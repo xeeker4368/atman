@@ -50,6 +50,9 @@ def _clean_env(tmp_path) -> dict:
     """A child process pointed at a throwaway store, with no inherited ANAM_* dirs."""
     env = {k: v for k, v in os.environ.items() if not k.startswith("ANAM_")}
     env["ANAM_DATA_DIR"] = str(tmp_path / "data")
+    # The suite's copy of the tracked config files (conftest.pytest_configure), so the child
+    # does not read the developer's config/local.toml either.
+    env["ANAM_CONFIG_DIR"] = os.environ["ANAM_CONFIG_DIR"]
     env["PYTHONPATH"] = str(ROOT)
     env["PYTHONDONTWRITEBYTECODE"] = "1"
     return env

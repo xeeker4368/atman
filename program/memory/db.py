@@ -546,6 +546,37 @@ def get_conversation(conversation_id: str) -> sqlite3.Row | None:
         ).fetchone()
 
 
+#: Characters of a conversation's first user message shown in the chat page's list.
+#: Display only: nothing reads the preview back, and it is cut here so a long first
+#: message never crosses the wire whole just to label a list row.
+CONVERSATION_PREVIEW_CHARS = 80
+
+
+def list_user_conversations(user_id: str) -> list[sqlite3.Row]:
+    """One user's conversations, open and closed, newest first, for the chat page.
+
+    A plain read. Each row: ``id``, ``started_at``, ``ended_at``, ``preview`` (the first
+    user message cut to :data:`CONVERSATION_PREVIEW_CHARS`, NULL when there is none) and
+    ``preview_cut`` (1 when the message was longer than that).
+    """
+    with connection() as conn:
+        return conn.execute(
+            """
+            SELECT c.id, c.started_at, c.ended_at,
+                   substr(f.content, 1, :n) AS preview,
+                   length(f.content) > :n AS preview_cut
+            FROM conversations c
+            LEFT JOIN messages f ON f.id = (
+                SELECT m.id FROM messages m
+                WHERE m.conversation_id = c.id AND m.role = 'user'
+                ORDER BY m.timestamp, m.id LIMIT 1)
+            WHERE c.user_id = :user_id
+            ORDER BY c.started_at DESC, c.id DESC
+            """,
+            {"n": CONVERSATION_PREVIEW_CHARS, "user_id": user_id},
+        ).fetchall()
+
+
 @retry_on_locked
 def end_conversation(conversation_id: str, *, not_after: str | None = None) -> bool:
     """Close a conversation. Returns whether this call closed it.

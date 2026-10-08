@@ -90,7 +90,7 @@ reach this code — which stops being true the moment a chat endpoint exists.
 registered, and an unregistered name raises rather than defaulting permissive.
 What this module enforces is not a capability but **ownership** — a user may
 only speak into their own conversation. That is a different axis, the same way
-``NOW.md`` decision #20 keeps capability gating and data visibility separate.
+``docs/DECISIONS.md`` decision #20 keeps capability gating and data visibility separate.
 Retrieval is deliberately *not* filtered by actor: see that decision.
 """
 

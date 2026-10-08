@@ -102,6 +102,7 @@ Number and title only; the text is in `docs/DECISIONS.md`.
 28. The gate reads replies as an ordinary person would (approved, not built)
 29. Replies are read as an ordinary person would hear them
 30. The earlier-tools line moves into the system section (decided, not built)
+31. The chat interface is a no-build static page (replaces #7's React plan for chat only)
 
 ## Go-live checklist
 
