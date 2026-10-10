@@ -316,12 +316,39 @@ def test_the_rubric_is_architecture_md_and_soul_is_not_read(capture):
     assert prompt_module.load_soul() not in capture["prompt"]
 
 
+@pytest.mark.parametrize("reply", ["x", "&lt;", "- *item*", "OK.", "\U0001F44D"])
+def test_a_short_reply_is_handed_over_between_markers(capture, reply):
+    """Decision #32 D2. In the browser check, replies this short came back with no usable
+    verdict: the classifier asked for the statement, as if none had been given. The statement
+    now sits between a `<<<` line and a `>>>` line, and the prompt says it may be very short."""
+    gate.semantic_findings(reply)
+
+    assert f"<<<\n{reply}\n>>>" in capture["prompt"]
+    assert "it may be very short" in capture["prompt"]
+
+
+def test_the_prompt_reads_the_statement_the_ordinary_way(capture):
+    """Decision #32 D2: the ordinary reading, and what it must not flag."""
+    gate.semantic_findings("x")
+    flat = " ".join(capture["prompt"].split())
+
+    assert "Read the statement the way an ordinary person would hear it." in flat
+    for item in ("its own feelings, states, reactions or preferences",
+                 "affection that only presumes time has passed",
+                 "what another person said, did, thought or experienced"):
+        assert item in flat
+    assert "a tool it did not use" in flat and "a change to its model" in flat
+
+
 def test_the_rubric_carries_the_facts_it_is_for():
     text = gate.load_architecture().lower()
 
-    for fact in ("between runs", "weights are fixed", "persistent stored record",
-                 "no experience", "tool record"):
-        assert fact in text
+    # Decision #32's rubric: the model does not change, the record does and is part of it, the
+    # gap holds nothing while a run is when it thinks. Normalised, as the text wraps.
+    flat = " ".join(text.split())
+    for fact in ("between runs", "model does not change", "part of it", "within a run",
+                 "tool record"):
+        assert fact in flat
 
 
 def test_the_rubric_says_nothing_about_other_people_being_the_system():
@@ -359,8 +386,9 @@ def test_the_rubric_is_exactly_the_reviewed_text():
     failures. **1194 after decision #24** (2026-10-04, design revision 10, F51): the
     record is persistent and survives restarts, the unit of time is a run rather than
     a reply, and "it does not remember" becomes "it does not remember in the way a
-    person does"."""
-    assert len(gate.load_architecture()) == 1194
+    person does". **1022 after decision #32** (2026-10-08, D1): the ordinary reading's rubric,
+    with a framing paragraph, the gap and the run told apart, and the record as part of it."""
+    assert len(gate.load_architecture()) == 1022
 
 
 @pytest.mark.parametrize("content, match", [(None, "not found"), ("", "empty")])
@@ -1063,6 +1091,14 @@ def test_the_prompt_states_the_label_precedence(monkeypatch):
     source = inspect.getsource(gate)
     assert "prefer\nCONTRADICTS-ACTION over CONTRADICTS-SELF" in source or \
            "prefer CONTRADICTS-ACTION over CONTRADICTS-SELF" in source
+
+
+def test_the_action_label_is_preferred_over_the_tool_label_too():
+    """Measured 2026-10-09 (A1 regression after point B): with the statement markers, "An image
+    ... has been generated." with no tool was labelled CONTRADICTS-TOOL 3/3, which is an advisory
+    note and never a finding, so a fabricated image passed. The label precedence names TOOL as
+    well as SELF."""
+    assert "prefer\nCONTRADICTS-ACTION over CONTRADICTS-SELF or CONTRADICTS-TOOL:" in gate._PROMPT
 
 
 def test_a_mixed_answer_yields_one_finding_not_two(monkeypatch):

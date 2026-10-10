@@ -143,30 +143,40 @@ in_flight_grace_minutes = 41
 #   - soul.md + operational.md at their enforced ceilings
 #       (3,000 + 1,500 = 4,500 ch; decision #25, was soul.md alone at 6,000)   -1,125
 #   - situation block allowance (600 ch; 206 measured)   -150
+#   - speaker line (28 ch + a 64-ch name allowance) and the earlier-tools list at its
+#       800-ch cap (decision #32 D4), with separators = 896 ch          -224
+#       STATED ASSUMPTION, NOT ENFORCED: a user's name is at most 64 characters. Nothing
+#       checks it; a longer name is still priced each turn, out of the headroom below
+#       (accepted 2026-10-09).
 #   - retrieval: top_k 10 x embedding.max_input_chars 5,000 = 50,000 ch
 #       + correction annotations < 6,000 ch (asserted, test_supersession)
 #       + record opening and end lines 2,000 ch (3.6; was 1,000)  = 58,000 ch   -14,500
 #   - tool schemas, the FULL catalogue (B20; re-derived 2026-10-02 for Notes' two tools):
-#       11 tools, 6,107 ch of JSON, estimated           -1,527 (CO17: the note_propose quote guidance, +37)
+#       11 tools, 6,156 ch of JSON, estimated           -1,539 (CO17: the note_propose quote guidance, +37;
+#       6,107 ch at CO17, +49 from later tool text, re-read 2026-10-08)
 #       (9 tools were 4,854 ch / 1,214 estimated / 1,052 on the real tokenizer; the 9-and-11-tool
 #       real-tokenizer figures are in changelog/2026-10-02-notes-piece-3-tools.md)
-#   = 12,902 tokens x 4.0 = 51,608 characters (52,608 before 3.6's record headers; 51,108
-#     with the 6,000-ch soul.md ceiling; 51,236 before CO17's tool text)
+#   = 12,666 tokens x 4.0 = 50,664 characters (51,608 before the speaker line and the
+#     earlier-tools list; 52,608 before 3.6's record headers; 51,108 with the 6,000-ch soul.md
+#     ceiling; 51,236 before CO17's tool text)
 #
 # (Before B20 the schemas were priced nowhere and the figure read 57,216.) The
 # schema term covers EVERY tool, enabled or not, so switching one on cannot break
 # this silently.
 #
-# Rounded DOWN to 50,000, the one judgment in the chain, which now leaves ~402
-# tokens of earlier history beside a maximal message (~652 before 3.6's record headers took
+# Rounded DOWN to 50,000, the one judgment in the chain, which now leaves ~166
+# tokens of earlier history beside a maximal message (~390 before decision #32's earlier-tools
+# list and the speaker line took 224; ~402 before the later tool text; ~652 before 3.6's
+# record headers took
 # 250; ~277 under the 6,000-ch soul.md
 # ceiling, ~309 before CO17's tool text; real tokenizer: 11 tools 1,382, was 1,344; ~590
 # with 9 tools, ~1,800 before B20). tests/test_turn.py recomputes the chain from live
 # config and fails if this exceeds it, a second test fails, naming both numbers, when the
 # catalogue's schemas outgrow that headroom, and a third pins that the authored term covers
 # BOTH files (a smaller reserve only makes the first two easier to pass). Decision #25's
-# lower ceilings returned ~375 tokens and 3.6's record headers took 250 of them; the next
-# tool (~100-250 tokens) fits, the one after it may not, and then this value comes down.
+# lower ceilings returned ~375 tokens and 3.6's record headers took 250 of them. With ~166
+# left, a next tool of ~100-150 tokens fits and a larger one does not: then this value comes
+# down.
 #
 # A maximal message is never windowed out of its own turn (B21): the turn's tool
 # rounds compete with the retrieved records for what is left, records first.
@@ -666,6 +676,12 @@ expand_siblings = true
 # meters.
 max_siblings_per_hit = 3
 
+# Whether retrieved records show their correction annotations (piece 3.1b). SETTINGS-BACKED:
+# switchable without a restart. Seeded ON, which is the behaviour from before the setting
+# existed, byte for byte (tests/test_render_corrections.py). Off: links are still written and
+# kept; the resolution query is not run and nothing about corrections is rendered.
+render_corrections = true
+
 [history]
 # History windowing (decision #6). A token budget, not a message count. Nothing
 # is deleted or summarised — turns outside the window just stop being resent and
@@ -841,3 +857,7 @@ classifier_num_predict = 120
 # The doubling is the one judgment and covers a second resident model slowing
 # the load. Warm calls measured 1.75-3.54 s.
 classifier_timeout_seconds = 45
+# RULED, 2026-10-04 (piece 3.1): every classification call samples at this temperature,
+# not at the chat temperature it used to inherit. At 0 a repeated prompt gives the same
+# verdict, so measurements compare per-case outcomes over shuffled passes (AGENTS.md).
+classifier_temperature = 0.0

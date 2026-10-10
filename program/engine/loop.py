@@ -261,6 +261,8 @@ def run_turn(
     soul_text: str | None = None,
     attribution: AttributionContext | None = None,
     origin: OriginContext | None = None,
+    speaker: str | None = None,
+    earlier_tools: str = "",
 ) -> TurnResult:
     """Run one turn to a terminal answer.
 
@@ -273,6 +275,12 @@ def run_turn(
     ``origin`` says which exchange this turn is (Notes piece 2): passed straight through to
     dispatch like ``attribution``, reaching only tools that declare ``takes_origin``, and **read
     by nothing in this module**. See ``program/origin.py``.
+
+    ``speaker`` is the name of the person being answered, stated in the system prompt on every
+    call (``prompt.speaker_line``). ``None`` for a turn with no person, which states nothing.
+
+    ``earlier_tools`` is the system's list of tools earlier replies used
+    (``earlier_tools.system_list``), placed after the speaker line on every call.
 
     ``messages`` is the conversation so far, **including the user message being
     answered** — which the caller has already persisted (task 2.2's obligation
@@ -312,6 +320,7 @@ def run_turn(
             [*messages, *extras], situation, retrieval, soul_text=soul_text,
             current_turn_start=current_turn_start,
             tool_schema_chars=len(json.dumps(payload)) if payload else 0,
+            speaker=speaker, earlier_tools=earlier_tools,
         )
         events = list(assembled.window_events)
         if assembled.needs_final_call:
@@ -321,6 +330,7 @@ def run_turn(
             assembled = prompt.assemble_turn(
                 [*messages, *extras], situation, retrieval, soul_text=soul_text,
                 current_turn_start=current_turn_start, tool_schema_chars=0,
+                speaker=speaker, earlier_tools=earlier_tools,
             )
             events.extend(assembled.window_events)
         for event in events:

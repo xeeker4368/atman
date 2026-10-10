@@ -162,12 +162,28 @@ def existing_behaviour_digest(monkeypatch, actor):
 #: earlier turn's one-line tool record (3.3, option B). The gate prompts did not move (the gate's
 #: own digest holds). Stable across two runs.
 #:
-#: **Re-taken 2026-10-06 (chat page, decision #31)**, 8f209f8c... -> this: creative_write's
+#: **Re-taken 2026-10-06 (chat page, decision #31)**, 8f209f8c... -> a4cf7c48...: creative_write's
 #: description and its result's last line say that the person is shown a note that a piece was
 #: saved, because the page now renders receipts. Both are in every model call (the tool schema)
 #: or tool message. Confirmed by restoring only creative_write.py, which gives the old value.
 #: Stable across two runs.
-BEFORE_PIECE_2 = "a4cf7c4824b4f3ffd62d9ff0558f3d07af38a62715644159f11b0fbe26c03a5f"
+#:
+#: **Re-taken 2026-10-07 (the speaker line)**, a4cf7c48... -> this: every turn's system prompt now
+#: carries "You are talking with Lyle." With ``prompt.speaker_line`` patched to return "" the
+#: previous digest still holds, so that line is the whole of the move. The gate's digest holds.
+#:
+#: **Re-taken 2026-10-08 (decision #32 D1, D2)**, d5f717e5... -> this: it hashes every gate
+#: prompt, which embeds the replaced rubric and `_PROMPT`. With the previous texts patched back
+#: in, the previous value holds.
+#:
+#: **Re-taken 2026-10-08 (decision #32 D4)**, b406dab5... -> this: an earlier tool-calling reply
+#: is now sent as stored, and the system message carries the earlier-tools list instead. With the
+#: previous line-in-history behaviour patched back in, the previous value holds.
+#:
+#: **Re-taken 2026-10-09 (the A1 fix)**, 382154e8... -> this: it hashes every gate prompt, and
+#: `_PROMPT`'s label precedence gained "or CONTRADICTS-TOOL". With the previous gate.py restored,
+#: the previous value holds.
+BEFORE_PIECE_2 = "2ef64bd7289aa760bd79896de305ab7a0ce2232c80a55d332c1ae351edad293c"
 
 
 def test_existing_tools_and_turns_are_byte_identical_to_before_piece_2(store, monkeypatch):

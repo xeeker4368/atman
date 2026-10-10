@@ -101,6 +101,41 @@ def test_the_call_uses_the_classifier_settings_not_the_chat_defaults(sent, monke
     assert sent["messages"] == [{"role": "user", "content": "a prompt"}]
 
 
+def test_the_classifier_sends_temperature_zero_and_no_other_override(sent):
+    """Piece 3.1: temperature and num_predict only. num_ctx is not overridden, because a
+    different value would reload the shared model on every alternation (fix plan A1)."""
+    classifier.classify("a prompt")
+
+    assert sent["options"] == {"num_predict": config.classifier_num_predict(),
+                               "temperature": 0.0}
+    assert config.classifier_temperature() == 0.0
+
+
+def test_changing_the_chat_temperature_does_not_change_the_classifier(monkeypatch):
+    """Before 3.1 the classifier inherited the chat temperature, a live setting. What reaches
+    Ollama is the chat options with the classifier's overrides on top (ollama._split_options),
+    so the chat temperature must lose and num_ctx must stay the chat's."""
+    from program.engine import ollama
+
+    payloads = []
+    monkeypatch.setattr(config, "model_options",
+                        lambda: {"num_ctx": 32768, "temperature": 0.9, "think": False})
+    monkeypatch.setattr(ollama, "chat_text", lambda messages, **kw: (
+        payloads.append(kw), "CONSISTENT")[1])
+
+    classifier.classify("a prompt")
+    options, _think = ollama._split_options(payloads[-1]["options"])
+
+    assert options["temperature"] == 0.0
+    assert options["num_ctx"] == 32768
+
+
+def test_the_classifier_temperature_is_bootstrap_only():
+    from program.settings import store
+
+    assert "integrity.classifier_temperature" not in {spec.name for spec in store.SETTINGS}
+
+
 def test_the_classifier_model_inherits_the_chat_model_when_unpinned(monkeypatch):
     monkeypatch.setenv("ANAM_CHAT_MODEL", "inherited-model")
     config.reload()
@@ -129,6 +164,7 @@ def test_pinning_the_classifier_model_overrides_the_chat_model(monkeypatch, tmp_
     ("classifier_num_predict", -1),
     ("classifier_timeout_seconds", 0),
     ("classifier_timeout_seconds", -5),
+    ("classifier_temperature", -0.1),
 ])
 def test_a_nonsense_setting_raises_rather_than_defaulting(monkeypatch, tmp_path, key, value):
     (tmp_path / "defaults.toml").write_text(
@@ -146,7 +182,7 @@ def test_the_settings_are_bootstrap_only_not_live_editable():
     holding, so none of these is in the settings registry."""
     from program.settings import store
 
-    registered = {spec.key for spec in store.SETTINGS}
+    registered = {spec.name for spec in store.SETTINGS}
     for key in ("integrity.classifier_model", "integrity.classifier_num_predict",
                 "integrity.classifier_timeout_seconds"):
         assert key not in registered

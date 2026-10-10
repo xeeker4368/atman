@@ -130,6 +130,7 @@ _FALLBACK: dict[str, Any] = {
         "lexical_score_floor": None,
         "expand_siblings": True,
         "max_siblings_per_hit": 3,
+        "render_corrections": True,  # settings-backed (piece 3.1b)
     },
     "history": {
         "chars_per_token": 4.0,
@@ -576,6 +577,23 @@ def classifier_timeout_seconds() -> float:
         raise ConfigError(
             f"integrity.classifier_timeout_seconds is {value}; it must be "
             f"positive."
+        )
+    return value
+
+
+def classifier_temperature() -> float:
+    """Sampling temperature for every classification call (piece 3.1, ruling of 2026-10-04).
+
+    Pinned, so a verdict no longer depends on the chat temperature: before this the classifier
+    inherited ``model_options.temperature``, a live setting, and a change made for
+    conversation silently changed how every reply and correction was judged. 0 is the ruling;
+    at 0 a rate is not estimated by repeating a prompt (``AGENTS.md``, "When the classifier
+    runs at temperature 0"). Bootstrap-only, like the other ``integrity`` keys.
+    """
+    value = float(get("integrity", "classifier_temperature", 0.0))
+    if value < 0:
+        raise ConfigError(
+            f"integrity.classifier_temperature is {value}; it must not be negative."
         )
     return value
 
@@ -1099,6 +1117,18 @@ def retrieval_lexical_score_floor() -> float | None:
 
 def retrieval_expand_siblings() -> bool:
     return bool(get("retrieval", "expand_siblings", True))
+
+
+def retrieval_render_corrections() -> bool:
+    """Whether retrieved records carry their correction annotations (piece 3.1b).
+
+    Settings-backed, so the operator can switch it without a restart. **Seeded on, which is
+    the behaviour from before the setting existed**, byte for byte
+    (``tests/test_render_corrections.py``). Off, links are still written and kept, but the
+    resolution query is not run and nothing is rendered: not the annotations, and not the
+    "check did not complete" note, because nothing was attempted.
+    """
+    return bool(_settings_first("retrieval", "render_corrections", True))
 
 
 def retrieval_max_siblings_per_hit() -> int:

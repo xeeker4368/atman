@@ -122,6 +122,10 @@ SETTINGS: tuple[SettingSpec, ...] = (
         "Whether to request the model's thinking block.",
     ),
     SettingSpec(
+        "retrieval.render_corrections", "retrieval", "render_corrections", "bool",
+        "Whether retrieved records show their correction annotations.",
+    ),
+    SettingSpec(
         "notes.approval_required", "notes", "approval_required", "bool",
         "Whether a note proposal waits for a person. Written only by `scripts.note approval`.",
     ),

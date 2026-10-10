@@ -31,6 +31,10 @@ finish line. The entity has no name; "Anam" is the substrate.
   `measure_classifier_budget.py` sizes the classifier's output.
 - **Diagnoses and measurements:** the other `gate_*`, `correction_*`, `notes_*`, `journal_*`, `b12_*`, `soul_*` and
   `history_*` scripts are dated one-off studies; each docstring names its task.
+- **Gate measurement points (decisions #28, #30, #32):** `point_a.py` the gate at temperature 0 with the
+  texts before #32; `point_b.py` the #32 rubric and prompt on the refrozen set and run 3's replies, old
+  texts against new; `point_c.py` whether the entity still copies the tool record once it moves into the
+  system message. Each docstring gives its command.
 - **`_scratch.py`:** the helper for running anything against a scratch store.
 
 ## Run something against a scratch store

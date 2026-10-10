@@ -480,10 +480,14 @@ def _authored_reserve_tokens() -> int:
 
 def _reserved_beside_a_maximal_message() -> int:
     """B6a's chain from LIVE config, now with B20's schema term."""
-    from program.engine import history, prompt
+    from program.engine import earlier_tools, history, prompt
 
     authored = _authored_reserve_tokens()
     situation = history.estimate_tokens_from_chars(600)  # judgment allowance; 206 measured
+    # The speaker line (a name allowance of 64 characters, a judgment) and the earlier-tools
+    # list at its cap (decision #32 D4), each with its separator.
+    speaker_and_tools = history.estimate_tokens_from_chars(
+        len(prompt.SPEAKER_LINE) + 64 + earlier_tools.LIST_MAX_CHARS + 4)
     retrieved_chars = (
         # The records cap itself (B17), not a copy of its arithmetic: top_k x
         # max_input_chars + 1,000 of headers. Before B17 this line assumed that bound
@@ -495,7 +499,7 @@ def _reserved_beside_a_maximal_message() -> int:
         config.history_output_reserve_tokens()
         + config.history_safety_margin_tokens()
         + config.history_message_overhead_tokens()
-        + authored + situation
+        + authored + situation + speaker_and_tools
         + history.estimate_tokens_from_chars(retrieved_chars)
         + _full_catalogue_schema_tokens()
     )

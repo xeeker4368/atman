@@ -2,7 +2,7 @@
 
 ## The rule
 
-CC never commits to main, and never pushes, merges, rebases or rewrites history. For each task CC creates a branch `cc/<piece>` from the current main, commits to it with explicit `git add <file>` (never `-A` or `.`), and stops. Lyle reviews `git diff main..cc/<piece>`, runs the leak check, squash-merges, commits and pushes. A Tier 3 piece's branch is merged before the next piece's branch is created.
+CC never commits to main, and never pushes, merges, rebases or rewrites history, except the rebase after a merge below (decision #32 D6). For each task CC creates a branch `cc/<piece>` from the current main, commits to it with explicit `git add <file>` (never `-A` or `.`), and stops. Lyle reviews `git diff main..cc/<piece>`, runs the leak check, squash-merges, commits and pushes. A Tier 3 piece's branch is merged before the next piece's branch is created.
 
 CC also never uses `git reset --hard`, `git branch -D` or `git config`, never switches to main after creating its branch, and never uses `--no-verify`. Commit messages are public, so they follow the public-repo rules in `AGENTS.md` (no keys, account names or real conversation text).
 
@@ -61,6 +61,17 @@ first. CC never merges either way.
 5. `git branch -D cc/<piece>`.
 
 **Why squash:** intermediate commits never reach main, so a leak added and later removed on a branch cannot reach public history. Docs written on a branch must not cite that branch's commit hashes or say the branch is awaiting merge, because the squash gives the work a new hash and the branch is deleted; cite the item or `git log --grep '<piece>'` instead.
+
+## Rebasing open branches after a merge (decision #32 D6)
+
+After Lyle merges a branch to main, CC rebases each open `cc/` branch onto the new main, in that branch's own worktree:
+
+1. Record each branch's commit ids before the rebase.
+2. `git rebase main`. Resolve **only** pin and digest conflicts (a `BEFORE_*` value, a fingerprint), to a value computed and checked, with both histories' comments kept. **Any other conflict: stop** (`git rebase --abort`) and report it unresolved.
+3. Re-run the full suite at `ulimit -n 256`, with and without a throwaway `config/local.toml`.
+4. Report the old and new commit id of every commit, and confirm with `git range-diff` that only the resolved pins changed.
+
+CC never pushes.
 
 ## Stopping, naming, parallel work
 

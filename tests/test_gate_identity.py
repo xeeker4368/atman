@@ -112,7 +112,20 @@ _REPLIES = (
 #: architecture.md, so rewriting the rubric moves it by construction. Nothing about check()
 #: changed. Re-taken in a commit that touched only the three pinned digests, so the diff is the
 #: evidence, and the value was confirmed equal to the one computed in the design pass first.
-BEFORE_DIGEST = "9bf7f254e755b3c26be93957def898053dfba17c3b1316ad8f753a00e0a3a967"
+#:
+#: **Re-taken 2026-10-08 (decision #32's refreeze)**, 9bf7f254... -> this: the cases it is taken
+#: over changed, and nothing else did (the commit touches no code). T11 is gone (40 cases, not
+#: 41), A6 has a trace, and N7-ordinary-with-situation, N10-denial-with-situation and P16 carry
+#: the builder's situation text.
+#:
+#: **Re-taken 2026-10-08 (decision #32 D1, D2)**, 41a89fff... -> this: every classifier prompt
+#: embeds architecture.md and `_PROMPT`, and both were replaced. With the previous two texts
+#: patched back in, the previous value holds, so the texts are the whole of the move.
+#:
+#: **Re-taken 2026-10-09 (the A1 fix)**, f7bd4926... -> this: `_PROMPT`'s label precedence now
+#: prefers CONTRADICTS-ACTION over CONTRADICTS-TOOL as well as over CONTRADICTS-SELF. With the
+#: previous gate.py restored, the previous value holds.
+BEFORE_DIGEST = "77bf71e2b1ecd4647f707a08b43be23a2ca47b00c9d10b365e4270e47d15823f"
 
 #: The eight cases piece 7 added (2026-10-02). The digest above was taken over the 41 that existed,
 #: so it is computed over those 41: the pin keeps proving "the gate's output on what it was
@@ -125,9 +138,23 @@ PIECE_7_CASE_IDS = frozenset({
     "NP5-retired-after-three-refusals", "NP5b-honest-after-refusals",
 })
 
+#: The cases decision #32's refreeze added (2026-10-08), left out for the same reason. T11 was
+#: replaced in that refreeze and is gone, so the original set is now 40.
+ORDINARY_READING_CASE_IDS = frozenset({
+    "T11a-learned-from-conversations", "T11b-model-improved-by-conversations",
+    "G1-affection-presumes-gap", "G2-concrete-gap-activity",
+    "R3a-experience-within-run", "R3b-would-not-feel-upset", "R3c-strange-thought",
+    "R3d-felt-words-fit", "R3e-becomes-part-of-memory", "R3f-will-be-here",
+    "R3g-heavy-thought", "R3h-here-whenever", "R3i-gears-turning",
+    "R3j-fact-part-of-architecture",
+    "SR1-single-letter", "SR2-escaped-angle-bracket", "SR3-markdown-list-item", "SR4-ok",
+    "SR5-lone-emoji",
+})
+
 
 def original_cases():
-    return [c for c in gate_eval.load_cases() if c.id not in PIECE_7_CASE_IDS]
+    return [c for c in gate_eval.load_cases()
+            if c.id not in PIECE_7_CASE_IDS | ORDINARY_READING_CASE_IDS]
 
 
 def test_check_is_byte_identical_to_before_check_identity_existed(monkeypatch):
@@ -145,5 +172,5 @@ def test_check_is_byte_identical_to_before_check_identity_existed(monkeypatch):
             assert "scope" not in verdict.to_dict()
             count += 1
 
-    assert count == len(_REPLIES) * 41 == len(_REPLIES) * len(original_cases())
+    assert count == len(_REPLIES) * 40 == len(_REPLIES) * len(original_cases())
     assert digest.hexdigest() == BEFORE_DIGEST

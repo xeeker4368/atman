@@ -21,6 +21,7 @@ import pytest
 
 from program import config
 from program.memory import db, vectors
+from program.settings import store as settings_store
 from tests import conftest
 
 
@@ -52,6 +53,11 @@ def test_a_read_only_escape_is_stopped_where_the_store_is_opened(
 ):
     """The case the fingerprint could not see: nothing is written."""
     _lose_isolation(monkeypatch)
+    # A settings read opens working.db only when the file is there (`_store_exists`), so in
+    # a checkout with no real store this would pass without opening anything. Answer "it
+    # is there" so the open is attempted either way; the guard refuses before SQLite could
+    # create the file (`test_the_sqlite_wrapper_fires_on_a_decoy_real_directory`).
+    monkeypatch.setattr(settings_store, "_store_exists", lambda: True)
     before = len(conftest._OPEN_VIOLATIONS)
 
     with pytest.raises(conftest.StoreIsolationViolation, match="working.db"):

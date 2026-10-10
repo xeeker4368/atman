@@ -11,7 +11,7 @@ heading, never load it whole.
 CC plans → plan goes to the reviewer (Claude, outside this repo) for
 approval → CC implements (with a changelog entry where "Git hygiene" below
 requires one) → CC commits to its own branch and stops → Lyle reviews the
-branch diff on his own device, merges and pushes. **CC never commits to main, and never pushes, merges, rebases or rewrites history. For each task CC creates a branch `cc/<piece>` from the current main, commits to it with explicit `git add <file>` (never `-A` or `.`), and stops. Lyle reviews `git diff main..cc/<piece>`, runs the leak check, squash-merges, commits and pushes. A Tier 3 piece's branch is merged before the next piece's branch is created. See `docs/GIT_WORKFLOW.md`.** This holds
+branch diff on his own device, merges and pushes. **CC never commits to main, and never pushes, merges, rebases or rewrites history, except the rebase after a merge in `docs/GIT_WORKFLOW.md` (decision #32 D6). For each task CC creates a branch `cc/<piece>` from the current main, commits to it with explicit `git add <file>` (never `-A` or `.`), and stops. Lyle reviews `git diff main..cc/<piece>`, runs the leak check, squash-merges, commits and pushes. A Tier 3 piece's branch is merged before the next piece's branch is created. See `docs/GIT_WORKFLOW.md`.** This holds
 regardless of how small or obviously-correct a change seems.
 
 Work one task at a time. Verify before proceeding to the next. Do not batch
@@ -418,7 +418,7 @@ a project document, it says so. Rules B1 to B3 were proposed by CC
 (`changelog/2026-10-03-agents-working-rules-draft.md`, Part B).
 
 **1. Branches, not main; never start a server against `data/`.**
-- CC never commits to main, and never pushes, merges, rebases or rewrites history. For each task CC creates a branch `cc/<piece>` from the current main, commits to it with explicit `git add <file>` (never `-A` or `.`), and stops. Lyle reviews `git diff main..cc/<piece>`, runs the leak check, squash-merges, commits and pushes. A Tier 3 piece's branch is merged before the next piece's branch is created. See `docs/GIT_WORKFLOW.md`.
+- CC never commits to main, and never pushes, merges, rebases or rewrites history, except the rebase after a merge in `docs/GIT_WORKFLOW.md` (decision #32 D6). For each task CC creates a branch `cc/<piece>` from the current main, commits to it with explicit `git add <file>` (never `-A` or `.`), and stops. Lyle reviews `git diff main..cc/<piece>`, runs the leak check, squash-merges, commits and pushes. A Tier 3 piece's branch is merged before the next piece's branch is created. See `docs/GIT_WORKFLOW.md`.
 - Before committing, CC confirms `git branch --show-current` names its `cc/` branch. The hooks in `.git/hooks` (see `docs/GIT_WORKFLOW.md`) refuse commits on main and all pushes; CC does not inspect, edit or bypass them and never uses `--no-verify`. *(Review conversation, 2026-10-04; `CLAUDE.md` "Git hygiene".)*
 - CC does not start a server against `data/`. A server on a scratch store (the play kit) is started only when the task
   says so, and only after every resolved directory is confirmed under the scratch root. Server startup calls
@@ -491,7 +491,8 @@ text (tool descriptions, result texts, refusal texts) counts as Tier 3 and is li
 - `git status` confirmed clean before every commit — no unrelated files
   riding along.
 - Commit only on the task's `cc/<piece>` branch. After creating it, never switch to main.
-- Never `git push`, `merge`, `rebase`, `reset --hard`, `branch -D`, or change `git config`.
+- Never `git push`, `merge`, `rebase`, `reset --hard`, `branch -D`, or change `git config`. The one
+  exception is the rebase after a merge in `docs/GIT_WORKFLOW.md` (decision #32 D6).
 - Commit messages are public, so they follow the public-repo rules (rule 3): no keys, account names or real
   conversation text.
 - Changelog entries are for Tier 2 and Tier 3 work and for behaviour changes (what changed, why, what was tested,

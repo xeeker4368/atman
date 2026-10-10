@@ -5,17 +5,19 @@ S1–S12 rather than re-argued; revision 6 (S32 onward) adds the second authored
 
 What this assembles
 -------------------
-Every turn's prompt is five parts, in this order (S11, S32):
+Every turn's prompt is seven parts, in this order (S11, S32):
 
 1. ``soul.md``                — identity: what it is, persistence, naming, declining.
 2. ``operational.md``         — record-protecting procedure: when the system runs,
                                 tool honesty, the correction wording.
 3. current-situation block    — timestamp, elapsed time, and its gap statement.
-4. retrieved chunks           — each rendered with when it happened, in local time.
-5. windowed history           — **not** text in the system prompt; the message
+4. speaker line               — "You are talking with <name>.", on every turn with a person.
+5. earlier tools              — the system's list of tools earlier replies used (decision #32 D4).
+6. retrieved chunks           — each rendered with when it happened, in local time.
+7. windowed history           — **not** text in the system prompt; the message
                                 array that follows it.
 
-Parts 1–4 are the system message. Part 5 is separate because that is what it
+Parts 1–6 are the system message. Part 7 is separate because that is what it
 structurally is, and because it puts the live conversation closest to the
 generation point.
 
@@ -898,6 +900,10 @@ class AssembledPrompt:
     #: operational.md, reported apart from soul.md so the budget stays legible.
     operational_chars: int = 0
     situation_chars: int = 0
+    #: The speaker line (:func:`speaker_line`), its own part so the parts sum to ``system``.
+    speaker_chars: int = 0
+    #: The earlier-tools list (``earlier_tools.system_list``), its own part as well.
+    earlier_tools_chars: int = 0
     retrieved_chars: int = 0
     scaffolding_chars: int = 0
     budget: BudgetBreakdown | None = None
@@ -927,6 +933,26 @@ class AssembledPrompt:
 _SECTION_SEP = "\n\n"
 
 
+#: Who is speaking, stated on every turn with a person. Its own part, never inside the
+#: situation block: the gate reads that block, and before this line existed it named the
+#: speaker only on a first message or after a gap of 15 minutes or more, so on most turns no
+#: name was anywhere in the prompt while soul.md says each turn tells it who is speaking.
+SPEAKER_LINE = "You are talking with {name}."
+
+
+def speaker_line(speaker: str | None) -> str:
+    """The speaker line for ``speaker`` (the authenticated actor's stored name), or ``""``.
+
+    Checked like every other text this system writes, name included.
+    """
+    name = (speaker or "").strip()
+    if not name:
+        return ""
+    line = SPEAKER_LINE.format(name=name)
+    check_authored_text(line, "speaker line")
+    return line
+
+
 def _authored(soul_text: str | None) -> tuple[str, str]:
     """(soul, operational) for one assembly: the two files, or an injected text alone."""
     if soul_text is None:
@@ -939,8 +965,11 @@ def build_system_prompt(
     situation: str,
     retrieval: RetrievalResult | None = None,
     soul_text: str | None = None,
+    *,
+    speaker: str | None = None,
+    earlier_tools: str | None = None,
 ) -> str:
-    """soul.md, operational.md, the situation block, retrieved records (S11, S32).
+    """soul.md, operational.md, situation, speaker line, earlier-tools list, retrieved records.
 
     ``soul_text`` is injectable for tests; it is naming- and trait-checked, so a
     caller cannot route around those constraints by supplying its own. An
@@ -954,8 +983,11 @@ def build_system_prompt(
     check_authored_text(_RETRIEVED_HEADER, "retrieved-records header")
     check_authored_text(_SUPERSESSION_UNRESOLVED, "supersession-unresolved note")
 
+    said_by = speaker_line(speaker)
+    tools_list = (earlier_tools or "").strip()
     retrieved = render_retrieved(retrieval)
-    parts = [part for part in (soul, operational, situation, retrieved) if part]
+    parts = [part for part in (soul, operational, situation, said_by, tools_list, retrieved)
+             if part]
     return _SECTION_SEP.join(parts)
 
 
@@ -968,6 +1000,8 @@ def assemble_turn(
     *,
     current_turn_start: int | None = None,
     tool_schema_chars: int = 0,
+    speaker: str | None = None,
+    earlier_tools: str | None = None,
 ) -> AssembledPrompt:
     """Build the system prompt, then give history whatever window is left (S12).
 
@@ -1002,16 +1036,20 @@ def assemble_turn(
 
     situation = (situation or "").strip()
     _check_pairing(situation)
+    said_by = speaker_line(speaker)
+    tools_list = (earlier_tools or "").strip()
 
     def compose(retrieved: str) -> tuple[str, int, history.BudgetBreakdown]:
-        parts = [part for part in (soul, operational, situation, retrieved) if part]
+        parts = [part for part in (soul, operational, situation, said_by, tools_list, retrieved)
+                 if part]
         # Separators plus the retrieved header, which render_retrieved() folds into
         # the retrieved text. Counted against the system side so the two reported
         # figures sum to what was actually sent.
         scaffolding = max(0, len(parts) - 1) * len(_SECTION_SEP)
         budget = history.plan_budget(
             system_prompt_chars=(
-                len(soul) + len(operational) + len(situation) + scaffolding),
+                len(soul) + len(operational) + len(situation) + len(said_by)
+                + len(tools_list) + scaffolding),
             retrieved_chars=len(retrieved),
             context_tokens=context_tokens,
             tool_schema_chars=tool_schema_chars,
@@ -1026,6 +1064,8 @@ def assemble_turn(
             soul_chars=len(soul),
             operational_chars=len(operational),
             situation_chars=len(situation),
+            speaker_chars=len(said_by),
+            earlier_tools_chars=len(tools_list),
             retrieved_chars=len(retrieved),
             scaffolding_chars=scaffolding,
             budget=budget,

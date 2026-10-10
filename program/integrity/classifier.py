@@ -72,7 +72,13 @@ def classify(prompt: str) -> str:
     return ollama.chat_text(
         [{"role": "user", "content": prompt}],
         model=config.classifier_model(),
-        options={"num_predict": config.classifier_num_predict()},
+        # Temperature is pinned here (piece 3.1) so a verdict does not move with the chat
+        # temperature, which is a live setting. num_ctx is deliberately NOT overridden: a
+        # different value would reload the shared model on every alternation (fix plan A1).
+        options={
+            "num_predict": config.classifier_num_predict(),
+            "temperature": config.classifier_temperature(),
+        },
         timeout=config.classifier_timeout_seconds(),
     )
 

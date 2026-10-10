@@ -71,7 +71,7 @@ copying code from it. Two failure modes to watch for:
 
 ## Decisions that are already made
 
-`docs/DECISIONS.md` holds a 30-entry decision log (entries 1 to 30; `NOW.md` indexes them) covering what was settled before and
+`docs/DECISIONS.md` holds a 32-entry decision log (entries 1 to 32; `NOW.md` indexes them) covering what was settled before and
 during the build. **Treat every line there as DECIDED** — implement against it rather than
 relitigating it, and if a task seems to require deviating, stop and flag it
 instead of deciding silently. The ones most likely to be reinvented by accident:
@@ -118,7 +118,7 @@ complexity in the substrate is not the same thing as richness in the entity.
 
 ## Working rules that bite
 
-- **Branch, never main.** CC plans → the reviewer (Claude, outside this repo) approves → CC implements on a `cc/<piece>` branch (with a changelog entry where `AGENTS.md` "Git hygiene" requires one) and commits there → Lyle reviews `git diff main..cc/<piece>`, squash-merges and pushes. CC never commits to main and never pushes, merges, rebases or rewrites history. This holds regardless of how small or obviously-correct the change is.
+- **Branch, never main.** CC plans → the reviewer (Claude, outside this repo) approves → CC implements on a `cc/<piece>` branch (with a changelog entry where `AGENTS.md` "Git hygiene" requires one) and commits there → Lyle reviews `git diff main..cc/<piece>`, squash-merges and pushes. CC never commits to main and never pushes, merges, rebases or rewrites history, except the rebase after a merge in `docs/GIT_WORKFLOW.md` (decision #32 D6). This holds regardless of how small or obviously-correct the change is.
 - One task at a time, verified before the next. Do not batch unrelated changes.
 - **Stop and wait for review** after: database schema (initial or migration),
   provenance/source-trust semantics, `soul.md` and `operational.md` content and prompt assembly,

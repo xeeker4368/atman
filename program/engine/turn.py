@@ -553,9 +553,9 @@ def _answer(
     retrieved = _retrieve(content)
     history = db.get_conversation_messages(conversation_id)
     result = loop.run_turn(
-        # Earlier turns carry a one-line system record of the tools they called (3.3, B);
-        # the rows themselves stay as stored, for the origin below.
-        earlier_tools.with_tool_records(history),
+        # History goes as stored. What earlier replies' tools did is one system-written list
+        # in the system message, never a line inside the entity's own messages (#30, #32 D4).
+        history,
         situation,
         retrieved,
         registry=registry,
@@ -571,6 +571,10 @@ def _answer(
             _build_origin(conversation_id, user_message_id, history, retrieved)
             if _offers_a_tool_that_takes_origin(registry) else None
         ),
+        # Named on every turn, apart from the situation block, which names them only on a
+        # first message or after a gap of 15 minutes or more and is what the gate reads.
+        speaker=actor.name,
+        earlier_tools=earlier_tools.system_list(history),
     )
 
     if not result.text.strip():

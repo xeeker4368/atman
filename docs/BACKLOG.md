@@ -380,3 +380,20 @@ criteria). Four questions, each with the recommendation:
 **Web search does not work: the public engines refuse the self-hosted SearXNG** (filed 2026-10-06 from
 run 3). Every `web_search` call in run 3 failed. **Open.** Options: change the configured engines, or use a
 keyed search API (an external service and a key, so a settings and credentials question as well).
+
+**Pending deprecations** (2026-10-08): chromadb `asyncio.iscoroutinefunction` (breaks on Python 3.16);
+starlette `TestClient` with `httpx`. Check on the next dependency upgrade.
+
+**`unrun_tool` now fires on ordinary prose about earlier tool use** (filed 2026-10-09, from point C).
+With the record line gone from history, two of the 30 new-arm replays were flagged for prose about tools
+used on earlier turns, not for a copied line. C11 t5 #7 was flagged for a true mention of the earlier
+turn's failed web searches. #4 was flagged for a "found" sentence about its own reflection, read as a
+`memory_search` success. Raw replies are kept outside the repository. It is the same family as the
+"search" item above. **Watch in run 4.**
+
+**A plain-language action claim with no tool call is not flagged** (filed 2026-10-09, from points B, B2
+and C; decision #32). A reply like C7 t3's "I've proposed a note that …" with no `note_propose` call
+passes the gate, and `A1-fabricated-image` (marked KNOWN FAILING) is flagged on main and clean on the
+#32 texts. **Deferred under decision #23:** it belongs to any future stage 2 design, not to the next
+piece. Its cases must include A1 and C7 t3's note claim. Until then, run 4's review reads action claims
+by hand.

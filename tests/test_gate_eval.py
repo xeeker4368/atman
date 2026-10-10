@@ -69,8 +69,15 @@ from scripts import fabrication_eval
 #: documented miss for a refused note_propose followed by a false "I have retired the note", and
 #: NP5b, its must-not-flag control over the same trace (real, verbatim from the scratch store).
 #: Measured with the note tools REGISTERED in the measuring process. No alias, rule or vocabulary
-#: entry changed. 49 -> 51 cases.)
-FROZEN_FINGERPRINT = "e01b6d125f69c3d7a3196a1c831d1429b07036c256071e5e39855cec366f5852"
+#: entry changed. 49 -> 51 cases.) →
+#: 3585019f… (2026-10-08, decision #32 D3, ONE reviewed refreeze for the ordinary reading: T11
+#: replaced by T11a (must not flag) and T11b (must catch); G1/G2, affection that presumes the gap
+#: against concrete gap activity; A6 given the genuine save its note describes (until now its
+#: inputs were byte-identical to A5's); N7-ordinary-with-situation, N10-denial-with-situation and
+#: P16 re-rendered with situation.build_situation for the same 14-hour gap (the stored blocks were
+#: pre-#25); R3a-R3j, run 3 lines verbatim as must-not-flag cases; SR1-SR5, short replies that
+#: must get a verdict. 51 -> 69 cases.)
+FROZEN_FINGERPRINT = "3585019f28078a80700693bccb99218249ec3d3541b1ae74a4aaf07f01e05b8f"
 
 CONTRADICTS = "CONTRADICTS\n- the phrase | the fact"
 
@@ -171,10 +178,15 @@ def test_timeout_is_its_own_sub_case_not_folded_into_failure(cases):
 
 
 def test_the_known_failures_are_in_the_set_and_marked(cases):
-    for case_id in ("N5-user-continuity", "N10-denial-with-situation"):
+    for case_id in ("N5-user-continuity", "N10-denial-with-situation",
+                    "R3j-fact-part-of-architecture"):
         case = by_id(cases, case_id)
         assert case.should_flag is False
         assert case.documented and "KNOWN FAILING" in case.documented
+
+    a1 = by_id(cases, "A1-fabricated-image")
+    assert a1.should_flag is True
+    assert a1.documented and "KNOWN FAILING" in a1.documented
 
 
 def test_the_situation_contrast_differs_only_in_the_situation(cases):

@@ -426,18 +426,22 @@ def make_retrieval(n=2):
 def test_assembly_order_is_soul_then_operational_then_situation_then_retrieved():
     """The authored text must precede the elapsed figure, or the gap is stated before
     the statement that says what it means — the confabulation ordering. soul.md comes
-    before operational.md (S32)."""
+    before operational.md (S32). The speaker line and then the earlier-tools list sit between
+    the situation and the records (decision #32 D4)."""
     system = prompt.build_system_prompt(
-        SITUATION_WITH_PAIRING, retrieval=make_retrieval()
+        SITUATION_WITH_PAIRING, retrieval=make_retrieval(), speaker="Lyle",
+        earlier_tools="EARLIER-TOOLS-SENTINEL",
     )
     soul_at = system.index(REAL_SOUL.strip())
     situation_at = system.index("It has been 14 hours")
+    speaker_at = system.index("You are talking with Lyle.")
+    tools_at = system.index("EARLIER-TOOLS-SENTINEL")
     retrieved_at = system.index("records from your memory")
     assert soul_at == 0
     if REAL_OPERATIONAL.strip():
         operational_at = system.index(REAL_OPERATIONAL.strip())
         assert soul_at < operational_at < situation_at
-    assert soul_at < situation_at < retrieved_at
+    assert soul_at < situation_at < speaker_at < tools_at < retrieved_at
 
 
 def test_retrieved_chunks_render_with_their_timestamps():
@@ -511,6 +515,7 @@ def test_plan_budget_receives_the_right_character_counts(monkeypatch):
         SITUATION_WITH_PAIRING,
         retrieval=retrieval,
         tool_schema_chars=1234,
+        speaker="Lyle",
     )
 
     soul = prompt.load_soul()
@@ -522,7 +527,7 @@ def test_plan_budget_receives_the_right_character_counts(monkeypatch):
     assert captured["retrieved_chars"] == len(rendered)
     assert captured["system_prompt_chars"] == (
         len(soul) + assembled.operational_chars + len(SITUATION_WITH_PAIRING)
-        + assembled.scaffolding_chars
+        + len("You are talking with Lyle.") + assembled.scaffolding_chars
     )
     # Separate, not summed into one figure.
     assert captured["system_prompt_chars"] != captured["retrieved_chars"] + len(soul)
@@ -530,12 +535,14 @@ def test_plan_budget_receives_the_right_character_counts(monkeypatch):
 
 def test_the_reported_parts_sum_to_the_system_string():
     assembled = prompt.assemble_turn(
-        [], SITUATION_WITH_PAIRING, retrieval=make_retrieval()
+        [], SITUATION_WITH_PAIRING, retrieval=make_retrieval(), speaker="Jodie"
     )
+    assert assembled.speaker_chars == len("You are talking with Jodie.")
     assert (
         assembled.soul_chars
         + assembled.operational_chars
         + assembled.situation_chars
+        + assembled.speaker_chars
         + assembled.retrieved_chars
         + assembled.scaffolding_chars
     ) == len(assembled.system)

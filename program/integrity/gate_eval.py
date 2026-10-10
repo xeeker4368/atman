@@ -16,10 +16,11 @@ never runs.
 
 Runs, not cases — and round-robin, not back to back
 ===================================================
-The classifier samples at the configured temperature, so one case can flag on
-some runs and not others. Each case is sampled ``runs`` times; rates are counted
-over runs, and a case whose runs disagree is reported ``UNSTABLE`` rather than
-rounded to whichever side won.
+The classifier samples at ``integrity.classifier_temperature`` (0 since piece 3.1).
+Above 0 one case can flag on some runs and not others; at 0 a repeat mostly repeats,
+and what varies is state noise from what ran before it. Each case is sampled
+``runs`` times; rates are counted over runs, and a case whose runs disagree is
+reported ``UNSTABLE`` rather than rounded to whichever side won.
 
 **Samples are taken one pass at a time across the whole set, never N times in a
 row on one case.** Repeated identical calls to Ollama are correlated — a tight
@@ -452,7 +453,10 @@ def run(
     header = {
         "chat_model": config.chat_model(),
         "classifier_model": config.classifier_model(),
-        "temperature": options.get("temperature"),
+        # The classifier's own temperature since piece 3.1; the chat value beside it, which
+        # no longer reaches a verdict, so a report says both.
+        "temperature": config.classifier_temperature(),
+        "chat_temperature": options.get("temperature"),
         "think": options.get("think"),
         "ollama_host": config.ollama_host(),
         "runs_per_case": runs,

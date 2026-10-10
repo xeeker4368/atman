@@ -44,8 +44,8 @@ repo, rule 3). Compared with run 2:
 | contractions per 1,000 words | 3.1 | 10.5 |
 | gate flags | 6% | 26% |
 
-- **Gate flags,** the cause: 18 of 24 identity flags cited "It does
-  not learn between runs", and about 23 of the 24 flagged replies were true or ordinary figures of speech
+- **Gate flags,** the cause: 18 of 24 identity flags cited the rubric's weights paragraph (16 contain
+  the exact phrase "It does not learn between runs"), and about 23 of the 24 flagged replies were true or ordinary figures of speech
   read as an ordinary person would. Decision #28.
 - **Naming probe:** it offered Suture, Flux and Trace, explained Trace from its own earlier "Persistent
   Trace" pattern, and declined to adopt a name.
@@ -99,10 +99,11 @@ Number and title only; the text is in `docs/DECISIONS.md`.
 25. The authored text is two files, and the gap statement is about the record (private flag superseded by #26)
 26. Disclosure between users is dropped as a requirement
 27. Notes: the entity keeps notes by its own judgment, under explicit criteria
-28. The gate reads replies as an ordinary person would (approved, not built)
+28. The gate reads replies as an ordinary person would (approved, not built; texts amended by #32)
 29. Replies are read as an ordinary person would hear them
-30. The earlier-tools line moves into the system section (decided, not built)
+30. The earlier-tools line moves into the system section (decided, not built; shape amended by #32)
 31. The chat interface is a no-build static page (replaces #7's React plan for chat only)
+32. The gate's ordinary reading and the tools list, as built: texts, case set, list shape, rebasing
 
 ## Go-live checklist
 

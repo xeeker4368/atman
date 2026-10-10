@@ -355,7 +355,9 @@ def run(cases: Sequence[Case], runs: int) -> Report:
 
     header = {
         "classifier_model": config.classifier_model(),
-        "temperature": config.model_options().get("temperature"),
+        # The classifier's own temperature since piece 3.1, and the chat value beside it.
+        "temperature": config.classifier_temperature(),
+        "chat_temperature": config.model_options().get("temperature"),
         "runs_per_case": runs,
         "cases": len(cases),
         "cases_fingerprint": fingerprint(cases),

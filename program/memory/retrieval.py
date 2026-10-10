@@ -679,6 +679,10 @@ def _attach_supersessions(result: RetrievalResult) -> None:
     chunks = [c for item in result.results for c in (item, *item.siblings)]
     if not chunks:
         return
+    if not config.retrieval_render_corrections():
+        # Switched off (piece 3.1b): no query, no annotations, and the report stays
+        # "resolved", because nothing failed. The links are untouched.
+        return
     try:
         by_chunk, report = resolve_for_chunks([c.chunk_id for c in chunks])
     except Exception as exc:  # noqa: BLE001 — recorded, never silent; see above
