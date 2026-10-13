@@ -181,7 +181,7 @@ def test_migration_eight_failing_part_way_rolls_back_completely(
     monkeypatch.setattr(migrations, "_statements", real)   # by hand, never monkeypatch.undo()
     assert str(db.working_path()).startswith(str(isolated_data_dir)), "left the temp store"
     migrations.run_working_migrations()
-    assert migrations.current_version() == 8
+    assert migrations.current_version() == max(m.version for m in migrations.MIGRATIONS)
     assert ALL_OBJECT_NAMES <= names()
 
 

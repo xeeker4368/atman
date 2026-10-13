@@ -280,7 +280,11 @@ def _probe_call(name, **arguments):
 #: **Re-taken 2026-10-05 (batch 1)**, f118c933... -> this: the scenarios' retrieved records render
 #: with local times (3.4b) and an origin and end line (3.6), and the records header is reworded.
 #: What a fitting turn sends is otherwise unchanged. Stable across two runs.
-BEFORE_B20_B21 = "443de41e033b49e10ef9f410d1b4c48212ba153e922adbd8b93e7fab3a149fe2"
+#:
+#: **Re-taken 2026-10-09 (decision #35)**, 443de41e... -> this: the system prompt holds soul.md,
+#: which gains one sentence on describing its own states. With the previous soul.md (commit
+#: 1930965) the previous value holds. Stable across two runs.
+BEFORE_B20_B21 = "c82de6de727c01ef9c970d5ea29d9431718d37a3d7e51021c1b7954dc9431b03"
 
 
 def test_a_turn_that_fits_sends_what_it_sent_before_b20_b21(monkeypatch):

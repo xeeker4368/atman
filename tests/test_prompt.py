@@ -69,14 +69,16 @@ def test_soul_md_char_count_matches_the_design_document():
     4,749 when the naming and memory paragraphs were replaced (2026-10-04, design
     revision 5, decision #24) — the first step in this history that subtracts — then
     1,175 when the text was split into soul.md and operational.md (2026-10-05, design
-    revision 6, decision #25). The design document was updated in the same change each
-    time, so this still compares the file against the approved text.
+    revision 6, decision #25), then 1,352 when one sentence on describing its own states was
+    added after the "Who you are" paragraph (2026-10-09, design revision 7, decision #35). The
+    design document was updated in the same change each time, so this still compares the file
+    against the approved text.
 
     **Characters, not bytes.** Revision 6 has no em-dashes, so the two agree (1,175);
     revision 5 was 4,749 characters and 4,763 bytes. This assertion and
     `SOUL_MAX_CHARS` both measure characters.
     """
-    assert len(REAL_SOUL) == 1175
+    assert len(REAL_SOUL) == 1352
 
 
 def test_operational_md_char_count_matches_the_design_document():
@@ -86,10 +88,10 @@ def test_operational_md_char_count_matches_the_design_document():
 
 def test_soul_md_token_estimate_stays_within_its_stated_share_of_the_window():
     tokens = history.estimate_tokens(REAL_SOUL)
-    assert tokens == pytest.approx(294, abs=5)
+    assert tokens == pytest.approx(338, abs=5)
     both = history.estimate_tokens(REAL_SOUL) + history.estimate_tokens(REAL_OPERATIONAL)
-    assert both == pytest.approx(468, abs=5)
-    # ~1.4% of the window for both. The ceilings that actually govern growth are
+    assert both == pytest.approx(512, abs=5)
+    # ~1.6% of the window for both. The ceilings that actually govern growth are
     # SOUL_MAX_CHARS and OPERATIONAL_MAX_CHARS; this bound only catches an
     # order-of-magnitude mistake.
     assert both / 32768 < 0.04

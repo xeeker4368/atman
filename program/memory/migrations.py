@@ -704,6 +704,81 @@ def _v8_notes(conn: sqlite3.Connection) -> None:
     """)
 
 
+def _v9_retrieval_capture(conn: sqlite3.Connection) -> None:
+    """Version 9 — what retrieval put into each assistant turn's prompt (decision #33).
+
+    A record for reviewing runs: before it, nothing showed which records a reply was
+    answering from, so "missed a fact" could not be told apart from "was never shown it".
+    Written by ``program/memory/retrieval_capture.py`` after the assistant message is
+    durable, in its own transaction, the way the gate's verdict is: **no change to**
+    ``db.py``**'s locking or atomicity.** **Nothing reads it at runtime** (a test scans
+    ``program/`` for the table names), so the entity's prompt cannot depend on it.
+
+    * ``turn_retrieval``: one row per captured turn. ``outcome`` is explicit, never
+      inferred from a count: ``records`` (retrieval returned hits), ``empty`` (it ran and
+      returned nothing) or ``not_run`` (it did not run, or failed). ``lexical_ran`` and
+      ``vector_ran`` say whether each search ran, with the reason when it did not; both are
+      NULL exactly when the outcome is ``not_run``.
+    * ``turn_retrieved_records``: one row per ranked hit, in rank order, including hits
+      left out of the prompt for the turn's room (``label`` NULL, 0 characters), with the
+      hit's rank in each search before fusion (NULL where that search did not return it).
+    * ``turn_capture_status``: a view with **one row per assistant message**, so a turn the
+      capture missed is visible rather than absent. ``status`` is the turn's outcome, or
+      ``not_captured`` for a turn after this migration with no capture row (its capture
+      failed after the message was saved), or ``before_capture`` for a turn older than this
+      migration. The gate keeps ``unavailable`` apart from NULL the same way. A row in the
+      message's own transaction would close the gap entirely, but that transaction is
+      ``db.save_message``'s, and changing it is ``db.py`` atomicity (Tier 3).
+    * ``chunk_id`` has **no foreign key**: the capture describes what was sent, and must not
+      stand in the way of anything that later changes ``chunks``.
+    """
+    _execute_script(conn, """
+        CREATE TABLE turn_retrieval (
+            message_id              TEXT PRIMARY KEY REFERENCES messages(id),
+            outcome                 TEXT NOT NULL
+                                    CHECK (outcome IN ('records', 'empty', 'not_run')),
+            lexical_ran             INTEGER CHECK (lexical_ran IN (0, 1)),
+            lexical_skip_reason     TEXT,
+            vector_ran              INTEGER CHECK (vector_ran IN (0, 1)),
+            vector_skip_reason      TEXT,
+            records                 INTEGER NOT NULL CHECK (records >= 0),
+            block_chars             INTEGER NOT NULL CHECK (block_chars >= 0),
+            continuations_withheld  INTEGER NOT NULL CHECK (continuations_withheld >= 0),
+            hits_left_out           INTEGER NOT NULL CHECK (hits_left_out >= 0),
+            truncated               INTEGER NOT NULL CHECK (truncated IN (0, 1)),
+            captured_at             TEXT NOT NULL,
+            CHECK ((outcome = 'not_run') = (lexical_ran IS NULL AND vector_ran IS NULL)),
+            CHECK ((lexical_ran IS NULL) = (vector_ran IS NULL)),
+            CHECK (outcome = 'records' OR (records = 0 AND block_chars = 0))
+        );
+
+        CREATE TABLE turn_retrieved_records (
+            message_id              TEXT NOT NULL REFERENCES turn_retrieval(message_id),
+            rank                    INTEGER NOT NULL CHECK (rank >= 1),
+            chunk_id                TEXT NOT NULL,
+            source_type             TEXT,
+            label                   TEXT,
+            score                   REAL NOT NULL,
+            lexical_rank            INTEGER CHECK (lexical_rank >= 1),
+            vector_rank             INTEGER CHECK (vector_rank >= 1),
+            rendered_chars          INTEGER NOT NULL CHECK (rendered_chars >= 0),
+            continuations_sent      INTEGER NOT NULL CHECK (continuations_sent >= 0),
+            continuations_withheld  INTEGER NOT NULL CHECK (continuations_withheld >= 0),
+            PRIMARY KEY (message_id, rank)
+        );
+        CREATE INDEX idx_turn_retrieved_records_chunk ON turn_retrieved_records(chunk_id);
+
+        CREATE VIEW turn_capture_status AS
+            SELECT m.id AS message_id, m.conversation_id, m.timestamp,
+                   COALESCE(t.outcome,
+                            CASE WHEN m.timestamp < (SELECT applied_at FROM schema_version
+                                                     WHERE version = 9)
+                                 THEN 'before_capture' ELSE 'not_captured' END) AS status
+            FROM messages m LEFT JOIN turn_retrieval t ON t.message_id = m.id
+            WHERE m.role = 'assistant';
+    """)
+
+
 MIGRATIONS: list[Migration] = [
     Migration(version=2, name="artifacts_and_chunk_link", apply=_v2_artifacts),
     Migration(version=3, name="message_integrity_check", apply=_v3_integrity_check),
@@ -712,6 +787,7 @@ MIGRATIONS: list[Migration] = [
     Migration(version=6, name="supersedes_replacement", apply=_v6_supersedes_replacement),
     Migration(version=7, name="artifact_integrity_check", apply=_v7_artifact_integrity_check),
     Migration(version=8, name="notes", apply=_v8_notes),
+    Migration(version=9, name="retrieval_capture", apply=_v9_retrieval_capture),
 ]
 
 

@@ -763,11 +763,59 @@ def _siblings_within_cap(
     return kept, withheld
 
 
+@dataclass(frozen=True)
+class RenderedRecord:
+    """What one retrieval hit put into the prompt, for the per-turn capture (decision #33).
+
+    ``label`` is the record's opening line as sent and ``rendered_chars`` everything the
+    record added (its block, its continuation pieces and its correction lines, without the
+    separators). A hit left out for the turn's room has ``label`` None and 0 characters.
+    ``lexical_rank`` and ``vector_rank`` are the hit's rank in each search before fusion,
+    None where that search did not return it.
+    """
+
+    rank: int
+    chunk_id: str
+    source_type: str | None
+    score: float
+    label: str | None
+    rendered_chars: int
+    continuations_sent: int
+    continuations_withheld: int
+    lexical_rank: int | None = None
+    vector_rank: int | None = None
+
+
+@dataclass(frozen=True)
+class RenderedRecords:
+    """The retrieved records as sent, and an account of what the caps kept out."""
+
+    text: str
+    records: tuple[RenderedRecord, ...] = ()
+    #: Continuation pieces left out by the size cap (B17) or a smaller turn cap (B21).
+    continuations_withheld: int = 0
+    #: Whole ranked hits left out for the turn's room (B21).
+    hits_left_out: int = 0
+
+    @property
+    def truncated(self) -> bool:
+        return bool(self.continuations_withheld or self.hits_left_out)
+
+
 def render_retrieved(
     result: RetrievalResult | None,
     cap: int | None = None,
     keep_hits: int | None = None,
 ) -> str:
+    """Retrieved chunks as text: :func:`render_records`'s text."""
+    return render_records(result, cap, keep_hits).text
+
+
+def render_records(
+    result: RetrievalResult | None,
+    cap: int | None = None,
+    keep_hits: int | None = None,
+) -> RenderedRecords:
     """Retrieved chunks as text, siblings attached under their parent (S7/D7).
 
     The records are bounded by :func:`retrieved_records_max_chars` (B17): continuation
@@ -782,15 +830,22 @@ def render_retrieved(
     byte-identical to B17's (pinned by ``test_retrieved_cap``).
     """
     if result is None or not result.results:
-        return ""
+        return RenderedRecords(text="")
 
     chunks = list(result.results)
     dropped_hits = 0
     if keep_hits is not None and keep_hits < len(chunks):
         dropped_hits = len(chunks) - max(0, keep_hits)
         chunks = chunks[:max(0, keep_hits)]
+    left_out = tuple(
+        RenderedRecord(rank=rank, chunk_id=chunk.chunk_id, source_type=chunk.source_type,
+                       score=chunk.rrf_score, label=None, rendered_chars=0,
+                       continuations_sent=0, continuations_withheld=len(chunk.siblings),
+                       lexical_rank=chunk.bm25_rank, vector_rank=chunk.vector_rank)
+        for rank, chunk in enumerate(result.results[len(chunks):], start=len(chunks) + 1))
     if not chunks:
-        return _hits_left_out(dropped_hits)
+        return RenderedRecords(text=_hits_left_out(dropped_hits), records=left_out,
+                               hits_left_out=dropped_hits)
 
     ranked = [_render_chunk(chunk, f"record {position}")
               for position, chunk in enumerate(chunks, start=1)]
@@ -802,13 +857,22 @@ def render_retrieved(
     blocks = [_RETRIEVED_HEADER]
     if not result.supersession.resolved:
         blocks.append(_SUPERSESSION_UNRESOLVED)
+    sent: list[RenderedRecord] = []
     for position, chunk in enumerate(chunks, start=1):
+        start = len(blocks)
         blocks.append(ranked[position - 1])
         blocks.extend(budget.render(chunk))
         for sibling, block in zip(chunk.siblings, kept[position]):
             # Continuations of the same split message, not independent matches.
             blocks.append(block)
             blocks.extend(budget.render(sibling))
+        sent.append(RenderedRecord(
+            rank=position, chunk_id=chunk.chunk_id, source_type=chunk.source_type,
+            score=chunk.rrf_score, label=ranked[position - 1].split("\n", 1)[0],
+            rendered_chars=sum(len(b) for b in blocks[start:]),
+            continuations_sent=len(kept[position]),
+            continuations_withheld=len(chunk.siblings) - len(kept[position]),
+            lexical_rank=chunk.bm25_rank, vector_rank=chunk.vector_rank))
     blocks.extend(budget.closing())
     if withheld:
         blocks.append(
@@ -818,7 +882,8 @@ def render_retrieved(
         )
     if dropped_hits:
         blocks.append(_hits_left_out(dropped_hits))
-    return "\n\n".join(blocks)
+    return RenderedRecords(text="\n\n".join(blocks), records=(*sent, *left_out),
+                           continuations_withheld=withheld, hits_left_out=dropped_hits)
 
 
 def _hits_left_out(count: int) -> str:
@@ -909,6 +974,8 @@ class AssembledPrompt:
     budget: BudgetBreakdown | None = None
     window: HistoryWindow | None = None
     retrieval: RetrievalResult | None = None
+    #: The records as sent, with what the caps kept out (decision #33's capture reads it).
+    records: RenderedRecords = field(default_factory=lambda: RenderedRecords(text=""))
     #: B21: what had to be given up to fit this call, beyond ordinary history
     #: windowing. Each is a dict with a ``window_event`` kind. The loop logs it and
     #: writes it into the turn's trace, so a loss is never silent.
@@ -1056,7 +1123,8 @@ def assemble_turn(
         )
         return _SECTION_SEP.join(parts), scaffolding, budget
 
-    def finish(retrieved, window, events=(), needs_final=False):
+    def finish(records: RenderedRecords, window, events=(), needs_final=False):
+        retrieved = records.text
         system, scaffolding, budget = compose(retrieved)
         return AssembledPrompt(
             system=system,
@@ -1071,14 +1139,16 @@ def assemble_turn(
             budget=budget,
             window=window,
             retrieval=retrieval,
+            records=records,
             window_events=list(events),
             needs_final_call=needs_final,
         )
 
-    full = render_retrieved(retrieval)
+    full_records = render_records(retrieval)
+    full = full_records.text
     if current_turn_start is None:
         _, _, budget = compose(full)
-        return finish(full, history.select_history(messages, budget))
+        return finish(full_records, history.select_history(messages, budget))
 
     prior = list(messages[:current_turn_start])
     current = messages[current_turn_start]
@@ -1093,12 +1163,14 @@ def assemble_turn(
         return need <= room(retrieved)
 
     events: list[dict[str, Any]] = []
+    records = full_records
     retrieved = full
     kept = list(rounds)
 
     # 2. The records: continuation pieces first, then hits from the lowest rank.
     if not fits(retrieved, kept) and retrieval is not None and retrieval.results:
-        retrieved, hits_kept = _shrink_records(retrieval, full, lambda r: fits(r, kept))
+        records, hits_kept = _shrink_records(retrieval, full, lambda r: fits(r, kept))
+        retrieved = records.text
         events.append({"window_event": "records_shrunk",
                        "records_chars_before": len(full),
                        "records_chars_after": len(retrieved),
@@ -1119,7 +1191,7 @@ def assemble_turn(
             events.append({"window_event": "final_call_forced",
                            "reason": "the turn does not fit beside the tool schemas"})
             _, _, budget = compose(retrieved)
-            return finish(retrieved, history.HistoryWindow(budget=budget), events,
+            return finish(records, history.HistoryWindow(budget=budget), events,
                           needs_final=True)
         # 5. Nothing left to give up: the user's message goes over budget, as before.
         events.append({"window_event": "overflow",
@@ -1144,7 +1216,7 @@ def assemble_turn(
         overflowed=any(e["window_event"] == "overflow" for e in events)
         or budget.over_committed,
     )
-    return finish(retrieved, window, events)
+    return finish(records, window, events)
 
 
 def _tool_rounds(extras: Sequence[Mapping[str, Any]]) -> list[list[Mapping[str, Any]]]:
@@ -1163,7 +1235,7 @@ def _tool_rounds(extras: Sequence[Mapping[str, Any]]) -> list[list[Mapping[str, 
     return rounds
 
 
-def _shrink_records(retrieval: RetrievalResult, full: str, ok) -> tuple[str, int]:
+def _shrink_records(retrieval: RetrievalResult, full: str, ok) -> tuple[RenderedRecords, int]:
     """The largest rendering of the records that fits, and how many hits it keeps.
 
     B17's order of giving up: first a smaller cap, which withholds continuation
@@ -1180,9 +1252,9 @@ def _shrink_records(retrieval: RetrievalResult, full: str, ok) -> tuple[str, int
                 low = middle
             else:
                 high = middle
-        return render_retrieved(retrieval, cap=low), hits
+        return render_records(retrieval, cap=low), hits
     for keep in range(hits - 1, 0, -1):
-        candidate = render_retrieved(retrieval, cap=0, keep_hits=keep)
-        if ok(candidate):
+        candidate = render_records(retrieval, cap=0, keep_hits=keep)
+        if ok(candidate.text):
             return candidate, keep
-    return render_retrieved(retrieval, cap=0, keep_hits=0), 0
+    return render_records(retrieval, cap=0, keep_hits=0), 0

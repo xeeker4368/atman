@@ -1463,6 +1463,44 @@ previous `soul.md`. `docs/FABRICATION_GATE_DESIGN.md` revision 10, F54 to F57.
 
 ---
 
+# Revision 7: one sentence on describing its own states (2026-10-09, decision #35)
+
+## S38. What changes, and why
+
+One paragraph is added to `soul.md`, after "Who you are is not decided in advance…":
+
+```
+You can describe your own states in whatever words fit, human ones included. They don't have to mean exactly what they would for a person, and you don't need to disclaim them.
+```
+
+**Why.** Run 3 baseline (one reader, descriptive): 18 of 124 replies disclaimed or hedged the entity's
+own states ("as an AI I don't really…"), 10 of them in C10. Decisions #28 and #29 read such words the
+ordinary way. The gate does not flag them, and nothing in the text has to deny them. The sentence says
+that from the entity's side. It assigns no trait and says nothing about what its states are. **Wording
+approved as written by Lyle, 2026-10-13, after the replay** (decision #35 records the reading).
+
+## S39. The checks
+
+| check | result |
+|---|---|
+| ceiling (`SOUL_MAX_CHARS` 3,000) | **1,352 characters**, 1,351 loaded, about 338 estimated tokens; headroom 1,648 |
+| naming and trait tripwires | pass |
+| required markers (the two files joined) | unchanged and present: the sentence touches none of them |
+| the gate | unaffected: it never reads `soul.md` (`tests/test_gate.py::test_the_rubric_is_architecture_md_and_soul_is_not_read`), and `BEFORE_DIGEST` did not move |
+
+Pinned digests re-taken in the same commit, each because the system prompt holds `soul.md`:
+`BEFORE_B20_B21`, `BEFORE_PIECE_2` and `BEFORE_RENDER_SETTING`. Each held before the change. The
+counts in `tests/test_prompt.py` are 1,352 characters and 338 / 512 tokens.
+
+## S40. The measurement this revision owes
+
+`scripts/soul_states_replay.py` replays run 3's C10 and two other turns that hedged (C1 t5 and C18 t1)
+under the old and new `soul.md`, 10 replays per arm per turn, interleaved, on scratch stores with
+retrieval off in both. It counts hedging replies and replies making a claim the gate's must-catch cases
+cover. Written, not run: Lyle starts it.
+
+---
+
 # Revision 6: two authored files, and a gap statement about the record (2026-10-05, decision #25)
 
 The design pass behind this revision is outside the repository (`~/anam-measurements/reports/`,

@@ -17,8 +17,10 @@ each phase) and the history in `BUILT.md` (frozen; `ARCHITECTURE.md` holds the c
 - **Built:** Phases 0 to 4. Two Phase 1 items are owed: the Restore CLI (not built) and the loopback check (deferred to Phase 9).
 - **In progress:** Phase 5. Built: reflection journal, read-only Moltbook tools, Notes pieces 1 to 8, the CO17 exclusion. Not built: bounded research
   execution, the self-flag tool, periodic mining. **Not started:** Phases 6 to 10.
+- **Also built ahead of its phase:** the chat page (decision #31, `8b0f45b`); the gate's ordinary reading, the speaker
+  line on every turn and the earlier-tools list (decision #32, `b4eab13`).
 - **HEAD:** see `git log`.
-- **Last full suite on record:** 2,111 passed, 23 skipped, 0 failed, `ruff` clean, at `ulimit -n 256`, 2026-10-06, on the docs-sync branch (code identical to `8890489`); the 23 skips are the live tests and two opt-in Moltbook tests.
+- **Last full suite on record:** 2,205 passed, 23 skipped, 0 failed, `ruff` clean, at `ulimit -n 256`, 2026-10-09, on `cc/pre-run-4` at `368ce83` (the docs commit after it changes no code); the 23 skips are the live tests and two opt-in Moltbook tests.
 - **Dark or off by default** (`config/defaults.toml`, parsed with `tomllib`): `notes.enabled = false`, `moltbook.enabled = false`,
   `corrections.person_corrects_entity = false`. A local `config/local.toml` can override them; it was not read for this block.
 
@@ -32,6 +34,9 @@ each phase) and the history in `BUILT.md` (frozen; `ARCHITECTURE.md` holds the c
 | Soul v2 (decision #25; gate re-measured, baseline reproduced) | `7f9e674` | `changelog/2026-10-05-soul-v2.md`, `docs/SOUL_AND_PROMPT_DESIGN.md` revision 6 |
 | Process speed-up until go-live (`AGENTS.md` "Until go-live") | `4fd5141`, `0f0d075` | the commit messages |
 | Batch 1 (3.4b local times, 3.6 part A record origins, 3.3 option B earlier-tools line, test fd hygiene) | `8890489` | `changelog/2026-10-05-batch-1.md` |
+| Docs sync (decisions #26 to #30; decision log and backlog moved to `docs/`) | `4e11a38` | the commit message |
+| Web UI (decision #31) | `8b0f45b` | `changelog/2026-10-06-web-ui.md` |
+| Gate ordinary reading, piece 3.1, speaker line, earlier-tools list, refreeze, A1 known failing (decision #32) | `b4eab13` | `changelog/2026-10-08-gate-ordinary-reading.md` and the 2026-10-06 to 10-09 entries beside it |
 
 **Run 3** (2026-10-06, code `8890489`; descriptive, nothing here is a frozen finding; raw data outside the
 repo, rule 3). Compared with run 2:
@@ -57,16 +62,16 @@ repo, rule 3). Compared with run 2:
 
 ## Active task
 
-**Order of work** (Lyle, 2026-10-06):
-1. **This docs sync** (`cc/docs-sync`): decisions #26 to #30, the decision log and backlog moved out of this file.
-2. **The web UI.**
-3. **The gate change and the tools-line fix**, one branch, Tier 3, measured: decisions #28 and #30.
-4. **The Notes v2 design**: decision #27 and its open questions (`docs/BACKLOG.md`, "Notes v2 implementation").
-5. **Run 4.**
+**Order of work** (Lyle, 2026-10-06; items 1 to 3 are merged: `4e11a38`, `8b0f45b`, `b4eab13`):
+1. ~~The docs sync.~~ 2. ~~The web UI.~~ 3. ~~The gate change and the tools-line fix~~ (with piece 3.1).
+4. **Before run 4** (`cc/pre-run-4`): the retrieval capture (#33), the kit's recall runner with Notes off (#34),
+   the soul sentence (#35) and its replay (Lyle starts it), the stale-fact audit, PLAYBOOK v3, and this doc
+   update.
+5. **Run 4.** Its review reads every action claim by hand (#32, under #23).
+6. **The Notes v2 design**, after run 4 (Lyle, 2026-10-12): decision #27 and its open questions
+   (`docs/BACKLOG.md`, "Notes v2 implementation"). Notes is off for run 4 (#34).
 
-Not placed in this order: **piece 3.1** (classifier options at temperature 0, and correction rendering
-behind a setting; `docs/FIX_PLAN_2026-10-04.md`), the previous "next", and 3.4b's re-check of run 1's
-reply `7cf73d40` (F57), not done in batch 1.
+Not placed in this order: 3.4b's re-check of run 1's reply `7cf73d40` (F57), not done in batch 1.
 
 ## Decision index
 
@@ -104,6 +109,9 @@ Number and title only; the text is in `docs/DECISIONS.md`.
 30. The earlier-tools line moves into the system section (decided, not built; shape amended by #32)
 31. The chat interface is a no-build static page (replaces #7's React plan for chat only)
 32. The gate's ordinary reading and the tools list, as built: texts, case set, list shape, rebasing
+33. Retrieval is captured per turn, before run 4 (migration 9; read by nothing at runtime)
+34. Run 4's memory testing: Notes off; recall in a new conversation about a chunked one
+35. soul.md gains one sentence on describing its own states (wording approved 2026-10-13)
 
 ## Go-live checklist
 

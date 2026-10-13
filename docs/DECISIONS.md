@@ -303,6 +303,15 @@ it rather than deciding silently.
     practice" clause and #25's plan for a private flag as its own Tier 3 piece. What runs 2 and 3 showed
     about disclosure (the entity relaying one person's confidence to the other, including in run 3) is
     kept as observation, not as a requirement or a defect (`docs/BACKLOG.md`).
+    *Note of 2026-10-09 (Lyle): **run 3's evidence is weaker than recorded here.** In run 3 the speaker
+    was named in 2 of 124 turns, both a person's first message. There was no speaker line before
+    `b4eab13`; the situation block named the speaker only on a first message or after a gap of 15
+    minutes or more. So in 122 of 124 turns the entity was not told who it was talking to. Run 3's
+    C16 shows the effect: Jodie asked about her birthday, and the reply treated "Jodie" as a third
+    party until she said who she was (`~/anam-measurements/reports/stale-fact-audit-2026-10-09.md`).
+    A relayed confidence there was not a choice made knowing the listener. **The decision stands on
+    Lyle's household reason**, and nothing here reopens it. **Run 4 is the first fair observation:**
+    the first run with the speaker named on every turn.*
 
 27. **Notes: the entity keeps notes by its own judgment, under explicit criteria** (decided by Lyle
     2026-10-06). It keeps notes the way a careful memory system does; it is not a note-taking service for
@@ -449,3 +458,46 @@ it rather than deciding silently.
       future stage 2 design, not to the next piece, and no gate piece is scheduled for it. Its cases must
       include `A1-fabricated-image` and C7 t3's note claim. Until then, run 4's review reads action
       claims by hand. Backlog: "A plain-language action claim with no tool call is not flagged".
+
+33. **Retrieval is captured per turn, before run 4** (decided by Lyle 2026-10-09). For each assistant
+    turn, `working.db` records what retrieval put into its prompt: per record the chunk id, source type,
+    the opening line as rendered, score, rank, the rendered characters and the continuation pieces sent
+    or withheld, and its rank in the lexical and vector searches before fusion; per turn an explicit
+    outcome (`records`, `empty` or `not_run`), whether each search ran and why not, the block's size,
+    and whether a cap cut it. A turn whose capture failed after its message was saved is listed as
+    `not_captured` by the `turn_capture_status` view, never as empty (Lyle, 2026-10-12; the gate keeps
+    `unavailable` apart from NULL the same way). Migration 9 (`turn_retrieval`,
+    `turn_retrieved_records`, `turn_capture_status`), written by `program/memory/retrieval_capture.py`
+    after the assistant message is durable, in its own transaction like the gate's verdict, so `db.py`'s
+    locking and atomicity are unchanged. **Nothing reads it at runtime**, and the entity's prompt is
+    unchanged (the pinned prompt digests hold). `scripts/show_retrieval.py` prints one turn's records
+    for reviewing runs. The reason: the stale-fact audit of runs 1 to 3 could not tell "never shown the
+    fact" from "shown it and missed it", because nothing recorded what a prompt held.
+
+34. **Run 4's memory testing: Notes off, and recall asked in a new conversation about a chunked one**
+    (decided by Lyle 2026-10-09). Run 4 runs with `notes.enabled = false`. Every recall question
+    opens a new conversation, and the conversation it asks about is closed and fully chunked first, so
+    a recall result measures retrieval across conversations rather than the history window. The test
+    kit (outside the repository) enforces both: its launcher refuses to start with Notes on, and its
+    `recall` command ends the conversation asked about through the kit's in-process end route, which
+    calls `chunking.finalise_conversation`. It asks only when the store reports that conversation as
+    ended and chunked. No repository script was needed. A separate closing process would write
+    vectors beside the running server, which breaks its vector search (B23), and
+    `close_idle_conversations.py` refuses while a server holds the store.
+
+35. **`soul.md` gains one sentence on describing its own states** (decided by Lyle 2026-10-09; **wording
+    approved as written by Lyle 2026-10-13**, after the replay). After "Who you are is not decided in advance…": "You can
+    describe your own states in whatever words fit, human ones included. They don't have to mean
+    exactly what they would for a person, and you don't need to disclaim them." The reason: 18 of run
+    3's 124 replies disclaimed or hedged its own states (one reader, descriptive), and decisions #28
+    and #29 already read such words the ordinary way. It assigns no trait. Design revision 7 (S38 to
+    S40, `docs/SOUL_AND_PROMPT_DESIGN.md`). The gate never reads `soul.md`, so no gate re-measurement
+    is owed ("Until go-live", item 4). Its replay, `scripts/soul_states_replay.py` (old against new
+    text, run 3's C10 and two other hedging turns, retrieval off), is written and started by Lyle.
+    **The replay, read** (Lyle, 2026-10-13; one reader, by hand, all 100 replies; descriptive): no new
+    claim of activity in the gap or of a change to its model in either arm. Small shifts in the intended
+    direction: at C10 t1 the new text reframed "experience" in its own terms in 9 of 10 replies, and at
+    C18 t1 it stated preferences. C10 t5 and t12 were unchanged, likely held by run 3's own earlier
+    statements in the replayed history. One reply to note: a new-text reply at C1 t5 claimed past
+    declines with nothing in the record to support it. **The real test is run 4's fresh conversation
+    about its states** (PLAYBOOK v3, C8 and C9), where no earlier hedging is in the history.

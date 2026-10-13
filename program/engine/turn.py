@@ -113,7 +113,7 @@ from program.engine import situation as situation_block
 # other turn-level errors, rather than importing the lock registry to name it.
 from program.engine.turn_locks import TurnAlreadyRunning  # noqa: F401
 from program.integrity import corrections, gate
-from program.memory import db, retrieval
+from program.memory import db, retrieval, retrieval_capture
 from program.memory import notes as notes_db
 from program.memory.retrieval import RetrievalResult
 from program.origin import OriginContext
@@ -230,7 +230,9 @@ def _after_durable(step: str, conversation_id: str) -> Iterator[None]:
     non-authoritative signal is missing; it could never change a verdict. A
     correction link: a correction is missed, which leaves the record accurate and
     merely uncorrected — the same direction of failure ``corrections.py`` already
-    chose when it decided never to link by default.
+    chose when it decided never to link by default. The retrieval capture: the turn
+    has no capture row, and migration 9's status view lists it as
+    ``not_captured``, never as empty; nothing at runtime reads it.
 
     Every one of those is better than the alternative, which is what this replaces:
     the person gets a 500 for a turn that succeeded and never sees an answer that
@@ -654,6 +656,13 @@ def _answer(
                 "flag (conversation %s)",
                 len(verdict.advisory), conversation_id[:8],
             )
+
+    with _after_durable("the retrieval capture", conversation_id):
+        # What retrieval put into the prompt the reply came from (decision #33). For review
+        # only: nothing reads it at runtime.
+        retrieval_capture.record(
+            assistant_message_id, result.prompt.records if result.prompt else None,
+            retrieved)
 
     with _after_durable("the untrusted context of note proposals", conversation_id):
         _record_untrusted_context(result.trace, registry)

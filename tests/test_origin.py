@@ -183,7 +183,11 @@ def existing_behaviour_digest(monkeypatch, actor):
 #: **Re-taken 2026-10-09 (the A1 fix)**, 382154e8... -> this: it hashes every gate prompt, and
 #: `_PROMPT`'s label precedence gained "or CONTRADICTS-TOOL". With the previous gate.py restored,
 #: the previous value holds.
-BEFORE_PIECE_2 = "2ef64bd7289aa760bd79896de305ab7a0ce2232c80a55d332c1ae351edad293c"
+#:
+#: **Re-taken 2026-10-09 (decision #35)**, 2ef64bd7... -> this: every turn's system prompt holds
+#: soul.md, which gains one sentence on describing its own states. With the previous soul.md
+#: (commit 1930965) the previous value holds. Stable across two runs.
+BEFORE_PIECE_2 = "4be99ef97f138fc1737f08911f3ca52c0a956974d0d09d669854e04ce26d79cd"
 
 
 def test_existing_tools_and_turns_are_byte_identical_to_before_piece_2(store, monkeypatch):

@@ -67,6 +67,8 @@ def test_working_has_the_expected_tables(store):
         "chunks",
         "supersedes",
         "settings",
+        "turn_retrieval",
+        "turn_retrieved_records",
     }
 
 

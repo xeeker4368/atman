@@ -35,6 +35,11 @@ finish line. The entity has no name; "Anam" is the substrate.
   texts before #32; `point_b.py` the #32 rubric and prompt on the refrozen set and run 3's replies, old
   texts against new; `point_c.py` whether the entity still copies the tool record once it moves into the
   system message. Each docstring gives its command.
+- **`soul_states_replay.py`** (decision #35): run 3's hedging turns under the old and new `soul.md`; its
+  docstring gives the command, and `--dry-run` checks the setup without a model call.
+- **Reviewing a run:** `show_retrieval.py --db PATH MESSAGE_ID` prints what retrieval put into one
+  assistant turn's prompt (decision #33); `--status` counts every turn's capture status and lists any
+  not captured. Read-only, no `program` import.
 - **`_scratch.py`:** the helper for running anything against a scratch store.
 
 ## Run something against a scratch store

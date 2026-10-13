@@ -28,7 +28,12 @@ from program.tools import memory_search
 
 #: sha256 of the passive system prompt and the memory_search result over the scenario below,
 #: computed on the code before `render_corrections` existed. See the module docstring.
-BEFORE_RENDER_SETTING = "c4cb8962fd8a3ec88bff4ff3f24ba6717256a25243fb7e7a50914f33fbe5f5ab"
+#:
+#: **Re-taken 2026-10-09 (decision #35)**, c4cb8962... -> this: the passive system prompt holds
+#: soul.md, which gains one sentence on describing its own states. The rendering of corrections is
+#: unchanged: with the previous soul.md (commit 1930965) the previous value holds. Stable across
+#: two runs.
+BEFORE_RENDER_SETTING = "f8c8e42c872370480bd8ada463ca7d000923eb26b576ca46cd8ab6e06061b624"
 
 QUERY = "dentist Tuesday"
 
