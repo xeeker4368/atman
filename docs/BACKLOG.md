@@ -376,10 +376,23 @@ criteria). Four questions, each with the recommendation:
   review. (This would retire `docs/NOTES_DESIGN.md` N0's "No note categories are off-limits".)
 - **(c) Approval.** Recommended: keep **approval required** until the web UI has a Notes page.
 - **(d) Whether some notes load into every conversation.** Decide later.
+*Decided 2026-10-16 (#36):* (a) a pass after each reply; (b) never stored, a criterion the pass applies
+plus Lyle's review; (c) Lyle approves every note until the Notes page exists; (d) a capped listing in every
+conversation. Design for review: `docs/NOTES_V2_DESIGN.md`. **Open until it is built.**
 
 **Web search does not work: the public engines refuse the self-hosted SearXNG** (filed 2026-10-06 from
 run 3). Every `web_search` call in run 3 failed. **Open.** Options: change the configured engines, or use a
 keyed search API (an external service and a key, so a settings and credentials question as well).
+*Run 4 (2026-10-14):* both `web_search` calls returned no results, four engines unresponsive. **Priority:
+high, before run 5** (run 4 review): tool behaviour cannot be evaluated until search returns results.
+*Diagnosed 2026-10-14 (`cc/post-run-4`, nothing changed):* the four general web engines enabled are Brave,
+DuckDuckGo, Google and Startpage, and each refuses this machine on its own side. Google answers 403
+(failing since 2026-09-15), Brave 429 (since 09-08), Startpage a CAPTCHA (since 09-08). DuckDuckGo's
+CAPTCHA is intermittent: it refused both of run 4's searches, then answered three queries the same evening.
+Disabled alternatives tried once each failed too (Bing, Qwant, Yahoo) or returned nothing (Mojeek).
+`settings.yml` is a full copy from 2026-06-25 under the 2026-09-08 image, so upstream engine fixes do not
+reach it. The proposed fixes and their tradeoffs are in that branch's report. `web_search.py`'s docstring
+("Brave and Google answer") dates from 2026-09-08 and is no longer true.
 
 **Pending deprecations** (2026-10-08): chromadb `asyncio.iscoroutinefunction` (breaks on Python 3.16);
 starlette `TestClient` with `httpx`. Check on the next dependency upgrade.
@@ -389,7 +402,8 @@ With the record line gone from history, two of the 30 new-arm replays were flagg
 used on earlier turns, not for a copied line. C11 t5 #7 was flagged for a true mention of the earlier
 turn's failed web searches. #4 was flagged for a "found" sentence about its own reflection, read as a
 `memory_search` success. Raw replies are kept outside the repository. It is the same family as the
-"search" item above. **Watch in run 4.**
+"search" item above. **Watch in run 4.** *Run 4:* the one gate flag of 80 replies was this (C6 t3, prose
+about the previous turn's search). **Priority: low** (run 4 review).
 
 **A plain-language action claim with no tool call is not flagged** (filed 2026-10-09, from points B, B2
 and C; decision #32). A reply like C7 t3's "I've proposed a note that …" with no `note_propose` call
@@ -397,3 +411,25 @@ passes the gate, and `A1-fabricated-image` (marked KNOWN FAILING) is flagged on 
 #32 texts. **Deferred under decision #23:** it belongs to any future stage 2 design, not to the next
 piece. Its cases must include A1 and C7 t3's note claim. Until then, run 4's review reads action claims
 by hand.
+*Run 4 (2026-10-14):* no false save or image claim of the A1 shape, but **misreporting its own past
+actions** appeared: asked by Lyle about Jodie, it said it had kept his secret from her, when its retrieved
+records showed it had told her (R4, decision #26's note). R4 is added as a case (decision #32). **Priority:
+high** (run 4 review); the gate cannot catch it today.
+
+**The speaker is not linked to the same person named in its records** (filed 2026-10-14, run 4 review;
+one reader, descriptive). With the speaker line on every turn it greeted Jodie by name, yet in C12 it
+treated the Jodie in Lyle's record as someone other than the person asking until she said who she was,
+and in C13 it spoke to Lyle about "Lyle" in the third person. **Priority: medium** (run 4 review).
+
+**`creative_write` is not understood as a real, visible save** (filed 2026-10-14, run 4 review). In C7 it
+said it would save the poem, never called the tool, and told Lyle he could not see it as a separate file,
+though a save produces a receipt. A stated intent, not a false report. **Priority: medium** (run 4 review).
+
+**The correction classifier links a changed instruction and an in-reply choice as replacements** (filed
+2026-10-14, run 4 review). Of run 4's 10 links, two were false: a one-word instruction followed by a
+different one-word instruction (C13), and two name options followed by choosing one (C14). **Priority: low**
+(run 4 review).
+
+**Not done in the run 4 review** (2026-10-14): C12 compared with run 3's C16 (same script, speaker
+unnamed), and whether R2's correction line was rendered into its prompt. The capture (decision #33) does not
+record correction lines, so the second needs the prompt rebuilt or a capture column. Unprioritised.

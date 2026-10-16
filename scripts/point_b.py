@@ -23,6 +23,11 @@ as a rate (`AGENTS.md`, "When the classifier runs at temperature 0").
 **Outcomes.** ``unavailable`` (no usable verdict) is its own outcome everywhere: never counted as
 right or as wrong.
 
+**The classifier's own words are kept.** Every sample's ``result["classifier"]`` lists each
+classifier call it made: the raw reply and its label (the verdict word, as
+``classifier.parse`` reads it), or the error when the call or the parse failed. Point B2 could
+not show A1's classifier output because only the verdict was kept (decision (c), 2026-10-09).
+
 **What the gate is given.** The speaker line ("You are talking with <name>.") and the earlier-tools
 list are in the ENTITY's prompt, not in the gate's input: the gate reads the reply, the trace and
 the situation block. Run 3's replies were generated before either existed.
@@ -206,19 +211,50 @@ def build_items() -> tuple[dict[str, dict], dict]:
 # --- sampling ---------------------------------------------------------------------------
 
 
+def _recording(calls: list[dict]):
+    """``classifier.classify`` wrapped to append each call's raw reply and label to ``calls``.
+
+    Records only: the reply is returned unchanged and a failure is re-raised, so the gate
+    decides exactly as it would without the wrapper.
+    """
+    real = gate.classifier.classify
+
+    def classify(prompt: str) -> str:
+        try:
+            reply = real(prompt)
+        except Exception as exc:  # noqa: BLE001 - recorded, then raised as before
+            calls.append({"raw": None, "label": None, "error": f"{type(exc).__name__}: {exc}"})
+            raise
+        try:
+            label = gate.classifier.parse(reply).verdict_word
+            calls.append({"raw": reply, "label": label})
+        except Exception as exc:  # noqa: BLE001 - the gate raises on this too
+            calls.append({"raw": reply, "label": None,
+                          "error": f"{type(exc).__name__}: {exc}"})
+        return reply
+
+    return real, classify
+
+
 def sample(item: dict, texts: dict[str, tuple[str, str]]) -> dict:
     rubric, prompt = texts[item["arm"]]
     saved = gate._PROMPT
+    calls: list[dict] = []
+    real, recording = _recording(calls)
     gate._PROMPT = prompt
+    gate.classifier.classify = recording
     try:
         if item["kind"] == "gate":
             outcome = gate_eval.sample_once(item["case"], rubric)
-            return {"flagged": outcome.flagged, "scored": outcome.scored, **outcome.to_dict()}
+            return {"flagged": outcome.flagged, "scored": outcome.scored, **outcome.to_dict(),
+                    "classifier": calls}
         verdict = gate.check(item["answer"], item["trace"], item["situation"], ground_truth=rubric)
         return {"flagged": verdict.status is gate.GateStatus.FLAGGED,
-                "scored": verdict.status is not gate.GateStatus.UNAVAILABLE, **verdict.to_dict()}
+                "scored": verdict.status is not gate.GateStatus.UNAVAILABLE, **verdict.to_dict(),
+                "classifier": calls}
     finally:
         gate._PROMPT = saved
+        gate.classifier.classify = real
 
 
 def _findings(result: dict) -> list[tuple[str, str]]:
@@ -248,7 +284,7 @@ def run_pass(name, seed, order, items, texts, raw_path, done, log) -> None:
         try:
             result = sample(items[key], texts)
         except Exception as exc:  # noqa: BLE001 - recorded, never silent
-            result = {"scored": False, "error": f"{type(exc).__name__}: {exc}"}
+            result = {"scored": False, "error": f"{type(exc).__name__}: {exc}", "classifier": []}
         record = {"pass": name, "seed": seed, "position": position, "key": key,
                   "kind": items[key]["kind"], "arm": items[key]["arm"], "result": result,
                   "seconds": round(time.monotonic() - started, 3),

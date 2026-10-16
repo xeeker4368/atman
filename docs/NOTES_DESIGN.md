@@ -15,7 +15,9 @@ this document asks for is collected in N17. Known gaps are collected in N18.
 
 This section governs the rest of the document. Where a later section conflicts with it, this section
 wins and the later section is to be revised by the Notes v2 design (open questions:
-`docs/BACKLOG.md`, "Notes v2 implementation"). Nothing below has been rewritten yet.
+`docs/BACKLOG.md`, "Notes v2 implementation"). Nothing below has been rewritten yet. *Decision #36
+(2026-10-16) answers those questions; `docs/NOTES_V2_DESIGN.md` (for review) says which sections below
+it replaces.*
 
 **Purpose.** The entity keeps notes by its own judgment under explicit criteria, the way a careful
 memory system does. It is not a note-taking service for whatever it is told: a request like "make a

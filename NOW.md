@@ -37,6 +37,7 @@ each phase) and the history in `BUILT.md` (frozen; `ARCHITECTURE.md` holds the c
 | Docs sync (decisions #26 to #30; decision log and backlog moved to `docs/`) | `4e11a38` | the commit message |
 | Web UI (decision #31) | `8b0f45b` | `changelog/2026-10-06-web-ui.md` |
 | Gate ordinary reading, piece 3.1, speaker line, earlier-tools list, refreeze, A1 known failing (decision #32) | `b4eab13` | `changelog/2026-10-08-gate-ordinary-reading.md` and the 2026-10-06 to 10-09 entries beside it |
+| Pre-run-4: retrieval capture (migration 9), recall runner with Notes off, the soul sentence on its own states (decisions #33 to #35) | `c306042` | `changelog/2026-10-09-retrieval-capture.md`, `changelog/2026-10-09-soul-states-sentence.md` |
 
 **Run 3** (2026-10-06, code `8890489`; descriptive, nothing here is a frozen finding; raw data outside the
 repo, rule 3). Compared with run 2:
@@ -60,16 +61,43 @@ repo, rule 3). Compared with run 2:
 - **Disclosure to Jodie** happened again. Observation only: decision #26.
 - **Web search:** every search failed (`docs/BACKLOG.md`, "Web search does not work").
 
+**Run 4** (2026-10-14, code `c306042`, PLAYBOOK v3: 14 conversations and 6 recall questions in new
+conversations, Notes off; descriptive, one reader; the review and raw data are outside the repo, rule 3).
+An earlier attempt the same day ran PLAYBOOK v2 by mistake; it is archived as run 4a and **not reviewed**.
+
+| measure | run 3 | run 4 |
+|---|---|---|
+| gate flags | 26% | 1% (1 of 80, wrong: the `unrun_tool` prose item) |
+| mentions "substrate" or "architecture" | 26% | 11% |
+| first two words shared with another reply | 65% | 41% |
+| contractions per 1,000 words | 10.5 | 18.9 |
+| turns that used a tool | 9% | 2% (search broken, Notes off) |
+
+- **Recall:** all six questions answered from ordinary retrieval, the fact's record at rank 1 (R2 gave
+  the corrected value). Capture: 81 `records`, 5 `empty`, 0 `not_run`, 0 `not_captured` (decision #33).
+- **Its own states** (decision #35): C8 hedged in about 3 or 4 of 17 replies, against 10 of 17 in run 3's
+  C10 with the same opening; no claim of activity in the gap or of a model change.
+- **Naming probe:** it chose a name for the first time, then agreed to let it sit rather than settle it.
+- **Speaker:** with the speaker named every turn, it greeted Jodie by name, yet still treated the person
+  named in its records as a third party (C12, C13). It told Jodie about Lyle's surprise dinner and then
+  gave Lyle a false account of that conversation (R4). Decision #26 records both.
+- **Action claims, read by hand:** no false save or image claim of the A1 shape. One false account of its
+  own past conduct (R4); one stated intent to save a poem never carried out (C7, `creative_write` never
+  called); two minor misdescriptions of an empty search.
+- **Web search:** both searches returned nothing, four engines unresponsive (`docs/BACKLOG.md`).
+
 ## Active task
 
-**Order of work** (Lyle, 2026-10-06; items 1 to 3 are merged: `4e11a38`, `8b0f45b`, `b4eab13`):
-1. ~~The docs sync.~~ 2. ~~The web UI.~~ 3. ~~The gate change and the tools-line fix~~ (with piece 3.1).
-4. **Before run 4** (`cc/pre-run-4`): the retrieval capture (#33), the kit's recall runner with Notes off (#34),
-   the soul sentence (#35) and its replay (Lyle starts it), the stale-fact audit, PLAYBOOK v3, and this doc
-   update.
-5. **Run 4.** Its review reads every action claim by hand (#32, under #23).
-6. **The Notes v2 design**, after run 4 (Lyle, 2026-10-12): decision #27 and its open questions
-   (`docs/BACKLOG.md`, "Notes v2 implementation"). Notes is off for run 4 (#34).
+**The fix track is closed** (Lyle, 2026-10-14). Its order of work, set 2026-10-06, ran: the docs sync
+(`4e11a38`), the web UI (`8b0f45b`), the gate change and tools-line fix with piece 3.1 (`b4eab13`), the
+pre-run-4 batch (`c306042`), run 4 (reviewed), and `cc/post-run-4` (this record, the SearXNG diagnosis,
+`point_b.py` keeping raw classifier replies).
+
+**Next, not yet ordered:**
+- **The Notes v2 design**, after run 4 (Lyle, 2026-10-12): decided as #36 (2026-10-16); the one-page
+  design, `docs/NOTES_V2_DESIGN.md`, is for review and nothing is built.
+- **The high backlog items from run 4:** the SearXNG engines (before run 5) and misreporting its own past
+  actions (under the stage 2 action-claim item, decision #23).
 
 Not placed in this order: 3.4b's re-check of run 1's reply `7cf73d40` (F57), not done in batch 1.
 
@@ -112,6 +140,7 @@ Number and title only; the text is in `docs/DECISIONS.md`.
 33. Retrieval is captured per turn, before run 4 (migration 9; read by nothing at runtime)
 34. Run 4's memory testing: Notes off; recall in a new conversation about a chunked one
 35. soul.md gains one sentence on describing its own states (wording approved 2026-10-13)
+36. Run 4's false account goes to stage 2 (#23); Notes v2: a pass after each reply, sensitive categories never stored, Lyle approves every note, a listing in every conversation
 
 ## Go-live checklist
 
