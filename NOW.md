@@ -94,9 +94,10 @@ pre-run-4 batch (`c306042`), run 4 (reviewed), and `cc/post-run-4` (this record,
 `point_b.py` keeping raw classifier replies).
 
 **Next, not yet ordered:**
-- **The Notes v2 design**, after run 4 (Lyle, 2026-10-12): decided as #36 (2026-10-16); the one-page
-  design, `docs/NOTES_V2_DESIGN.md`, is for review and nothing is built.
-- **The high backlog items from run 4:** the SearXNG engines (before run 5) and misreporting its own past
+- **The Notes v2 design**, after run 4 (Lyle, 2026-10-12): decided as #36 and #37 (2026-10-16); the
+  design, `docs/NOTES_V2_DESIGN.md` revision 2, is for review and nothing is built.
+- **The high backlog items from run 4:** the SearXNG engines (before run 5; option 1 applied 2026-10-16
+  and search still returns nothing, option 2 written and not run) and misreporting its own past
   actions (under the stage 2 action-claim item, decision #23).
 
 Not placed in this order: 3.4b's re-check of run 1's reply `7cf73d40` (F57), not done in batch 1.
@@ -141,10 +142,11 @@ Number and title only; the text is in `docs/DECISIONS.md`.
 34. Run 4's memory testing: Notes off; recall in a new conversation about a chunked one
 35. soul.md gains one sentence on describing its own states (wording approved 2026-10-13)
 36. Run 4's false account goes to stage 2 (#23); Notes v2: a pass after each reply, sensitive categories never stored, Lyle approves every note, a listing in every conversation
+37. The note pass runs once per conversation, at close (amends #36(a))
 
 ## Go-live checklist
 
-Every line is from `BUILD_PLAN.md` Phase 10 or from an open item in `docs/BACKLOG.md`. Nothing is ticked: none of these is done.
+Every line is from `BUILD_PLAN.md` Phase 10 or from an open item in `docs/BACKLOG.md`. Only the Docker memory cap is ticked; nothing else here is done.
 
 - [ ] Full database wipe executed and verified (decision #16; Phase 10). Phase 10's checkpoint says to confirm with Lyle before executing it.
 - [ ] Go-live reset command built and tested (Phase 10, Tier 3).
@@ -154,7 +156,7 @@ Every line is from `BUILD_PLAN.md` Phase 10 or from an open item in `docs/BACKLO
 - [ ] Pre-go-live scripted soak test, before the wipe (Phase 10). A human-driven pass is to be added as its own line once the UI ships (Phase 10, "Revisit once the UI ships").
 - [ ] Final launch config/profile (Phase 10).
 - [ ] Rotate the Moltbook API key before Phase 8; it was pasted unredacted into chat once. *(Lyle, 2026-10-04.)*
-- [ ] Cap Docker memory for the SearXNG container. *(Lyle, 2026-10-04.)*
+- [x] Cap Docker memory for the SearXNG container. *(Lyle, 2026-10-04.)* Done 2026-10-16: `mem_limit` 512m on core, 128m on valkey, confirmed with `docker inspect`.
 - [ ] B22 closed before go-live (`archive.db` has no triggers). *(Lyle, 2026-10-04.)*
 - Also open, not stated as a go-live requirement in the docs: a tested restore (the Restore CLI is in Phase 1's task list and
   not built; `BUILT.md` "Backup / restore": a backup has never been restored).

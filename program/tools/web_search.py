@@ -24,12 +24,16 @@ that matter. Each is handled here and pinned by a test:
 
 Degradation is reported, not hidden
 -----------------------------------
-``unresponsive_engines`` is non-empty on **every** call against this instance —
-DuckDuckGo and Startpage CAPTCHA consistently, while Brave and Google answer. So
-a note names them, the same way ``memory_search`` names a retrieval leg that did
-not run. "I searched the web" is only partly true when half the engines refused,
-and that matters most when the answer is *nothing found*: nothing found with two
-engines down is a different claim from nothing found.
+``unresponsive_engines`` is often non-empty against this instance. On 2026-09-08
+DuckDuckGo and Startpage refused with a CAPTCHA while Brave and Google answered.
+By 2026-10-14 Google answered 403, Brave 429 and Startpage a CAPTCHA, so those
+three were disabled on 2026-10-16; DuckDuckGo, the one general web engine left,
+refuses with a CAPTCHA intermittently (``docs/BACKLOG.md``, "Web search does not
+work"). So a note names the engines that did not answer, the same way
+``memory_search`` names a retrieval leg that did not run. "I searched the web" is
+only partly true when engines refused, and that matters most when the answer is
+*nothing found*: nothing found with engines down is a different claim from
+nothing found.
 
 Web text is content, not instruction
 ------------------------------------

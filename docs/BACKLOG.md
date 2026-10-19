@@ -391,8 +391,21 @@ DuckDuckGo, Google and Startpage, and each refuses this machine on its own side.
 CAPTCHA is intermittent: it refused both of run 4's searches, then answered three queries the same evening.
 Disabled alternatives tried once each failed too (Bing, Qwant, Yahoo) or returned nothing (Mojeek).
 `settings.yml` is a full copy from 2026-06-25 under the 2026-09-08 image, so upstream engine fixes do not
-reach it. The proposed fixes and their tradeoffs are in that branch's report. `web_search.py`'s docstring
-("Brave and Google answer") dates from 2026-09-08 and is no longer true.
+reach it. The proposed fixes and their tradeoffs are in that branch's report.
+*Option 1 applied 2026-10-16* (Lyle approved; `cc/notes-v2-design-r2`): Google, Brave and Startpage are
+`disabled: true` in `settings.yml`. The same restart added memory caps: `mem_limit` 512m on core and 128m
+on valkey (`docker inspect`: 536,870,912 and 134,217,728 bytes). Timestamped backups of both files sit
+beside them. Same images as before. **It did not make search work:** three queries 15 s apart each returned
+0 results, DuckDuckGo refusing with a CAPTCHA every time and Wikidata timing out. The failure is now
+reported with two unresponsive engines instead of four. `web_search.py`'s docstring is corrected. **Still
+open, priority high before run 5.** Next: the option 2 test, written and not run
+(`~/anam-measurements/searxng/option2_test.sh TAG`: a pinned image with a minimal `use_default_settings`
+file, as a throwaway container on 127.0.0.1:18080). Option 3, a keyed API, if option 2 fails too.
+
+**`web_search`'s degradation note is false when no engine answered** (filed 2026-10-16). With zero results
+and every engine unresponsive, the result text still says "Other engines did, so these results are
+partial", which is what the entity reads. Seen in the 2026-10-16 queries (both general engines down).
+Prompt-facing text, Tier 2. **Priority: medium**, as it sits on every failed search until search works.
 
 **Pending deprecations** (2026-10-08): chromadb `asyncio.iscoroutinefunction` (breaks on Python 3.16);
 starlette `TestClient` with `httpx`. Check on the next dependency upgrade.

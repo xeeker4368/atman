@@ -530,3 +530,14 @@ it rather than deciding silently.
       - **(c) Lyle approves every note** until the web UI has a Notes page.
       - **(d) Every conversation gets a short listing of the existing notes,** a subject and one line
         each, under a stated size cap with its arithmetic shown. A note's full text is on demand.
+
+37. **The note pass runs once per conversation, when it is closed** (decided by Lyle 2026-10-16;
+    amends #36(a)). The pass that writes notes runs when a conversation is closed, in the idle sweep
+    and finalise path after final chunking, not after each reply. The reasons:
+    - It judges the whole conversation, so a fact said and then retracted produces nothing.
+    - It adds no wait to any turn.
+    - It cannot meet a turn-lock refusal (409) or a second pass on the same conversation.
+    - It is one call per conversation.
+
+    **Cost accepted:** a note exists only after the conversation closes and Lyle approves it. The
+    rest of #36 stands. The design is `docs/NOTES_V2_DESIGN.md` (revision 2, for review).
