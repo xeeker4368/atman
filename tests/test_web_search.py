@@ -172,8 +172,45 @@ def test_nothing_found_with_engines_down_says_both(payload):
         {"results": [], "unresponsive_engines": payload["unresponsive_engines"]}
     )
 
-    assert web_search.NO_RESULTS in text
-    assert "This search was incomplete" in text
+    assert text.startswith(web_search.NO_RESULTS)
+    assert "No search engine returned anything" in text
+    assert "duckduckgo (CAPTCHA)" in text
+
+
+def test_every_engine_down_is_said_plainly_and_claims_no_engine_answered():
+    """Run 4 and the 2026-10-16 queries: zero results, every engine failing. The
+    note said "Other engines did, so these results are partial", which was false."""
+    text = web_search.render_search_payload({
+        "results": [],
+        "unresponsive_engines": [["duckduckgo", "CAPTCHA"], ["wikidata", "timeout"]],
+    })
+
+    assert text.startswith(web_search.NO_RESULTS)
+    assert "No search engine returned anything" in text
+    assert "2 search engine(s) did not answer" in text
+    assert "duckduckgo (CAPTCHA); wikidata (timeout)" in text
+    assert "not a finding that the web has nothing" in text
+    assert "Other engines did" not in text
+    assert "partial" not in text
+    assert "results came from" not in text
+
+
+def test_partial_results_name_the_engines_that_answered(payload):
+    """The captured payload: Brave and Google answered, two engines did not."""
+    text = web_search.render_search_payload(payload)
+
+    assert "This search was incomplete: 2 search engine(s) did not answer" in text
+    assert "The results came from brave, google, so these results are partial" in text
+    assert "No search engine returned anything" not in text
+
+
+def test_partial_results_without_engine_names_still_say_some_engine_answered():
+    text = web_search.render_search_payload({
+        "results": [{"title": "t", "url": "u", "score": 1.0}],
+        "unresponsive_engines": [["duckduckgo", "CAPTCHA"]],
+    })
+
+    assert "Other engines did answer, so these results are partial" in text
 
 
 def test_a_healthy_search_carries_no_note():
@@ -240,8 +277,15 @@ def test_only_query_is_exposed(payload):
 
 def test_the_declared_timeout_sits_above_the_http_timeout_inside_it():
     """Same rule as memory_search: above what the code inside enforces, so a
-    real failure surfaces as its own error rather than an opaque timeout."""
-    assert WEB_SEARCH.resolved_timeout() == 15.0
+    real failure surfaces as its own error rather than an opaque timeout.
+
+    Since decision #39 the worst path is SearXNG failing slowly and then the Brave fallback:
+    SearXNG 10 + reserving the Brave call 10 + Brave 5 + recording its outcome 10 + margin 3
+    = 38 s, each term read from live config (`web_search.timeout_terms`)."""
+    terms = web_search.timeout_terms()
+    assert terms == {"searxng": 10.0, "reserve the Brave call": 10.0, "brave": 5.0,
+                     "record the outcome": 10.0, "margin": 3.0}
+    assert WEB_SEARCH.resolved_timeout() == sum(terms.values()) == 38.0
     assert WEB_SEARCH.resolved_timeout() > config.searxng_timeout_seconds()
     assert WEB_SEARCH.resolved_timeout() < config.agent_tool_budget_seconds()
 

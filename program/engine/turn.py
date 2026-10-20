@@ -604,7 +604,8 @@ def _answer(
             ", ".join(f.rule for f in verdict.findings) or verdict.semantic_error,
         )
 
-    trace_json = json.dumps(result.trace) if result.trace else None
+    # Stored form: snippets dropped while search.store_snippets is off (decision #39).
+    trace_json = json.dumps(loop.storable_trace(result.trace)) if result.trace else None
     try:
         assistant_message_id = db.save_message(
             conversation_id,

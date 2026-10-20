@@ -20,9 +20,9 @@ each phase) and the history in `BUILT.md` (frozen; `ARCHITECTURE.md` holds the c
 - **Also built ahead of its phase:** the chat page (decision #31, `8b0f45b`); the gate's ordinary reading, the speaker
   line on every turn and the earlier-tools list (decision #32, `b4eab13`).
 - **HEAD:** see `git log`.
-- **Last full suite on record:** 2,205 passed, 23 skipped, 0 failed, `ruff` clean, at `ulimit -n 256`, 2026-10-09, on `cc/pre-run-4` at `368ce83` (the docs commit after it changes no code); the 23 skips are the live tests and two opt-in Moltbook tests.
+- **Last full suite on record:** 2,270 passed, 23 skipped, 0 failed, `ruff` clean, at `ulimit -n 256`, 2026-10-20, on `cc/pre-run-5` at `df53848` (the docs commit after it changes no code); the 23 skips are the live tests and two opt-in Moltbook tests.
 - **Dark or off by default** (`config/defaults.toml`, parsed with `tomllib`): `notes.enabled = false`, `moltbook.enabled = false`,
-  `corrections.person_corrects_entity = false`. A local `config/local.toml` can override them; it was not read for this block.
+  `corrections.person_corrects_entity = false`, `search.fallback = "none"`, `search.store_snippets = false`. A local `config/local.toml` can override them; it was not read for this block.
 
 **Merged to main** (each found with `git log --grep`):
 
@@ -95,10 +95,20 @@ pre-run-4 batch (`c306042`), run 4 (reviewed), and `cc/post-run-4` (this record,
 
 **Next, not yet ordered:**
 - **The Notes v2 design**, after run 4 (Lyle, 2026-10-12): decided as #36 and #37 (2026-10-16); the
-  design, `docs/NOTES_V2_DESIGN.md` revision 2, is for review and nothing is built.
-- **The high backlog items from run 4:** the SearXNG engines (before run 5; option 1 applied 2026-10-16
-  and search still returns nothing, option 2 written and not run) and misreporting its own past
-  actions (under the stage 2 action-claim item, decision #23).
+  design, `docs/NOTES_V2_DESIGN.md` revision 3 (2026-10-19), is for review of its §1.3 and nothing is
+  built. Its first piece, the refreeze of the gate cases that name `note_propose`, is designed
+  (`cc/notes-refreeze-design`, `docs/NOTES_REFREEZE_DESIGN.md`) and its decisions are accepted; when it
+  lands, only the new AR1/AR1b pair is measured (3 shuffled passes at T=0, scratch store).
+- **Web search** (before run 5): SearXNG option 2 applied 2026-10-19 (image pinned to
+  `2026.10.19-d47cb96bf` in its `.env`, minimal `use_default_settings`); three default queries answered
+  by Brave and Google CSE. **Decision #39 (2026-10-20): SearXNG is the primary, the Brave Search API the
+  fallback**, after Lyle's side-by-side run (both 20/20). The fallback is **built on `cc/pre-run-5`, for
+  review** (Tier 3, `docs/BRAVE_SEARCH_DESIGN.md` revision 2): it calls Brave when SearXNG errors, times out
+  or finds nothing with engines down, counts every call in `working.db` (migration 10), warns at 900,
+  stops at 980 a month and 3 a turn, and keeps snippets out of stored traces until storage rights are
+  checked. It is **off until Lyle sets `[search] fallback = "brave"`** in `local.toml`. The false
+  "Other engines did" note is fixed (`cc/pre-run-5`).
+- **Misreporting its own past actions** (run 4, high): under the stage 2 action-claim item, decision #23.
 
 Not placed in this order: 3.4b's re-check of run 1's reply `7cf73d40` (F57), not done in batch 1.
 
@@ -143,6 +153,8 @@ Number and title only; the text is in `docs/DECISIONS.md`.
 35. soul.md gains one sentence on describing its own states (wording approved 2026-10-13)
 36. Run 4's false account goes to stage 2 (#23); Notes v2: a pass after each reply, sensitive categories never stored, Lyle approves every note, a listing in every conversation
 37. The note pass runs once per conversation, at close (amends #36(a))
+38. Web search's primary source is the Brave Search API; SearXNG is the fallback (order reversed by #39)
+39. SearXNG is web search's primary source, Brave the fallback (built on `cc/pre-run-5`, for review)
 
 ## Go-live checklist
 

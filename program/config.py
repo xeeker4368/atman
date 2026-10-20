@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import ipaddress
 import os
+import re
 import tomllib
 import urllib.parse
 from copy import deepcopy
@@ -310,6 +311,10 @@ def _load() -> dict[str, Any]:
     merged = deepcopy(_FALLBACK)
     merged = _deep_merge(merged, _read_toml(config_dir() / "defaults.toml"))
     merged = _deep_merge(merged, _read_toml(config_dir() / "local.toml"))
+    # The Brave key never enters the merged configuration: brave_api_key() reads it from
+    # local.toml itself, so nothing that reads or dumps this dict can reach it (#38, #39).
+    if isinstance(merged.get("search"), dict):
+        merged["search"].pop(BRAVE_KEY_NAME, None)
     return _apply_env(merged)
 
 
@@ -800,6 +805,133 @@ def searxng_max_results() -> int:
             f"thing as disabling the tool."
         )
     return value
+
+
+# --- Web search's Brave fallback (decisions #38, #39) ------------------------
+#
+# Every key is BOOTSTRAP-ONLY; config/defaults.toml [search] has the arithmetic.
+# docs/BRAVE_SEARCH_DESIGN.md is the design.
+
+#: The key's name in local.toml's [search] section. Never set anywhere else.
+BRAVE_KEY_NAME = "brave_api_key"
+
+#: What a Brave key may look like. Brave documents no format, so this is the shape of a
+#: token that can go in an HTTP header and nothing more; a ``BSA`` prefix is not required.
+_BRAVE_KEY_SHAPE = re.compile(r"[A-Za-z0-9_-]{20,128}")
+
+#: Words that mark a value as a placeholder rather than a key.
+_PLACEHOLDER_WORDS = ("your", "placeholder", "changeme", "example", "replace", "insert")
+
+#: How many calls the credit covers but the stop withholds (defaults.toml [search]).
+BRAVE_UNSEEN_CALLS = 20
+
+SEARCH_FALLBACKS = ("none", "brave")
+
+
+def search_fallback() -> str:
+    """``"none"`` (SearXNG only) or ``"brave"`` (Brave when SearXNG fails, decision #39)."""
+    value = str(get("search", "fallback", "none")).strip().lower()
+    if value not in SEARCH_FALLBACKS:
+        raise ConfigError(
+            f"search.fallback is {value!r}; it must be one of {', '.join(SEARCH_FALLBACKS)}."
+        )
+    return value
+
+
+def brave_api_key() -> str:
+    """The Brave Search API key, from ``config/local.toml`` ``[search] brave_api_key`` only.
+
+    Read from that file directly, never from the merged configuration (which drops it, see
+    ``_load``), from ``defaults.toml`` (public) or from the environment (there is no
+    ``ANAM_*`` variable for it). Raises :class:`ConfigError` when it is missing or malformed;
+    **the message names the file and the key, never the value.** The caller must not log,
+    trace or put the returned value in any message (``program/tools/brave.py``).
+    """
+    path = config_dir() / "local.toml"
+    where = f"{path.name} [search] {BRAVE_KEY_NAME}"
+    try:
+        value = _read_toml(path).get("search", {}).get(BRAVE_KEY_NAME)
+    except (OSError, tomllib.TOMLDecodeError, AttributeError):
+        raise ConfigError(f"{where} could not be read.") from None
+    if value is None:
+        raise ConfigError(
+            f"{where} is not set, and search.fallback is \"brave\". Set the key there, or set "
+            f"search.fallback to \"none\"."
+        )
+    if not isinstance(value, str) or not _BRAVE_KEY_SHAPE.fullmatch(value):
+        raise ConfigError(
+            f"{where} is malformed: it must be 20 to 128 characters of letters, digits, "
+            f"'_' or '-'. The value is not shown."
+        )
+    if any(word in value.lower() for word in _PLACEHOLDER_WORDS):
+        raise ConfigError(f"{where} looks like a placeholder, not a key. The value is not shown.")
+    return value
+
+
+def brave_timeout_seconds() -> float:
+    value = float(get("search", "brave_timeout_seconds", 5.0))
+    if value <= 0:
+        raise ConfigError(f"search.brave_timeout_seconds is {value}; it must be positive.")
+    return value
+
+
+def brave_credit_calls() -> int:
+    """How many requests the monthly credit buys, from the two published dollar figures."""
+    credit = float(get("search", "brave_credit_usd", 5.0))
+    price = float(get("search", "brave_price_per_1000_usd", 5.0))
+    if credit < 0 or price <= 0:
+        raise ConfigError(
+            f"search.brave_credit_usd ({credit}) must not be negative and "
+            f"search.brave_price_per_1000_usd ({price}) must be positive."
+        )
+    return int(credit / price * 1000)
+
+
+def brave_stop_monthly() -> int:
+    """Brave calls a month after which none is made. Never above the credit's calls."""
+    value = int(get("search", "brave_stop_monthly", 980))
+    credit_calls = brave_credit_calls()
+    if not 0 <= value <= credit_calls:
+        raise ConfigError(
+            f"search.brave_stop_monthly is {value}; it must be between 0 and {credit_calls}, "
+            f"the calls the monthly credit buys. Above that the credit runs out silently."
+        )
+    return value
+
+
+def brave_warn_monthly() -> int:
+    value = int(get("search", "brave_warn_monthly", 900))
+    if not 0 <= value <= brave_stop_monthly():
+        raise ConfigError(
+            f"search.brave_warn_monthly is {value}; it must be between 0 and "
+            f"search.brave_stop_monthly ({brave_stop_monthly()})."
+        )
+    return value
+
+
+def brave_max_per_turn() -> int:
+    value = int(get("search", "brave_max_per_turn", 3))
+    if value < 0:
+        raise ConfigError(f"search.brave_max_per_turn is {value}; it must not be negative.")
+    return value
+
+
+def search_store_snippets() -> bool:
+    """Whether a stored trace keeps web_search snippets (decision #39; storage rights)."""
+    return bool(get("search", "store_snippets", False))
+
+
+def check_search() -> None:
+    """Startup check for ``[search]``: every value parses, and with the Brave fallback on,
+    the key is present and well formed. Called from the app's ``lifespan``. Reads nothing
+    else and returns nothing: the key is not kept."""
+    search_fallback()
+    brave_timeout_seconds()
+    brave_warn_monthly()
+    brave_max_per_turn()
+    search_store_snippets()
+    if search_fallback() == "brave":
+        brave_api_key()
 
 
 # --- Moltbook, read-only (Phase 5; docs/MOLTBOOK_READ_DESIGN.md) ------------

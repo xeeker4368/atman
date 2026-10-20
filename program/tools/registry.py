@@ -106,6 +106,7 @@ IDs, no matching tool_result in trace"* — a lookup rather than a guess.
 
 from __future__ import annotations
 
+import contextvars
 import dataclasses
 import logging
 import re
@@ -205,6 +206,28 @@ class ToolOutput:
     @property
     def all_records(self) -> tuple[Record, ...]:
         return tuple(Record("artifact", i) for i in self.artifact_ids) + tuple(self.records)
+
+
+class StoredText(str):
+    """A result the model sees in full but whose STORED form is shorter (decision #39).
+
+    It is the string the model reads, so everything in the turn (the loop, the gate, the
+    receipts) handles it as that string. ``stored`` is what ``loop.storable_trace`` puts in
+    ``messages.tool_trace`` instead. Used by ``web_search`` when ``search.store_snippets`` is
+    off: the stored trace keeps each result's title and URL and drops its snippet.
+    """
+
+    stored: str
+
+    def __new__(cls, text: str, stored: str) -> "StoredText":
+        obj = super().__new__(cls, text)
+        obj.stored = stored
+        return obj
+
+
+def stored_form(value: Any) -> Any:
+    """The form of a trace value that is written to the store."""
+    return value.stored if isinstance(value, StoredText) else value
 
 
 class ArtifactWriteError(Exception):
@@ -511,7 +534,11 @@ def _run_in_thread(
         except BaseException as exc:  # noqa: BLE001 - re-raised or converted below
             box["exception"] = exc
 
-    thread = threading.Thread(target=target, name=f"tool-{tool.name}", daemon=True)
+    # The caller's context goes with the handler, so a per-turn ContextVar (the Brave
+    # fallback's per-turn count, decision #39) is the turn's own inside the thread too.
+    context = contextvars.copy_context()
+    thread = threading.Thread(
+        target=context.run, args=(target,), name=f"tool-{tool.name}", daemon=True)
     thread.start()
     thread.join(timeout)
     if thread.is_alive():

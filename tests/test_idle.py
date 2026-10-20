@@ -384,6 +384,42 @@ def test_the_floor_is_recomputed_from_the_loops_own_limits(monkeypatch):
     assert config.IN_FLIGHT_GRACE_FLOOR_MINUTES == 35
 
 
+def test_the_floor_holds_for_every_tools_own_timeout(monkeypatch):
+    """The floor's tool term is the turn's aggregate budget (120 s), not any one tool's
+    timeout: each dispatch is given min(the tool's timeout, what is left of the budget).
+    So the floor holds for a tool timeout of any size up to the budget, and this checks that
+    every catalogue tool sits inside it.
+
+    Re-run for decision #39, which raised web_search's timeout from 15 s to 38 s (SearXNG
+    10 + reserving the Brave call 10 + Brave 5 + recording its outcome 10 + margin 3). The
+    floor is unchanged: 40 + 300 + 1500 + 45 + 120 + 40 = 2045 s -> 35 minutes.
+    """
+    from program.engine import loop
+    from program.tools import catalog, web_search
+    from program.tools.registry import ToolRegistry
+
+    monkeypatch.delenv("ANAM_IN_FLIGHT_GRACE_MINUTES", raising=False)
+    config.reload()
+    budget = config.agent_tool_budget_seconds()
+    for tool in catalog.TOOLS:
+        assert tool.resolved_timeout() <= budget, tool.name
+    assert web_search.WEB_SEARCH.resolved_timeout() == sum(web_search.timeout_terms().values())
+    assert web_search.WEB_SEARCH.resolved_timeout() == 38.0
+
+    # The dispatch really is cut to what is left: with 7 s of budget left, 7 s is the limit.
+    seen = {}
+
+    class Spy(ToolRegistry):
+        def dispatch(self, name, arguments=None, timeout_seconds=None, **kwargs):
+            seen["limit"] = timeout_seconds
+            return super().dispatch(name, arguments, timeout_seconds=0, **kwargs)
+
+    loop._dispatch_call(Spy([web_search.WEB_SEARCH]),
+                        {"function": {"name": "web_search", "arguments": {"query": "x"}}}, 7.0)
+    assert seen["limit"] == 7.0
+    test_the_floor_is_recomputed_from_the_loops_own_limits(monkeypatch)
+
+
 def test_the_shipped_grace_is_above_the_floor_in_every_layer(monkeypatch):
     """Catches the drift that actually happened: two layers disagreeing.
 

@@ -109,3 +109,12 @@ too** (filed 2026-10-03, found with B23; **Tier 3, nothing changed**).
   does not fix B23; it limits what B23 costs.
 
 **CLOSED by piece 3.5 step 4** (2026-10-04, `git log --grep 'Piece 3.5 step 4'`): `store.query` is guarded the way `ollama.embed` already was, with the same log phrase, so the lexical leg's results survive a vector-store failure. The same step bounded the text sent to the embedder, which is the other way a long turn lost that leg. Cited in `ARCHITECTURE.md` under Memory / retrieval; changelog `changelog/2026-10-04-piece-3.5-lifecycle.md`.
+
+**`web_search`'s degradation note is false when no engine answered** (filed 2026-10-16). With zero results
+and every engine unresponsive, the result text still says "Other engines did, so these results are
+partial", which is what the entity reads. Seen in the 2026-10-16 queries (both general engines down).
+Prompt-facing text, Tier 2. **Priority: medium**, as it sits on every failed search until search works.
+**Closed 2026-10-19 on `cc/pre-run-5`:** with zero results the note now says that no search engine
+returned anything, names the ones that failed, and says this is not a finding that the web has nothing;
+with results it names the engines the results came from (`tests/test_web_search.py`). Changelog
+`changelog/2026-10-19-web-search-note.md`.

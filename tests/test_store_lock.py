@@ -239,9 +239,11 @@ def test_the_lock_is_taken_after_the_secret_check_and_the_probe():
         if not isinstance(statement, ast.Expr) or not isinstance(statement.value, ast.Constant)
     ]
     assert order[0].startswith("config.auth_session_secret")
-    assert order[1].startswith("capability.probe")
-    assert order[2].startswith("with store_lock.hold_for_server")
-    assert "db.init_databases()" in order[2], "the lock must cover the migration"
+    # Decision #39: [search] is checked beside the secret; it reads config files only.
+    assert order[1].startswith("config.check_search")
+    assert order[2].startswith("capability.probe")
+    assert order[3].startswith("with store_lock.hold_for_server")
+    assert "db.init_databases()" in order[3], "the lock must cover the migration"
 
 
 # ---------------------------------------------------------------------------

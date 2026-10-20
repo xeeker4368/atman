@@ -320,7 +320,21 @@ def _is_real_ollama(url: object) -> bool:
 _real_session_request = requests.sessions.Session.request
 
 
+class NetworkGuardViolation(BaseException):
+    """A test sent a request to a paid external API (decision #39: the Brave Search API)."""
+
+
+#: Hosts no test may reach, live or not: each call costs money against a real account.
+_PAID_HOSTS = {"api.search.brave.com"}
+
+
 def _guarded_session_request(self, method, url, *args, **kwargs):
+    if urlparse(str(url)).hostname in _PAID_HOSTS:
+        message = (f"{method} {urlparse(str(url)).hostname} is a paid API and no test may reach "
+                   f"it. Patch requests.get, as tests/test_brave.py does.")
+        # A BaseException, so `except Exception` (or a requests error handler) cannot swallow
+        # it. Not added to the session-end report: tests/test_brave.py trips it on purpose.
+        raise NetworkGuardViolation(message)
     if not _LIVE_ALLOWED and _is_real_ollama(url):
         message = (f"{method} {url} reached the real Ollama from a test (or from collection) "
                    f"that is not marked @pytest.mark.live(\"ollama\"). Patch the call, or mark "

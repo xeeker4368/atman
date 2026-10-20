@@ -71,7 +71,7 @@ copying code from it. Two failure modes to watch for:
 
 ## Decisions that are already made
 
-`docs/DECISIONS.md` holds a 37-entry decision log (entries 1 to 37; `NOW.md` indexes them) covering what was settled before and
+`docs/DECISIONS.md` holds a 39-entry decision log (entries 1 to 39; `NOW.md` indexes them) covering what was settled before and
 during the build. **Treat every line there as DECIDED** — implement against it rather than
 relitigating it, and if a task seems to require deviating, stop and flag it
 instead of deciding silently. The ones most likely to be reinvented by accident:

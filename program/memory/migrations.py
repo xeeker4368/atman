@@ -779,6 +779,40 @@ def _v9_retrieval_capture(conn: sqlite3.Connection) -> None:
     """)
 
 
+
+def _v10_brave_calls(conn: sqlite3.Connection) -> None:
+    """Version 10 — every Brave Search API call, counted per calendar month (decisions #38, #39).
+
+    The paid fallback's cost guard (``program/tools/brave.py``). One row per call, **reserved
+    before the call is sent** by a single ``INSERT ... SELECT ... WHERE count < stop``, so two
+    turns at once cannot both pass the stop; the row's outcome is filled in after. A call
+    that was sent counts whether it succeeded or not.
+
+    * ``month`` is the UTC calendar month, ``YYYY-MM``.
+    * ``outcome``: ``sent`` (reserved, result not yet recorded, which still counts),
+      ``ok`` or ``failed``.
+    * ``month_limit`` and ``month_remaining`` are Brave's monthly ``X-RateLimit-Limit`` and
+      ``X-RateLimit-Remaining`` figures when sent; NULL otherwise. On a credit-billed plan both
+      read 0, and then only the local count stops calls (decision #39).
+    * **No query text.** The trace already holds it, and a count does not need it.
+
+    Written in its own transaction through ``db.transaction()``: **no change to ``db.py``'s
+    locking or atomicity.**
+    """
+    _execute_script(conn, """
+        CREATE TABLE brave_calls (
+            id               TEXT PRIMARY KEY,
+            month            TEXT NOT NULL CHECK (month GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]'),
+            called_at        TEXT NOT NULL,
+            outcome          TEXT NOT NULL CHECK (outcome IN ('sent', 'ok', 'failed')),
+            http_status      INTEGER,
+            latency_seconds  REAL CHECK (latency_seconds >= 0),
+            month_limit      INTEGER,
+            month_remaining  INTEGER
+        );
+        CREATE INDEX idx_brave_calls_month ON brave_calls(month);
+    """)
+
 MIGRATIONS: list[Migration] = [
     Migration(version=2, name="artifacts_and_chunk_link", apply=_v2_artifacts),
     Migration(version=3, name="message_integrity_check", apply=_v3_integrity_check),
@@ -788,6 +822,7 @@ MIGRATIONS: list[Migration] = [
     Migration(version=7, name="artifact_integrity_check", apply=_v7_artifact_integrity_check),
     Migration(version=8, name="notes", apply=_v8_notes),
     Migration(version=9, name="retrieval_capture", apply=_v9_retrieval_capture),
+    Migration(version=10, name="brave_calls", apply=_v10_brave_calls),
 ]
 
 

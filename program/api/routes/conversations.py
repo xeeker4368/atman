@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import logging
+import sqlite3
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, status
@@ -25,8 +26,8 @@ from pydantic import BaseModel
 from program.api import trace_view
 from program.api.routes.auth import CurrentActor
 from program.memory import db
-from program.settings.permissions import Actor
-from program.tools import receipts
+from program.settings.permissions import Actor, Role
+from program.tools import brave, receipts
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +39,10 @@ class Me(BaseModel):
     #: Read by the page to choose whether to show the trace panel. That is a display choice
     #: and protects nothing: every person's own trace already comes back from POST /api/chat.
     role: str
+    #: Operator notices (the Brave fallback's usage, decision #39). **Admin only, decided here
+    #: on the server**: for any other role the field is absent from the response, so it never
+    #: reaches that person's browser. Absent too when there is nothing to say.
+    notices: list[str] | None = None
 
 
 class ConversationSummary(BaseModel):
@@ -101,10 +106,18 @@ def _trace_and_receipts(
         return None, None
 
 
-@router.get("/api/me", response_model=Me)
+@router.get("/api/me", response_model=Me, response_model_exclude_none=True)
 def me(actor: Actor = CurrentActor) -> Me:
-    """The logged-in person's name and role."""
-    return Me(name=actor.name, role=actor.role.value)
+    """The logged-in person's name and role, and, for the admin role, any operator notices."""
+    notices = None
+    if actor.role is Role.ADMIN:
+        try:
+            notices = brave.notices() or None
+        except sqlite3.Error as exc:
+            # A notice must not cost the admin the page; the failure is logged, not hidden.
+            logger.warning("GET /api/me: the Brave usage notice could not be read (%s)",
+                           type(exc).__name__)
+    return Me(name=actor.name, role=actor.role.value, notices=notices)
 
 
 @router.get("/api/conversations", response_model=list[ConversationSummary])

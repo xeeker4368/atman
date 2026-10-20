@@ -92,6 +92,7 @@ from program.attribution import AttributionContext
 from program.engine import ollama, prompt
 from program.memory.retrieval import RetrievalResult
 from program.origin import OriginContext
+from program.tools import brave
 from program.tools import registry as tools
 from program.tools.registry import ToolRegistry, ToolResult
 
@@ -162,6 +163,20 @@ def call_entries(trace: Sequence[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
     (the gate, the call/result symmetry) takes this, never the raw trace.
     """
     return [entry for entry in trace if "window_event" not in entry]
+
+
+def storable_trace(trace: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    """The trace as it is written to ``messages.tool_trace``.
+
+    The same entries, with each value in its stored form (``registry.stored_form``): a
+    ``web_search`` result keeps its titles and URLs and drops its snippets while
+    ``search.store_snippets`` is off (decision #39). What the model and the gate saw in the
+    turn is unchanged; only the record is shorter.
+    """
+    return [
+        {**entry, "value": tools.stored_form(entry["value"])} if "value" in entry else dict(entry)
+        for entry in trace
+    ]
 
 
 def _call_name(call: Mapping[str, Any]) -> str:
@@ -307,107 +322,109 @@ def run_turn(
     assembled: prompt.AssembledPrompt | None = None
 
     current_turn_start = len(messages) - 1 if messages else None
-    for iteration in range(1, limit + 1):
-        final_call = iteration == limit
-        # No tools on the last call: see the module docstring. Also no tools
-        # when none are registered — an empty `tools: []` is not the same
-        # request as one without the field, and Phase 2 registers its tools one
-        # task at a time.
-        payload = registry.ollama_schema() if (not final_call and len(registry)) else None
-        # B20: the schemas are priced in the window. B21: this turn's user message
-        # is pinned, and anything given up to fit is recorded.
-        assembled = prompt.assemble_turn(
-            [*messages, *extras], situation, retrieval, soul_text=soul_text,
-            current_turn_start=current_turn_start,
-            tool_schema_chars=len(json.dumps(payload)) if payload else 0,
-            speaker=speaker, earlier_tools=earlier_tools,
-        )
-        events = list(assembled.window_events)
-        if assembled.needs_final_call:
-            # B21's last resort: the turn does not fit beside the tool schemas even
-            # with everything else given up, so this call goes without tools.
-            final_call, payload = True, None
+    # One count of paid Brave searches per turn (decision #39; brave.turn_scope).
+    with brave.turn_scope():
+        for iteration in range(1, limit + 1):
+            final_call = iteration == limit
+            # No tools on the last call: see the module docstring. Also no tools
+            # when none are registered — an empty `tools: []` is not the same
+            # request as one without the field, and Phase 2 registers its tools one
+            # task at a time.
+            payload = registry.ollama_schema() if (not final_call and len(registry)) else None
+            # B20: the schemas are priced in the window. B21: this turn's user message
+            # is pinned, and anything given up to fit is recorded.
             assembled = prompt.assemble_turn(
                 [*messages, *extras], situation, retrieval, soul_text=soul_text,
-                current_turn_start=current_turn_start, tool_schema_chars=0,
+                current_turn_start=current_turn_start,
+                tool_schema_chars=len(json.dumps(payload)) if payload else 0,
                 speaker=speaker, earlier_tools=earlier_tools,
             )
-            events.extend(assembled.window_events)
-        for event in events:
-            logger.warning("turn window, iteration %d: %s", iteration, event)
-            trace.append({"iteration": iteration, **event})
-
-        response = ollama.chat(
-            assembled.to_messages(), model=model, options=options, tools=payload
-        )
-        if response.get("done_reason") == "length":
-            # Before content or tool_calls are read: see "A reply is bounded".
-            raise ollama.OllamaOutputTruncated(
-                f"The model's reply reached the {options['num_predict']}-token "
-                f"output cap without finishing (iteration {iteration}, "
-                f"eval_count {response.get('eval_count')}). Nothing from it was "
-                f"used or saved."
-            )
-        message = response.get("message") or {}
-        content = message.get("content") or ""
-        calls = message.get("tool_calls") or []
-
-        if not calls:
-            return TurnResult(
-                text=content,
-                trace=trace,
-                messages=extras,
-                iterations=iteration,
-                stop_reason=ITERATION_LIMIT if final_call and iteration > 1 else ANSWERED,
-                tool_seconds_used=spent,
-                tool_budget_seconds=budget,
-                overflowed=assembled.overflowed,
-                prompt=assembled,
-            )
-
-        if final_call:
-            # Tool calls with no tools offered. Recorded as skipped rather than
-            # dropped: the model asked for something, nothing ran, and a trace
-            # that omitted the request would make that unanswerable later.
-            logger.warning(
-                "model emitted %d tool call(s) on the final tool-free "
-                "iteration; none were dispatched.",
-                len(calls),
-            )
-            for call in calls:
-                skipped = tools.skipped_result(
-                    _call_name(call),
-                    None,
-                    "no tools were offered on the final iteration of the turn",
+            events = list(assembled.window_events)
+            if assembled.needs_final_call:
+                # B21's last resort: the turn does not fit beside the tool schemas even
+                # with everything else given up, so this call goes without tools.
+                final_call, payload = True, None
+                assembled = prompt.assemble_turn(
+                    [*messages, *extras], situation, retrieval, soul_text=soul_text,
+                    current_turn_start=current_turn_start, tool_schema_chars=0,
+                    speaker=speaker, earlier_tools=earlier_tools,
                 )
-                trace.append({"iteration": iteration, **skipped.to_trace_entry()})
-            return TurnResult(
-                text=content,
-                trace=trace,
-                messages=extras,
-                iterations=iteration,
-                stop_reason=ITERATION_LIMIT,
-                tool_seconds_used=spent,
-                tool_budget_seconds=budget,
-                overflowed=assembled.overflowed,
-                prompt=assembled,
-            )
+                events.extend(assembled.window_events)
+            for event in events:
+                logger.warning("turn window, iteration %d: %s", iteration, event)
+                trace.append({"iteration": iteration, **event})
 
-        extras.append({"role": "assistant", "content": content, "tool_calls": calls})
+            response = ollama.chat(
+                assembled.to_messages(), model=model, options=options, tools=payload
+            )
+            if response.get("done_reason") == "length":
+                # Before content or tool_calls are read: see "A reply is bounded".
+                raise ollama.OllamaOutputTruncated(
+                    f"The model's reply reached the {options['num_predict']}-token "
+                    f"output cap without finishing (iteration {iteration}, "
+                    f"eval_count {response.get('eval_count')}). Nothing from it was "
+                    f"used or saved."
+                )
+            message = response.get("message") or {}
+            content = message.get("content") or ""
+            calls = message.get("tool_calls") or []
 
-        for call in calls:
-            result = _dispatch_call(
-                registry, call, budget - spent, attribution=attribution, origin=origin
-            )
-            spent += result.duration_seconds
-            trace.append({"iteration": iteration, **result.to_trace_entry()})
-            extras.append(
-                {
-                    "role": "tool",
-                    "tool_name": result.tool_name,
-                    "content": render_tool_result(result),
-                }
-            )
+            if not calls:
+                return TurnResult(
+                    text=content,
+                    trace=trace,
+                    messages=extras,
+                    iterations=iteration,
+                    stop_reason=ITERATION_LIMIT if final_call and iteration > 1 else ANSWERED,
+                    tool_seconds_used=spent,
+                    tool_budget_seconds=budget,
+                    overflowed=assembled.overflowed,
+                    prompt=assembled,
+                )
+
+            if final_call:
+                # Tool calls with no tools offered. Recorded as skipped rather than
+                # dropped: the model asked for something, nothing ran, and a trace
+                # that omitted the request would make that unanswerable later.
+                logger.warning(
+                    "model emitted %d tool call(s) on the final tool-free "
+                    "iteration; none were dispatched.",
+                    len(calls),
+                )
+                for call in calls:
+                    skipped = tools.skipped_result(
+                        _call_name(call),
+                        None,
+                        "no tools were offered on the final iteration of the turn",
+                    )
+                    trace.append({"iteration": iteration, **skipped.to_trace_entry()})
+                return TurnResult(
+                    text=content,
+                    trace=trace,
+                    messages=extras,
+                    iterations=iteration,
+                    stop_reason=ITERATION_LIMIT,
+                    tool_seconds_used=spent,
+                    tool_budget_seconds=budget,
+                    overflowed=assembled.overflowed,
+                    prompt=assembled,
+                )
+
+            extras.append({"role": "assistant", "content": content, "tool_calls": calls})
+
+            for call in calls:
+                result = _dispatch_call(
+                    registry, call, budget - spent, attribution=attribution, origin=origin
+                )
+                spent += result.duration_seconds
+                trace.append({"iteration": iteration, **result.to_trace_entry()})
+                extras.append(
+                    {
+                        "role": "tool",
+                        "tool_name": result.tool_name,
+                        "content": render_tool_result(result),
+                    }
+                )
 
     # Unreachable: the final iteration returns from inside the loop either way.
     raise AssertionError("agent loop ended without a terminal response")

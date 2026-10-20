@@ -130,7 +130,9 @@ def test_migration_nine_failing_rolls_back_completely(isolated_data_dir, monkeyp
 
     monkeypatch.setattr(migrations, "MIGRATIONS", full)
     migrations.run_working_migrations()
-    assert migrations.current_version() == 9
+    assert 9 in {m.version for m in full}
+    assert migrations.current_version() == max(m.version for m in full)
+    assert _columns("turn_retrieval")
 
 
 # --- The renderer's account -------------------------------------------------

@@ -17,7 +17,7 @@ import { renderReply } from "./render.js";
 const TOKEN_KEY = "anam.session";
 
 const state = {
-  me: null, // { name, role }
+  me: null, // { name, role, notices? }
   conversations: [],
   current: null, // conversation id, or null for a new one
   busy: false,
@@ -104,6 +104,7 @@ function showLogin(message) {
   state.me = null;
   state.conversations = [];
   state.current = null;
+  show($("admin-notice"), "");
   $("chat-view").hidden = true;
   $("login-view").hidden = false;
   $("messages").replaceChildren();
@@ -117,6 +118,10 @@ async function showChat() {
   $("chat-view").hidden = false;
   state.me = await api("/api/me");
   $("who-label").textContent = `Logged in as ${state.me.name}`;
+  // Operator notices (the Brave fallback's usage). The server sends them to the admin role
+  // only, so this draws whatever arrived; it is read once, at login, with no polling.
+  const notices = Array.isArray(state.me.notices) ? state.me.notices : [];
+  show($("admin-notice"), notices.join(" "));
   await refreshConversations();
   startNew();
 }

@@ -405,9 +405,10 @@ url = "http://127.0.0.1:8080"
 #
 # 10s is ~3x SearXNG's own internal ceiling and ~11x the measured worst case.
 # The margin covers a container paging back in after idle and an engine list
-# that grows over time. The TOOL's declared timeout is 15s, deliberately above
-# this one, so a hung request surfaces as a specific "did not respond within
-# 10s" error rather than as an uninformative tool-level timeout.
+# that grows over time. The TOOL's declared timeout (38s since decision #39, the
+# derivation is in web_search.py) sits above this one and the Brave fallback's,
+# so a hung request surfaces as a specific "did not respond within 10s" error
+# rather than as an uninformative tool-level timeout.
 timeout_seconds = 10.0
 
 # How many results are rendered for the model, after sorting by score here.
@@ -428,6 +429,62 @@ timeout_seconds = 10.0
 # characters and be truncated mid-result by the loop, which is a worse outcome
 # than choosing the cap deliberately.
 max_results = 6
+
+[search]
+# The Brave Search API as web_search's FALLBACK (decision #39, which reverses #38's
+# order; design: docs/BRAVE_SEARCH_DESIGN.md). SearXNG above is always asked first.
+# Every key here is BOOTSTRAP-ONLY: the stop and the warning are a cost guard, and a
+# live-editable one could be raised without anyone redoing the arithmetic below.
+#
+# `brave_api_key` is NOT set here and has no default, and there is no ANAM_* variable
+# for it. It is read only from config/local.toml [search] brave_api_key, by
+# config.brave_api_key(), which reads that file itself; the merged configuration
+# never holds it. tests/test_brave.py fails if this file ever carries it.
+
+# "none": SearXNG only, and the key is never read. "brave": Brave is asked when
+# SearXNG fails, and startup refuses a missing or malformed key. "none" here so a
+# clone without a key starts (review decision 1); Lyle sets "brave" in local.toml.
+fallback = "none"
+
+# How long one Brave request may take. JUDGMENT, with the measurement beside it:
+# Lyle's side-by-side run (2026-10-19, 20 queries) had a median of 0.75s and a
+# worst of 2.66s, so 5s is ~2x the worst. It is a requests timeout, so it bounds the
+# connect and each read rather than the total; the tool's own timeout is the outer
+# bound on the whole search.
+brave_timeout_seconds = 5.0
+
+# The price the stop is derived from. Brave's published pricing
+# (https://brave.com/search/api/, read 2026-10-19): Search plan, "$5 per 1,000
+# requests", "$5 in free credits every month", 50 requests a second.
+brave_credit_usd = 5.0
+brave_price_per_1000_usd = 5.0
+
+# DERIVED: $5 / ($5 per 1,000) = 1,000 requests a month inside the credit, less 20
+# for calls this counter never sees (Lyle's own tests, a comparison run, or another
+# store such as the play kit's, which counts in its own working.db). 1,000 - 20 = 980.
+# At the stop no Brave call is made and search stays on SearXNG, saying the paid
+# search is used up until the 1st of next month (UTC). Must not exceed the credit's
+# 1,000; tests/test_brave.py recomputes it from the two dollar figures.
+brave_stop_monthly = 980
+
+# Lyle's figure: a server-log WARNING on the call that reaches it and on every tenth
+# call after it, and a notice for the admin role in GET /api/me. 92% of the stop.
+brave_warn_monthly = 900
+
+# Brave calls one turn may make. JUDGMENT: a turn runs at most agent.max_iterations
+# (5) model calls, each able to ask for several searches, so without it one turn
+# could spend many paid calls. 980 a month is ~32 a day; at 3 a turn that is at
+# least 10 turns a day that fall back.
+brave_max_per_turn = 3
+
+# Whether the STORED trace keeps each web_search result's snippet (both sources).
+# Off: the stored trace keeps each result's title and URL only, and says the
+# snippets were not stored. The model still sees the full results in the turn, and
+# the integrity gate, which runs before the trace is stored, reads the same trace as
+# before (it reads a tool's outcome, never its result text). What off loses is in
+# docs/BRAVE_SEARCH_DESIGN.md section 5. Off until Lyle has checked whether his
+# Brave plan includes storage rights (decision #39).
+store_snippets = false
 
 [moltbook]
 # The read-only Moltbook tools (Phase 5). Design: docs/MOLTBOOK_READ_DESIGN.md.

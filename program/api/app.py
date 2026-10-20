@@ -58,8 +58,13 @@ async def lifespan(app: FastAPI):
     **A capability probe runs first** (piece 4a): it builds the whole schema in an in-memory
     SQLite, so a build without FTS5 or the JSON functions stops startup with a plain message
     before any file is touched (``program/memory/capability.py``).
+
+    **``[search]`` is checked beside the secret** (decision #39): with the Brave fallback on,
+    a missing or malformed key stops startup, with a message naming the file and the key and
+    never the value (``config.check_search``).
     """
     config.auth_session_secret()
+    config.check_search()
     capability.probe()
     # The store's lock, held for as long as this server runs. After the two checks
     # above, so an unconfigured server still touches nothing on disk; before the

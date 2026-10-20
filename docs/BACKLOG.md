@@ -401,11 +401,27 @@ reported with two unresponsive engines instead of four. `web_search.py`'s docstr
 open, priority high before run 5.** Next: the option 2 test, written and not run
 (`~/anam-measurements/searxng/option2_test.sh TAG`: a pinned image with a minimal `use_default_settings`
 file, as a throwaway container on 127.0.0.1:18080). Option 3, a keyed API, if option 2 fails too.
+*Option 2 run 2026-10-19 (`cc/pre-run-5`; not applied):* image `2026.10.19-d47cb96bf`, the newest dated tag
+on Docker Hub that day (the same digest as `latest`, pulled by its dated tag so the local `latest` did not
+move). In the throwaway container, all three default queries returned results (37, 36 and 39), from
+`brave` and `google cse` each time, with DuckDuckGo still refusing with a CAPTCHA. **It passes the rule
+written for it.** Whether Brave answered because of the image or because it had been unqueried for three
+days is not known. The shared containers are unchanged. **Still open:** applying it to the shared setup is
+Lyle's decision.
+*Option 2 applied 2026-10-19* (Lyle approved): timestamped backups of `settings.yml`,
+`docker-compose.yml` and `.env` (`.bak-20261019T203945Z`); `SEARXNG_VERSION=2026.10.19-d47cb96bf` in
+`.env`; `settings.yml` is now `use_default_settings: true` plus the tested overrides, the existing secret
+carried over. Both containers run with their memory limits (536,870,912 and 134,217,728 bytes). Three
+default queries 15 s apart returned 38, 36 and 39 results, from Brave and Google CSE each time,
+DuckDuckGo refusing with a CAPTCHA. Whether the newer image or three days without queries made Brave
+answer is unknown. **Under decision #38 SearXNG becomes the fallback**; the item stays open until the
+Brave primary (`docs/BRAVE_SEARCH_DESIGN.md`) is built.
+*Decision #39 (2026-10-20) reverses the order:* SearXNG primary, Brave the fallback. **Built on
+`cc/pre-run-5`, for review** (design revision 2). It stays off until Lyle sets `[search] fallback =
+"brave"` in `local.toml`. The item stays open until that is merged and on, and run 5 shows searches
+answering. Storage rights for Brave results are unresolved (`search.store_snippets`, default off).
 
-**`web_search`'s degradation note is false when no engine answered** (filed 2026-10-16). With zero results
-and every engine unresponsive, the result text still says "Other engines did, so these results are
-partial", which is what the entity reads. Seen in the 2026-10-16 queries (both general engines down).
-Prompt-facing text, Tier 2. **Priority: medium**, as it sits on every failed search until search works.
+**`web_search`'s degradation note is false when no engine answered:** closed on `cc/pre-run-5` (2026-10-19); text in `docs/archive/NOW-closed-backlog.md`.
 
 **Pending deprecations** (2026-10-08): chromadb `asyncio.iscoroutinefunction` (breaks on Python 3.16);
 starlette `TestClient` with `httpx`. Check on the next dependency upgrade.

@@ -541,3 +541,32 @@ it rather than deciding silently.
 
     **Cost accepted:** a note exists only after the conversation closes and Lyle approves it. The
     rest of #36 stands. The design is `docs/NOTES_V2_DESIGN.md` (revision 2, for review).
+
+38. **Web search's primary source is the Brave Search API; SearXNG is the fallback** (decided by Lyle
+    2026-10-19). Phase 5 research depends on search working every time, and the self-hosted SearXNG
+    has failed for whole runs (runs 3 and 4) because public engines refuse it. Lyle's Brave plan
+    carries $5 of free credit a month at 50 requests a second. The key lives only in
+    `config/local.toml` `[search] brave_api_key`. Lyle's requirements: Brave calls are counted per
+    calendar month in `working.db`, with a warning at 900 and a stop at the credit's level, after
+    which search falls back to SearXNG and the result text says plainly that the paid search is used
+    up for the month. Credential handling makes the piece Tier 3: design first
+    (`docs/BRAVE_SEARCH_DESIGN.md`), for review. What Brave sees is stated there for this record.
+
+39. **SearXNG is web search's primary source; the Brave Search API is the fallback** (decided by Lyle
+    2026-10-20, after reviewing `docs/BRAVE_SEARCH_DESIGN.md` revision 1; **reverses #38's order**,
+    and the rest of #38 stands). The reason is Lyle's side-by-side run of 2026-10-19 (20 research-style
+    queries, report outside the repo, descriptive): both sources answered 20 of 20, with medians under
+    1 s, and their top five results overlapped heavily; Brave was slightly better on niche queries.
+    SearXNG first costs nothing, and Brave covers the days public engines refuse it.
+    - **Brave is called** when SearXNG errors, times out, or returns zero results while reporting
+      unresponsive engines. Zero results with every engine answering is a real "nothing found", with
+      no fallback. The result text says which source answered and why the fallback ran.
+    - Brave asks for `searxng.max_results` results, and both sources share one renderer and the
+      4,000-character cap.
+    - Brave's monthly rate-limit header is used only when its monthly limit is above 0. On this
+      credit-billed plan it reports limit 0 and remaining 0, so the local counter is the monthly stop.
+    - **Accepted from the review:** no Brave in `defaults.toml` (a clone without a key starts), the
+      stop at 980 a month, 3 a turn, the warning at 900. They now count fallback calls only.
+    - **Storage rights are unresolved** (Lyle is checking his Brave terms). `search.store_snippets`
+      (default off) keeps each result's title and URL in the stored trace, not its snippet, for both
+      sources.

@@ -27,13 +27,28 @@ Degradation is reported, not hidden
 ``unresponsive_engines`` is often non-empty against this instance. On 2026-09-08
 DuckDuckGo and Startpage refused with a CAPTCHA while Brave and Google answered.
 By 2026-10-14 Google answered 403, Brave 429 and Startpage a CAPTCHA, so those
-three were disabled on 2026-10-16; DuckDuckGo, the one general web engine left,
-refuses with a CAPTCHA intermittently (``docs/BACKLOG.md``, "Web search does not
-work"). So a note names the engines that did not answer, the same way
+three were disabled on 2026-10-16, after which nothing answered. On 2026-10-19 the
+instance moved to a pinned 2026.10.19 image with the image's default settings, and
+Brave and Google CSE answered while DuckDuckGo still refused with a CAPTCHA
+(``docs/BACKLOG.md``, "Web search does not work"). So a note names the engines that did
+not answer, the same way
 ``memory_search`` names a retrieval leg that did not run. "I searched the web" is
 only partly true when engines refused, and that matters most when the answer is
 *nothing found*: nothing found with engines down is a different claim from
 nothing found.
+
+The Brave fallback (decisions #38, #39)
+---------------------------------------
+SearXNG is always asked first. With ``search.fallback = "brave"``, Brave
+(``program/tools/brave.py``) is asked when SearXNG **errors or times out**, or **returns
+nothing while reporting unresponsive engines**. Nothing found with every engine answering is a
+real "nothing found", and Brave is not asked. Brave's results go through the same renderer and
+the same caps, and the text always says which source answered and, when Brave did, why. A Brave
+answer with no results is a real answer too: it is not retried anywhere.
+
+``search.store_snippets`` (default off, decision #39) shortens what is STORED: the handler
+returns a ``StoredText`` whose stored form keeps each result's title and URL and drops its
+snippet. The model reads the full results in the turn.
 
 Web text is content, not instruction
 ------------------------------------
@@ -52,7 +67,8 @@ from typing import Any
 import requests
 
 from program import config
-from program.tools.registry import Tool
+from program.tools import brave
+from program.tools.registry import StoredText, Tool
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +82,9 @@ logger = logging.getLogger(__name__)
 #: a render past the loop's 4,000-character cap, which is what that cap is for.
 MAX_TITLE_CHARS = 120
 MAX_CONTENT_CHARS = 300
+#: The engine names in the Brave fallback's source line (decision #39). Six maximal results
+#: render in ~3,500 characters with the header, so the line has to stay short.
+MAX_ENGINE_NAMES_CHARS = 80
 
 #: Said when the search ran and matched nothing. A sentence, not an empty
 #: string — the same reason ``memory_search`` has one.
@@ -79,8 +98,29 @@ _HEADER = (
 )
 
 
+#: Said in the stored trace in place of the snippets, while ``search.store_snippets`` is off.
+SNIPPETS_NOT_STORED = (
+    "[The snippets of these results were not stored (search.store_snippets is off). The "
+    "turn they were shown in had them in full.]"
+)
+
+SOURCE_SEARXNG = "[Source: SearXNG.]"
+
+#: After ``NO_RESULTS`` when SearXNG matched nothing and no engine reported a failure: a real
+#: "nothing found", so the fallback is not asked (decision #39).
+NOTHING_FOUND_SEARXNG = "[Source: SearXNG. Every engine it asked answered, and none had a match.]"
+
+
 class WebSearchError(RuntimeError):
-    """SearXNG could not be reached, or answered with something unusable."""
+    """SearXNG could not be reached, or answered with something unusable.
+
+    ``reason`` is the short form for the fallback line ("it did not respond within 10s"); the
+    message is the operator's form, saying what to check.
+    """
+
+    def __init__(self, message: str, reason: str = "it failed") -> None:
+        super().__init__(message)
+        self.reason = reason
 
 
 def _clip(text: str, limit: int) -> str:
@@ -109,23 +149,33 @@ def sort_results(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return sorted(results, key=_score, reverse=True)
 
 
-def _render_result(result: dict[str, Any], position: int) -> str:
-    """One result: title, link, and the snippet if there is one."""
+def _render_result(result: dict[str, Any], position: int, snippet: bool = True) -> str:
+    """One result: title, link, and the snippet if there is one (and ``snippet`` is on)."""
     lines = [f"{position}. {_clip(result.get('title', ''), MAX_TITLE_CHARS)}"]
     url = (result.get("url") or "").strip()
     if url:
         lines.append(f"   {url}")
-    content = _clip(result.get("content", ""), MAX_CONTENT_CHARS)
+    content = _clip(result.get("content", ""), MAX_CONTENT_CHARS) if snippet else ""
     if content:
         lines.append(f"   {content}")
     return "\n".join(lines)
 
 
-def _degradation_note(payload: dict[str, Any]) -> str:
-    """A line naming engines that failed, or ``""`` when none did."""
-    down = payload.get("unresponsive_engines") or []
+def _answered(results: list[dict[str, Any]]) -> list[str]:
+    """The engines that contributed at least one result, in first-seen order."""
+    seen: list[str] = []
+    for result in results:
+        engines = result.get("engines") or [result.get("engine")]
+        for engine in engines:
+            if engine and str(engine) not in seen:
+                seen.append(str(engine))
+    return seen
+
+
+def _unresponsive(payload: dict[str, Any]) -> list[str]:
+    """The engines SearXNG says did not answer, as ``name (reason)``."""
     named = []
-    for entry in down:
+    for entry in payload.get("unresponsive_engines") or []:
         # Measured shape is a two-element list [name, reason]; tolerate either.
         if isinstance(entry, (list, tuple)) and entry:
             name = str(entry[0])
@@ -133,13 +183,58 @@ def _degradation_note(payload: dict[str, Any]) -> str:
             named.append(f"{name} ({reason})")
         elif entry:
             named.append(str(entry))
+    return named
+
+
+def _degradation_note(payload: dict[str, Any], results: list[dict[str, Any]]) -> str:
+    """A line naming engines that failed, or ``""`` when none did.
+
+    Two cases, because they are different claims. With results, some engine
+    answered, so the results are partial and the note names who answered. With
+    **no results**, nothing shows that any engine answered at all: the payload
+    lists the engines that failed but not the ones that answered empty. The note
+    then says plainly that nothing came back from any engine and that this is
+    not a finding that the web has nothing (until 2026-10-19 it said "Other
+    engines did", which was false whenever every engine was down).
+    """
+    named = _unresponsive(payload)
     if not named:
         return ""
+    failed = f"{len(named)} search engine(s) did not answer — {'; '.join(named)}"
+    if not results:
+        return (
+            f"\n\n[No search engine returned anything. {failed}, and no other "
+            f"engine returned a result. So this is not a finding that the web "
+            f"has nothing on this: the search may not have reached it at all.]"
+        )
+    answered = _answered(results)
+    source = (f"The results came from {', '.join(answered)}"
+              if answered else "Other engines did answer")
     return (
-        f"\n\n[This search was incomplete: {len(named)} search engine(s) did not "
-        f"answer — {'; '.join(named)}. Other engines did, so these results are "
-        f"partial rather than everything the web holds.]"
+        f"\n\n[This search was incomplete: {failed}. {source}, so these "
+        f"results are partial rather than everything the web holds.]"
     )
+
+
+def _render(results: list[dict[str, Any]], source: str, tail: str = "",
+            total: int | None = None) -> str:
+    """Results as the model reads them, from either source.
+
+    Returns a ``StoredText`` when ``search.store_snippets`` is off, so the stored trace keeps
+    each title and URL and not the snippet (decision #39).
+    """
+    def text(snippet: bool) -> str:
+        blocks = [_HEADER, source]
+        blocks.extend(_render_result(r, i, snippet) for i, r in enumerate(results, start=1))
+        if total is not None and total > len(results):
+            blocks.append(
+                f"[Showing the {len(results)} highest-scoring of {total} results.]")
+        return "\n\n".join(blocks) + tail
+
+    full = text(True)
+    if config.search_store_snippets():
+        return full
+    return StoredText(full, text(False) + "\n\n" + SNIPPETS_NOT_STORED)
 
 
 def render_search_payload(payload: dict[str, Any], limit: int | None = None) -> str:
@@ -151,23 +246,17 @@ def render_search_payload(payload: dict[str, Any], limit: int | None = None) -> 
     """
     if "results" not in payload:
         error = payload.get("error") or "no 'results' key and no error given"
-        raise WebSearchError(f"SearXNG returned no result set: {error}")
+        raise WebSearchError(f"SearXNG returned no result set: {error}",
+                             reason="it returned no result set")
 
     cap = limit if limit is not None else config.searxng_max_results()
     results = sort_results(list(payload["results"] or []))
     shown = results[:cap]
 
     if not shown:
-        return NO_RESULTS + _degradation_note(payload)
-
-    blocks = [_HEADER]
-    blocks.extend(_render_result(r, i) for i, r in enumerate(shown, start=1))
-    if len(results) > len(shown):
-        blocks.append(
-            f"[Showing the {len(shown)} highest-scoring of {len(results)} "
-            f"results.]"
-        )
-    return "\n\n".join(blocks) + _degradation_note(payload)
+        note = _degradation_note(payload, results)
+        return NO_RESULTS + (note or f"\n\n{NOTHING_FOUND_SEARXNG}")
+    return _render(shown, SOURCE_SEARXNG, _degradation_note(payload, results), len(results))
 
 
 def fetch(query: str) -> dict[str, Any]:
@@ -190,13 +279,15 @@ def fetch(query: str) -> dict[str, Any]:
         raise WebSearchError(
             f"SearXNG did not respond within {timeout:g}s. Its own per-engine "
             f"timeout is 3s, so this means the instance itself is wedged rather "
-            f"than an upstream engine being slow."
+            f"than an upstream engine being slow.",
+            reason=f"it did not respond within {timeout:g}s",
         ) from exc
     except requests.exceptions.ConnectionError as exc:
         raise WebSearchError(
             f"Cannot reach SearXNG at {config.searxng_url()}. Is the container "
             f"running? Check with `docker ps` — it should show searxng-core "
-            f"bound to 127.0.0.1:8080."
+            f"bound to 127.0.0.1:8080.",
+            reason="it could not be reached",
         ) from exc
 
     try:
@@ -204,20 +295,34 @@ def fetch(query: str) -> dict[str, Any]:
     except ValueError as exc:
         raise WebSearchError(
             f"SearXNG returned a non-JSON body (HTTP {response.status_code}): "
-            f"{response.text[:200]}"
+            f"{response.text[:200]}",
+            reason="it returned an answer that was not JSON",
         ) from exc
 
     if response.status_code != 200:
         detail = payload.get("error") if isinstance(payload, dict) else None
         raise WebSearchError(
             f"SearXNG returned HTTP {response.status_code}: "
-            f"{detail or str(payload)[:200]}"
+            f"{detail or str(payload)[:200]}",
+            reason=f"it answered HTTP {response.status_code}",
         )
     if not isinstance(payload, dict):
         raise WebSearchError(
-            f"SearXNG returned {type(payload).__name__}, expected an object."
+            f"SearXNG returned {type(payload).__name__}, expected an object.",
+            reason="it returned an answer that was not usable",
         )
     return payload
+
+
+def timeout_terms() -> dict[str, float]:
+    """The terms of ``web_search``'s declared timeout, from live config (see ``WEB_SEARCH``)."""
+    return {
+        "searxng": config.searxng_timeout_seconds(),
+        "reserve the Brave call": float(config.db_busy_timeout_seconds()),
+        "brave": config.brave_timeout_seconds(),
+        "record the outcome": float(config.db_busy_timeout_seconds()),
+        "margin": 3.0,
+    }
 
 
 def search_web(query: str) -> str:
@@ -231,15 +336,63 @@ def search_web(query: str) -> str:
             "query was empty. web_search needs something to search for."
         )
 
-    payload = fetch(text)
-    rendered = render_search_payload(payload)
+    try:
+        payload = fetch(text)
+        rendered = render_search_payload(payload)
+    except WebSearchError as exc:
+        if config.search_fallback() != "brave":
+            raise
+        logger.warning("web_search(%r): SearXNG failed (%s); asking Brave", text[:80],
+                       exc.reason)
+        return _from_brave(text, f"failed: {exc.reason}", searxng_error=exc)
+
+    down = _unresponsive(payload)
     logger.info(
         "web_search(%r): %d raw result(s), %d engine(s) unresponsive",
         text[:80],
         len(payload.get("results") or []),
-        len(payload.get("unresponsive_engines") or []),
+        len(down),
     )
+    if (config.search_fallback() == "brave" and down
+            and not (payload.get("results") or [])):
+        # Engine names only, clipped: the reasons are SearXNG's own note, and this line has
+        # to leave room for six maximal results under the loop's 4,000-character cap.
+        names = ", ".join(e.split(" (")[0] for e in down)
+        return _from_brave(
+            text,
+            f"returned nothing, and {len(down)} of its engines did not answer "
+            f"({_clip(names, MAX_ENGINE_NAMES_CHARS)})",
+            searxng_empty=rendered,
+        )
     return rendered
+
+
+def _from_brave(query: str, why: str, *, searxng_error: WebSearchError | None = None,
+                searxng_empty: str | None = None) -> str:
+    """Ask the fallback. ``why`` completes "The primary search (SearXNG) …".
+
+    Exactly one of ``searxng_error`` (SearXNG raised) and ``searxng_empty`` (its zero-result
+    text, with its note) is given. When Brave is not used or fails as well: after an error,
+    nothing was searched and :class:`WebSearchError` names both reasons; after an empty answer,
+    SearXNG's text stands, with a line saying what happened to the fallback.
+    """
+    try:
+        found = brave.search(query, config.searxng_max_results())
+    except brave.BraveUnavailable as unavailable:
+        if searxng_error is not None:
+            raise WebSearchError(
+                f"No search ran: the primary search (SearXNG) {why}, and the fallback search "
+                f"(Brave) {unavailable.reason}.",
+                reason=searxng_error.reason,
+            ) from None
+        return f"{searxng_empty}\n\n[The fallback search (Brave) {unavailable.reason}.]"
+
+    because = f"It ran because the primary search (SearXNG) {why}."
+    if not found:
+        return (f"{NO_RESULTS}\n\n[Source: Brave Search, the fallback, which answered with no "
+                f"results. {because}]")
+    return _render(found[:config.searxng_max_results()],
+                   f"[Source: Brave Search, the fallback. {because}]")
 
 
 WEB_SEARCH = Tool(
@@ -267,17 +420,28 @@ WEB_SEARCH = Tool(
         "required": ["query"],
     },
     handler=search_web,
-    # JUDGMENT VALUE, derived the same way memory_search's 45s was: sit above
-    # the longest bound the code inside enforces for itself, so a real failure
-    # surfaces as its own specific error instead of an uninformative timeout.
+    # DERIVED (decision #39), the same way memory_search's 45s is: sit above the longest
+    # bound the code inside enforces for itself, so a real failure surfaces as its own
+    # specific error instead of TIMEOUT, which says the outcome is unknown. The worst path is
+    # SearXNG failing slowly and Brave then being asked:
     #
-    # Inside this tool, that bound is `searxng.timeout_seconds` = 10s, which is
-    # itself ~3x SearXNG's own 3s per-engine ceiling and ~11x the measured
-    # 0.5-0.9s round trip. 15s sits above it, so a wedged instance is reported
-    # as "SearXNG did not respond within 10s" — which names what to check —
-    # rather than as TIMEOUT, which by definition says the outcome is unknown.
+    #   SearXNG request                      10 s  searxng.timeout_seconds
+    #   reserve the Brave call (one write)   10 s  database.busy_timeout_seconds
+    #   Brave request                         5 s  search.brave_timeout_seconds
+    #   record the call's outcome (a write)  10 s  database.busy_timeout_seconds
+    #   margin                                3 s  JUDGMENT, as before
+    #                                       -----
+    #                                        38 s  = timeout_terms(), summed
     #
-    # It also stays well under agent.tool_budget_seconds (120), so this and a
-    # memory_search (45s) and a retry all fit inside one turn's tool budget.
-    timeout_seconds=15.0,
+    # The two writes are terms because they run inside the tool's wait; neither retries
+    # (brave.py), so each waits at most one busy_timeout for its lock. Both requests are
+    # `requests` timeouts, which bound the connect and each read rather than the total.
+    #
+    # The in-flight grace floor does not move: its tool term is agent.tool_budget_seconds
+    # (120 s) for the whole turn, and every dispatch is given min(the tool's timeout, what is
+    # left of that budget). tests/test_idle.py recomputes the floor (2045 s -> 35 min) and
+    # checks that no tool's timeout exceeds the budget. Two slow searches and a memory_search
+    # (38 + 38 + 45 = 121 s) no longer all fit: the budget cuts the last one short, which is
+    # what it is for.
+    timeout_seconds=38.0,
 )

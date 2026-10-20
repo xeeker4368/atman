@@ -69,6 +69,7 @@ def test_working_has_the_expected_tables(store):
         "settings",
         "turn_retrieval",
         "turn_retrieved_records",
+        "brave_calls",
     }
 
 

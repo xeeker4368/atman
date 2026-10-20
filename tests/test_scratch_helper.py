@@ -22,6 +22,7 @@ SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
 #: Run against the real store on purpose.
 OPERATOR = {
     "backup.py": "backs up the real databases",
+    "brave_usage.py": "prints the real store's Brave usage; opens working.db read-only (mode=ro)",
     "close_idle_conversations.py": "the operator's manual idle-close path",
     "note.py": "the operator's notes command, the only human control on notes",
     "reconcile_vectors.py": "repairs the real vector store",

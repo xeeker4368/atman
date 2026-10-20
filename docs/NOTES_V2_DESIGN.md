@@ -1,4 +1,4 @@
-# Notes v2: design (revision 2, FOR REVIEW, nothing built)
+# Notes v2: design (revision 3, FOR REVIEW of §1.3, nothing built)
 
 **Basis:** decisions #36 and #37 (2026-10-16), under #27's criteria.
 
@@ -16,6 +16,10 @@ its empty-result sentence. Figures come from live config and the live catalogue 
 
 *Revision 2 (#37):* the pass runs once per conversation, at close, instead of after each reply. Revision
 1's reviewed decisions are applied as Lyle gave them.
+
+*Revision 3 (2026-10-19):* revision 2's three open points decided (Lyle). The output cap is derived
+from a stated number of blocks per piece (§1.3), which raises it from 1,024 to 1,536 tokens and adds a
+quote cap; a cut output keeps its complete blocks and the pass reads `truncated` (§1.3, §5).
 
 ## 1. The pass
 
@@ -82,7 +86,7 @@ messages.
 > revise it; if it makes one no longer true, retire it; if it changes or takes back a draft, drop the draft.
 > / / Answer NONE, or one block per change, with a blank line between blocks: / ADD / kind: person, topic
 > or project / subject: {≤60 characters} / line: {one line, ≤100 characters} / note: {≤639 characters} /
-> quote: {the person's exact words, at least four} / REVISE N{number}, then line, note, quote / RETIRE
+> quote: {the person's exact words, at least four, ≤200 characters} / REVISE N{number}, then line, note, quote / RETIRE
 > N{number}, then quote / DROP D{number}
 
 The criteria are #27's, word for word, with one change: criterion 2 reads "your own" for "the entity's
@@ -113,15 +117,15 @@ The pass's window, at 4.0 characters per token:
 | | tokens |
 |---|---|
 | `num_ctx` | 32,768 |
-| − output, `notes.pass_num_predict` | 1,024 |
+| − output, `notes.pass_num_predict` (§1.3) | 1,536 |
 | − safety margin | 512 |
 | − `soul.md` at its 3,000-character ceiling | 750 |
 | − the instruction, a 4,000-character allowance (measured at build) | 1,000 |
 | − framing: date, names, labels (400 characters) | 100 |
 | − notes, pending and drafts, `notes.pass_notes_max_chars` = 24,000 characters | 6,000 |
-| **= left for the piece** | **23,382**, about 93,500 characters |
+| **= left for the piece** | **22,870**, about 91,480 characters |
 
-**The piece cap is 90,000 characters (22,500 tokens), leaving 882 tokens of slack.**
+**The piece cap is 90,000 characters (22,500 tokens), leaving 370 tokens of slack.**
 
 **A piece always holds at least one whole exchange.** The largest exchange is a maximal message (50,000
 characters) plus a reply at the output reserve (2,048 tokens, about 8,200 characters), about 58,200 in
@@ -135,8 +139,53 @@ ones), the notes sent are chosen in this order:
 1. those `notes_fts` matches against the piece;
 2. then the most recently confirmed.
 
-The pass row records that the list was cut. At 1,024 output tokens, a piece can carry about four
-maximal blocks.
+The pass row records that the list was cut.
+
+### 1.3 The output cap, and a cut output
+
+**The cap is derived from a stated maximum: four maximal blocks per piece.** Four is twice the most any
+run 5 row expects from one conversation (N-a, two ADDs), and most conversations need none.
+
+A maximal block is an ADD, the largest kind, at every field cap, in characters:
+
+| line | characters |
+|---|---|
+| `ADD` | 4 |
+| `kind: project` | 14 |
+| `subject:` and 60 | 70 |
+| `line:` and 100 | 107 |
+| `note:` and 639 | 646 |
+| `quote:` and 200 (`notes.pass_quote_max_chars`, new) | 208 |
+| the blank line after it | 1 |
+| **a maximal ADD** | **1,050** |
+
+A REVISE is at most 975 characters (`REVISE N9999` replaces `ADD` and `kind:`), a RETIRE 222 and a DROP about
+10, so four ADDs bound any four blocks.
+
+- **Characters per token for output: 3.0.** This is deliberately lower than the input side's 4.0, because
+  the error has to fall the other way: on input, over-counting tokens is safe; on output, under-counting
+  is. A maximal block is then 350 tokens.
+- **The cap:** 4 × 350 = 1,400 tokens, plus 100 for anything outside the blocks (a stray opening line),
+  is 1,500. It is rounded up to **1,536** (3 × 512).
+- **Checked at build:** a maximal block is tokenized with the model's tokenizer, and the test fails if four
+  of them plus 100 exceed `notes.pass_num_predict`.
+- **Without a quote cap there was no maximum to derive from.** An over-cap quote is a malformed block,
+  like any other over-cap field.
+
+**When the output is cut anyway** (more than four blocks, or longer text than the estimate allows):
+- **It is detected by `done_reason == "length"`, never by parsing.** A cut block can still parse: B8
+  measured a cut tool call arriving as valid JSON, with its value simply shortened.
+- **Every block followed by its blank line is complete and is kept.** In a piece before the last it is
+  a draft like any other, and the pass goes on to the next piece.
+- **The block the output stopped in is never written,** even if it parses. Its raw text is stored in the
+  pass row as the cut block, beside the piece's raw reply.
+- **The pass reads `truncated`** in `note_pass_status` (§5), with the number of cut pieces. Proposals
+  from the complete blocks are written as usual.
+- **It is not retried automatically.** The same cap would cut the same output again.
+  - `scripts.note passes` lists it, and `scripts.note pass` reruns it by hand.
+  - A rerun sees the proposals already written as pending (P), so it does not repeat them, and it can
+    produce the block that was cut.
+  - Run 5 reads every `truncated` pass; any one is a reason to revisit the four.
 
 ## 2. What a reply may truthfully say
 
@@ -232,15 +281,17 @@ conversation closes. CO17 and its empty-result sentence are unchanged.
 - a `line` column on `notes` and on `note_proposals`, with migration 8's freeze triggers extended to
   cover it;
 - a `note_passes` table, one row per attempt, with `UNIQUE(conversation_id, attempt)`. Each row holds
-  `outcome` (`proposals`, `none` or `unavailable`), the number of pieces, each piece's raw reply, any
-  error, the dropped, refused or malformed blocks, whether the notes list was cut, the seconds taken, and
+  `outcome` (`proposals`, `none`, `truncated` or `unavailable`), the number of pieces, each piece's raw
+  reply, which pieces were cut and each cut block's text (§1.3), any error, the dropped, refused or
+  malformed blocks, whether the notes list was cut, the seconds taken, and
   `created_at`;
 - a view **`note_pass_status`, one row per ended conversation:**
   - the latest attempt's outcome;
   - `not_run`, when the conversation is chunked and has no attempt;
   - `waiting`, when it is closed but not yet chunked.
 
-  A failure is therefore never "nothing to note", which is #33's rule.
+  A failure is therefore never "nothing to note", which is #33's rule, and a cut output is never
+  "proposals" alone.
 
 **Retrying.**
 - `unavailable` is retried automatically by `drain` up to `notes.pass_max_attempts` = 3 times.
@@ -256,7 +307,11 @@ guard already cover it.
 ## 6. Tests and the Tier 3 step
 
 **Tests:**
-- the parser: NONE, each block type including DROP, a malformed block, an over-cap field;
+- the parser: NONE, each block type including DROP, a malformed block, an over-cap field (the quote
+  among them);
+- a cut output (`done_reason` "length"): the complete blocks are kept, the last block is stored and
+  never written even when it parses, the view shows `truncated`, and `drain` does not retry it;
+- the output cap: four maximal blocks plus 100 fit `notes.pass_num_predict` (tokenized at build);
 - splitting at the cap and keeping whole exchanges;
 - a draft dropped in a later piece is never written;
 - duplicate refusal;
@@ -272,8 +327,10 @@ Before the text is committed, the instruction and the header are tried in a scra
 **The Tier 3 step, first, as its own piece (decided).** Under B1 it is a proposed refreeze of the
 frozen gate cases that name `note_propose`:
 - NP2, NP3, NP4, NP5 and NP5b have the call in their traces;
-- A7 and NS4 name it in their text;
-- NP1 (a note claim with no call) stays valid, and is one of stage 2's cases.
+- NP1 names it only as its sub-case (a note claim with no call); it stays valid, and is one of stage 2's
+  cases;
+- *corrected 2026-10-19:* revision 2 said A7 and NS4 name it in their text. Read from the case file, they
+  do not, in any field. The design is `docs/NOTES_REFREEZE_DESIGN.md`.
 
 ## 7. Measuring it: run 5's playbook rows (no dictation)
 
@@ -304,13 +361,14 @@ activity in the gap.
 
 All of it is descriptive, one reader (item 5).
 
-## Decisions for review
+## Decisions (revision 2's open points, decided 2026-10-19)
 
-1. **The gap claim (§2).**
-   - The pass makes a narrow claim of activity in the gap partly true, and the gate cannot see that.
-   - *Recommended:* no rubric change now. Run 5 counts any such flag. If any appear, the next gate piece
-     shows the classifier the listing's header line.
-2. **Backfill when Notes is switched on (§5).** *Recommended:* accept it. Stores are disposable before go
-   live, and from go-live Notes is on from the first conversation.
-3. **The pass cap figures:** a 90,000-character piece, 24,000 characters of notes, and 1,024 output
-   tokens. *Recommended:* yes. The instruction allowance is checked against the measured text at build.
+1. **The gap claim (§2):** no rubric change; run 5 counts any such flag. If any appear, the next gate
+   piece shows the classifier the listing's header line.
+2. **Backfill when Notes is switched on (§5):** accepted.
+3. **The pass cap figures:** the 90,000-character piece and 24,000 characters of notes, accepted. The
+   output cap is derived from four blocks per piece (§1.3), giving 1,536 tokens; the instruction
+   allowance is checked against the measured text at build.
+
+**For review in revision 3:** §1.3, the four blocks, the 3.0 output divisor, the 200-character quote
+cap, and the handling of a cut output.
