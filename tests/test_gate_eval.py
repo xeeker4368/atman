@@ -76,8 +76,18 @@ from scripts import fabrication_eval
 #: inputs were byte-identical to A5's); N7-ordinary-with-situation, N10-denial-with-situation and
 #: P16 re-rendered with situation.build_situation for the same 14-hour gap (the stored blocks were
 #: pre-#25); R3a-R3j, run 3 lines verbatim as must-not-flag cases; SR1-SR5, short replies that
-#: must get a verdict. 51 -> 69 cases.)
-FROZEN_FINGERPRINT = "3585019f28078a80700693bccb99218249ec3d3541b1ae74a4aaf07f01e05b8f"
+#: must get a verdict. 51 -> 69 cases.) →
+#: e7c3d15f… (2026-10-22, the Notes v2 refreeze, docs/NOTES_REFREEZE_DESIGN.md, decisions 1-4
+#: accepted 2026-10-20: Notes v2 removes note_propose, so NP2, NP3, NP4, NP5 and NP5b, whose traces
+#: name it, were RETIRED verbatim to eval/fabrication_gate/retired_cases.toml (never loaded): once
+#: the tool leaves catalog.TOOLS production can never build those traces. Carried: NP5's shape, a
+#: failed side-effect call then a plain success claim, as AR1 (a documented miss: the classifier
+#: labels it CONTRADICTS-TOOL, which only advises) and AR1b (its control), over a real
+#: image_generate trace with ComfyUI down. Dropped, to return with the first approval-gated tool:
+#: NP3's "ran, but not to the extent claimed" (BUILD_PLAN.md). NP1's sub_case note_propose ->
+#: note_claim. Measured: 3 shuffled passes at T=0, no remaining case moved against point B2. No
+#: alias, rule or vocabulary entry changed. 69 -> 66 cases.)
+FROZEN_FINGERPRINT = "e7c3d15f4a20b9b15699e5f9a49566e67f500e5d543249ca3b328cb4f28f2e03"
 
 CONTRADICTS = "CONTRADICTS\n- the phrase | the fact"
 
@@ -121,6 +131,45 @@ def test_the_frozen_case_set_has_not_changed(cases):
     assert gate_eval.fingerprint(cases) == FROZEN_FINGERPRINT, (
         "the frozen case set changed — see FROZEN_FINGERPRINT's comment before touching it"
     )
+
+
+#: Retired cases (the Notes v2 refreeze, 2026-10-22). Kept readable; never measured.
+RETIRED_PATH = gate_eval.CASES_PATH.parent / "retired_cases.toml"
+
+#: Tools still in ``catalog.TOOLS`` that Notes v2 removes. **The named tolerance for
+#: ``note_propose``** (refreeze build step 3): the tool may stay in the catalogue until the v2
+#: piece removes it, but no loaded case may name it, since its cases were retired. The second
+#: assertion below fails the moment the tool leaves the catalogue, so this entry is removed in
+#: the same piece that removes the tool (BUILD_PLAN.md, Notes v2, obligation (a)).
+LEAVING_WITH_NOTES_V2 = frozenset({"note_propose"})
+
+
+def test_retired_cases_are_kept_readable_and_never_loaded(cases):
+    retired = gate_eval.load_cases(RETIRED_PATH)
+    assert {c.id for c in retired} == {
+        "NP2-accurate-proposed", "NP3-pending-claimed-saved", "NP4-applied-accurate",
+        "NP5-retired-after-three-refusals", "NP5b-honest-after-refusals"}
+    assert gate_eval.CASES_PATH.name == "cases.toml"
+    assert not {c.id for c in retired} & {c.id for c in cases}
+    root = gate_eval.CASES_PATH.parents[2]
+    readers = [str(path.relative_to(root)) for folder in ("program", "scripts")
+               for path in (root / folder).rglob("*.py")
+               if "retired_cases" in path.read_text(encoding="utf-8")]
+    assert readers == [], f"code names the retired case file: {readers}"
+
+
+def test_no_loaded_case_names_a_tool_missing_from_the_catalogue(cases):
+    """C6, scoped to the frozen file: a trace naming a tool production cannot dispatch measures
+    a configuration nobody runs. This is the check that would have caught the refreeze's cause."""
+    from program.tools import catalog
+
+    catalogue = {tool.name for tool in catalog.TOOLS}
+    named = {(c.id, e["tool"]) for c in cases for e in c.trace}
+    assert [pair for pair in sorted(named)
+            if pair[1] not in catalogue - LEAVING_WITH_NOTES_V2] == []
+    assert LEAVING_WITH_NOTES_V2 <= catalogue, (
+        "a tool listed in LEAVING_WITH_NOTES_V2 has left catalog.TOOLS: remove it from that set "
+        "in the same piece (BUILD_PLAN.md, Notes v2, obligation (a))")
 
 
 def test_informational_fields_are_not_fingerprinted_but_expectations_are(cases):

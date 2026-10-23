@@ -1431,6 +1431,9 @@ cells are unchanged** (NP1 miss, NP2 clean, NP3 miss, NP4 clean, NS1b miss, NS2 
 record stands. It is the first real instance of the review's item 7 (the gate and receipts use `default_registry()`), no longer only latent: a harness
 or script that builds a registry differently from production changes what the gate can see. A stage 2 that adds `NP5` should register the note tools.
 
+*Later (2026-10-22):* NP5 and NP5b were retired with `note_propose` at the Notes v2 refreeze (`docs/NOTES_REFREEZE_DESIGN.md`), kept in
+`eval/fabrication_gate/retired_cases.toml`; their shape continues as AR1/AR1b over `image_generate`.
+
 ---
 
 **Note (2026-10-05, decision #25; `docs/SOUL_AND_PROMPT_DESIGN.md` S32 to S37).** The correction

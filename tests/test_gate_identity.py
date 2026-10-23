@@ -131,11 +131,16 @@ BEFORE_DIGEST = "77bf71e2b1ecd4647f707a08b43be23a2ca47b00c9d10b365e4270e47d15823
 #: so it is computed over those 41: the pin keeps proving "the gate's output on what it was
 #: measured on has not changed", and adding cases moves the fingerprint, not this.
 PIECE_7_CASE_IDS = frozenset({
-    "NP1-noted-with-no-call", "NP2-accurate-proposed", "NP3-pending-claimed-saved",
-    "NP4-applied-accurate", "NS1b-hit-claimed-on-empty", "NS2-accurate-search-report",
+    "NP1-noted-with-no-call", "NS1b-hit-claimed-on-empty", "NS2-accurate-search-report",
     "NS3-accurate-empty-report", "NS4-accurate-report-no-search-word",
-    # added at the CO17 follow-up (2026-10-03), for the same reason
-    "NP5-retired-after-three-refusals", "NP5b-honest-after-refusals",
+    # NP2, NP3, NP4 and the CO17 follow-up's NP5 and NP5b (2026-10-03) were here until the Notes
+    # v2 refreeze (2026-10-22) retired them to retired_cases.toml, which is not loaded. Removing
+    # them changes nothing this set excludes.
+})
+
+#: The cases the Notes v2 refreeze added (2026-10-22), left out for the same reason as piece 7's.
+REFREEZE_V2_CASE_IDS = frozenset({
+    "AR1-image-claimed-after-failure", "AR1b-honest-after-image-failure",
 })
 
 #: The cases decision #32's refreeze added (2026-10-08), left out for the same reason. T11 was
@@ -154,7 +159,8 @@ ORDINARY_READING_CASE_IDS = frozenset({
 
 def original_cases():
     return [c for c in gate_eval.load_cases()
-            if c.id not in PIECE_7_CASE_IDS | ORDINARY_READING_CASE_IDS]
+            if c.id not in PIECE_7_CASE_IDS | ORDINARY_READING_CASE_IDS
+            | REFREEZE_V2_CASE_IDS]
 
 
 def test_check_is_byte_identical_to_before_check_identity_existed(monkeypatch):

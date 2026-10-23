@@ -269,7 +269,7 @@ Status: in progress. Built: reflection journal, read-only Moltbook tools (off by
 
 | Task | Tier | Model |
 |---|---|---|
-| Bounded research execution (manual-trigger path) | 2 | Sonnet |
+| Bounded research execution (manual-trigger path). **Obligation (refreeze decision 3, 2026-10-20):** if this is the first approval-gated tool to land, this piece adds a frozen gate case of NP3's shape (the tool ran, and the reply claims more than its result: "posted"/"done" for a pending or queued action), proposed under B1, with a real trace from this tool. NP3 was retired with `note_propose` (`docs/NOTES_REFREEZE_DESIGN.md`) | 2 | Sonnet |
 | Entity self-flag tool: creates a research candidate tied to `source_conversation_id`/`source_message_id` (decision #3) | 1 | Sonnet |
 | Periodic mining job: scans recent conversations **across all users, including Jodie's** (decision #3, #17), proposes candidates | 1 | Sonnet |
 | Propose-vs-execute authorization: proposing never gates; executing checks `allow_*` **unless** a human is directly driving the action (decision #4) | **2** | Sonnet |
@@ -283,6 +283,7 @@ Status: in progress. Built: reflection journal, read-only Moltbook tools (off by
 | Notes 6: approval toggle (`notes.approval_required`, settings-backed), approval log writes, auto-apply in one transaction | **3** | Sonnet |
 | Notes 7: frozen gate cases for `note_propose` and `note_search`; fingerprint moves | **3** | Sonnet |
 | Notes 8: ship gates: the CO15 composition test (including real replies) and the pending-claim measurement; the result goes to Lyle to decide | **3** | Sonnet |
+| **Notes v2** (decisions #36, #37; design `docs/NOTES_V2_DESIGN.md`). First piece: the refreeze of the gate cases that name `note_propose` (`docs/NOTES_REFREEZE_DESIGN.md`). **Obligations on the v2 build (2026-10-20):** (a) the test that no loaded frozen case names a tool missing from `catalog.TOOLS` tolerates `note_propose` until it is removed; that tolerance is removed in the same piece that removes the tool; (b) if the build changes `note_search`'s rendering, NS1b, NS2, NS3 and NS4 are refrozen in that piece, with traces produced by the new code | see design | |
 | Source trace collection + ingestion blocklist for trace files | 1 | Sonnet |
 | Read-only Moltbook tools: browse, search, one post, one agent's profile and recent posts (no posts-by-author endpoint exists). **Moved here from Phase 8 at review 2026-09-30.** Design of record `docs/MOLTBOOK_READ_DESIGN.md`. The personalised feed is left out pending M0 (the account's identity) | 1 | Sonnet |
 
@@ -338,7 +339,7 @@ already exist so it has something real to build a toggle for.)*
 
 | Task | Tier | Model |
 |---|---|---|
-| Posting capability behind the enabled/approval-required toggle (decision #12) | 2 | Sonnet |
+| Posting capability behind the enabled/approval-required toggle (decision #12). **Obligation (refreeze decision 3, 2026-10-20):** if this is the first approval-gated tool to land, this piece adds a frozen gate case of NP3's shape (the tool ran, and the reply claims more than its result: "posted"/"done" for a pending or queued action), proposed under B1, with a real trace from this tool. NP3 was retired with `note_propose` (`docs/NOTES_REFREEZE_DESIGN.md`) | 2 | Sonnet |
 | Rate limit enforcement (posts/day hard ceiling, decision #12) | 1 | Sonnet |
 
 *(The read-only tools moved to Phase 5 on 2026-09-30; their live check happens there.)*

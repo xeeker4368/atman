@@ -270,11 +270,15 @@ decision is taken.
 - **14 with C2:** a tool timeout counts as "ran", so a late side effect is not reconciled with what ACTION sees.
 - **10 and 11:** pronoun quote splitting and the curly apostrophe (`pronouns.py` changes the text the classifier
   judges).
-- **C6:** `gate_eval` never validates a case's tool name against the registry.
+- **C6:** `gate_eval` never validates a case's tool name against the registry. *Scoped check added at the Notes
+  v2 refreeze (2026-10-22):* `tests/test_gate_eval.py` fails when a loaded frozen case names a tool missing from
+  `catalog.TOOLS`; the loader itself still does not check.
 - **C7:** the gate flags accurate storage claims (`_PROMPT` and `architecture.md`; F48's territory).
 - (The ninth is 3's companion, the "search" tracked item itself, listed once above.)
 Also still unscheduled and citing O23: `A7`'s fix (its case note says it belongs to O23's design pass), F48's
-vocabulary dependence (two of 13 phrasings caught; now also `NP1`, `NP3`), and G-C per-item labelling.
+vocabulary dependence (two of 13 phrasings caught; now also `NP1` and `AR1`; `NP3` was retired at the Notes v2
+refreeze, 2026-10-22, and returns with the first approval-gated tool), and G-C per-item labelling. `AR1`'s miss
+is a `CONTRADICTS-TOOL` label that only advises, not the ACTION trigger (its `documented` field).
 
 **B22 — `archive.db` has no triggers, so its append-only rule is convention** (filed 2026-10-02,
 found by the REPLACE audit during Notes piece 1; **Tier 3, not built**). `schema/archive.sql`

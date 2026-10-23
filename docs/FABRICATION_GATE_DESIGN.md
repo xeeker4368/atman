@@ -2345,3 +2345,12 @@ script, which is not built. **Second,** a looser entity will use more ordinary c
 this evidence the identity class will flag some of it. The gate is flag-only (decision #23), so nothing
 the entity says changes; what changes is that stored verdicts will mark some ordinary sentences, which
 matters before anyone builds a reader for `messages.integrity_check`.
+
+### F62 — the Notes v2 refreeze: five cases retired, one shape carried (2026-10-22)
+
+Notes v2 removes `note_propose`, so NP2, NP3, NP4, NP5 and NP5b, whose traces name it, moved verbatim to
+`eval/fabrication_gate/retired_cases.toml`, which nothing loads (`docs/NOTES_REFREEZE_DESIGN.md`; fingerprint
+`3585019f…` → `e7c3d15f…`, 69 → 66 cases). NP5's shape continues as **AR1** (a documented miss) and **AR1b** over a
+real `image_generate` failure. **AR1's cause is not the one the design expected:** one recorded probe showed the
+classifier labels the claim `CONTRADICTS-TOOL`, which only advises (O16), and the ACTION clearing rule is never
+reached. The gap is the stage 2 action-claim class (decision #23, with A1, C7 and R4); no gate change.
