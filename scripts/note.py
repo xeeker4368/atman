@@ -1,10 +1,12 @@
-"""The operator's command for notes: add, revise, retire, review and decide proposals.
+"""The operator's command for notes: add, revise, retire, review and decide proposals, and run
+the note pass.
 
     python -m scripts.note COMMAND [options]      (python -m scripts.note --help)
 
-Design of record: ``docs/NOTES_DESIGN.md`` N4, N5, N10, N13; build plan piece 4. **This is the only
-human control on what a note may say.** The entity proposes; nothing becomes a note until a person
-decides here. Every command is non-interactive and explicit.
+Design of record: ``docs/NOTES_DESIGN.md`` N4, N5, N10, N13; build plan piece 4; Notes v2
+(``docs/NOTES_V2_DESIGN.md`` sections 4 and 5). **This is the only human control on what a note
+may say.** The entity proposes, through the note pass after a conversation closes; nothing becomes
+a note until a person decides here. Every command is non-interactive and explicit.
 """
 
 from __future__ import annotations
@@ -17,18 +19,22 @@ from zoneinfo import ZoneInfo
 
 from program import config
 from program.memory import note_admin as admin
+from program.memory import note_pass
+from program.ops import store_lock
 
 EPILOG = """\
 guarantees:
   * every decision, its note change and its approval_log row are written in ONE transaction:
     if any part fails, nothing changes.
   * this command never migrates and never creates a store. It refuses a store below schema
-    version 8 (the real store is at version 6 until the server's first startup applies
-    migrations 7 and 8). Migrations run only at server startup.
+    version 11 (Notes v2). Migrations run only at server startup.
   * a proposal is decided once. A change of mind is a new proposal.
-  * `approval off` lets the entity's proposals take effect with no one reviewing them. It is logged
-    (approval_required_off), read fresh on every proposal (a running server sees it at once), and
-    it does NOT apply proposals already pending. `review --applied` lists what it let through.
+  * the entity proposes only through the note pass, after a conversation closes; every proposal
+    waits for you. `approval off` is REFUSED until the web UI has a Notes page. `review --applied`
+    still lists anything applied without review before that.
+  * `pass` runs the note pass by hand on one closed, chunked conversation (a new attempt each
+    time; it refuses while a server holds the store). `passes` lists the conversations whose
+    pass needs a look: unavailable, truncated, not run or waiting.
   * subject_user_id is set only by --subject-user. A household member's name in the subject is
     suggested, never applied.
   * the identity gate's verdict shown in `review` is a noisy aid, NOT a control: the control is you
@@ -50,6 +56,7 @@ def build_parser() -> argparse.ArgumentParser:
     add.add_argument("--kind", required=True, choices=admin.SUBJECT_KINDS)
     add.add_argument("--subject", required=True, help="a short label, e.g. a name")
     add.add_argument("--text", required=True, help="the note: one short fact")
+    add.add_argument("--line", help="its one-line form, shown in the listing")
     add.add_argument("--subject-user", metavar="NAME",
                      help="link the note to this household member (never set otherwise)")
     add.add_argument("--evidence", action="append", metavar="MESSAGE_ID",
@@ -59,6 +66,7 @@ def build_parser() -> argparse.ArgumentParser:
                                            "marked superseded)")
     revise.add_argument("note_id")
     revise.add_argument("--text", required=True)
+    revise.add_argument("--line", help="a new one-line form (default: the note's own)")
     revise.add_argument("--subject")
     revise.add_argument("--subject-user", metavar="NAME")
 
@@ -81,9 +89,11 @@ def build_parser() -> argparse.ArgumentParser:
     approve.add_argument("--subject-user", metavar="NAME",
                          help="link the note to this household member")
 
-    edit = sub.add_parser("edit", help="approve with changed text (both texts kept in the log)")
+    edit = sub.add_parser("edit", help="approve with changed text and/or line (both versions "
+                                       "kept in the log)")
     edit.add_argument("proposal_id")
-    edit.add_argument("--text", required=True, help="the text that takes effect")
+    edit.add_argument("--text", help="the text that takes effect")
+    edit.add_argument("--line", help="the line that takes effect")
     edit.add_argument("--subject-user", metavar="NAME")
 
     reject = sub.add_parser("reject", help="reject a pending proposal")
@@ -91,8 +101,19 @@ def build_parser() -> argparse.ArgumentParser:
     reject.add_argument("--reason", help="kept in the approval log")
 
     approval = sub.add_parser(
-        "approval", help="switch approval on or off, or show it (the only way to change it)")
+        "approval", help="show approval, or switch it on (off is refused until the web UI has "
+                         "a Notes page)")
     approval.add_argument("state", choices=("on", "off", "status"))
+
+    run_pass = sub.add_parser(
+        "pass", help="run the note pass on one closed, chunked conversation now (a new attempt)")
+    run_pass.add_argument("conversation_id", help="a conversation id or prefix")
+
+    passes = sub.add_parser(
+        "passes", help="conversations whose note pass needs a look (read-only)")
+    passes.add_argument("--all", action="store_true", help="include passes that found nothing "
+                                                          "or made proposals")
+    passes.add_argument("--limit", type=int, default=50)
 
     misses = sub.add_parser("misses", help="searches that found no note, newest first (read-only)")
     misses.add_argument("--limit", type=int, default=50)
@@ -178,7 +199,12 @@ def render_review(view: dict) -> str:
             f"{trigger['content']}")
     else:
         add(f"  triggering message: {p['user_message_id']} (not found)")
-    add(f"  call id: {p['call_id'] or '(none recorded)'}")
+    made_by = p["call_id"] or "(none: made by the note pass after the conversation closed)"
+    add(f"  call id: {made_by}")
+    for attempt in view.get("passes") or []:
+        add(f"  note pass attempt {attempt['attempt']}: {attempt['outcome']}, "
+            f"{attempt['proposals']} proposal(s), {attempt['pieces']} piece(s), "
+            f"{attempt['seconds']:.1f}s, {when(attempt['created_at'])}")
     add("")
     add("PROPOSED")
     add(f"  kind: {p['subject_kind']}    subject: {p['subject']}")
@@ -186,6 +212,8 @@ def render_review(view: dict) -> str:
         add(f"  suggestion: the subject names household member {view['household_suggestion']}. "
             f"Nothing is linked unless you approve with --subject-user "
             f"{view['household_suggestion']}.")
+    if p.get("line") is not None:
+        add(f"  line: {p['line']}")
     if p["text"] is not None:
         add(f"  text: {p['text']}")
     if p["action"] in ("revise", "retire"):
@@ -230,23 +258,32 @@ def render_review(view: dict) -> str:
         "proposal yourself)")
     out.extend(verdict_lines(p["integrity_check"]))
     add("")
-    add("THE ENTITY'S OWN REPLY TO THAT TURN (does it tell the person the note is saved?)")
     reply = view["reply"]
-    if reply is None:
-        add("  no reply found whose trace contains this call (the turn may not have completed)")
-    else:
-        add(f"  [{when(reply['timestamp'])}] {reply['content']}")
-        add("  the gate's verdict on that reply:")
-        out.extend(verdict_lines(reply["integrity_check"], "    "))
-        if reply["integrity_advisory"]:
-            for note in json.loads(reply["integrity_advisory"]):
-                add(f"    advisory: {note}")
+    if p["call_id"] is None:
+        add("THE CONVERSATION IT CAME FROM (the note pass read the person's messages and the "
+            "entity's replies; never tool results)")
+        for m in view.get("conversation_messages") or []:
+            who = m["speaker"] if m["role"] == "user" else "entity"
+            add(f"  [{when(m['timestamp'])}] {who}: {m['content']}")
         add(f"  ({outcome_line(p['status'])})")
+    else:
+        add("THE ENTITY'S OWN REPLY TO THAT TURN (does it tell the person the note is saved?)")
+        if reply is None:
+            add("  no reply found whose trace contains this call (the turn may not have "
+                "completed)")
+        else:
+            add(f"  [{when(reply['timestamp'])}] {reply['content']}")
+            add("  the gate's verdict on that reply:")
+            out.extend(verdict_lines(reply["integrity_check"], "    "))
+            if reply["integrity_advisory"]:
+                for note in json.loads(reply["integrity_advisory"]):
+                    add(f"    advisory: {note}")
+            add(f"  ({outcome_line(p['status'])})")
     add("")
     if p["status"] == "pending":
         short = p["id"][:8]
-        add(f"decide:  approve {short} [--subject-user NAME]   |   edit {short} --text \"...\"   |"
-            f"   reject {short} [--reason \"...\"]")
+        add(f"decide:  approve {short} [--subject-user NAME]   |   edit {short} --text \"...\" "
+            f"[--line \"...\"]   |   reject {short} [--reason \"...\"]")
     else:
         add(f"this proposal is {p['status']}; decisions are final.")
     return "\n".join(out)
@@ -282,6 +319,23 @@ def render_pending(rows) -> str:
     return "\n".join(lines)
 
 
+def render_passes(rows) -> str:
+    if not rows:
+        return "No conversation's note pass needs a look."
+    lines = [f"{len(rows)} ended conversation(s), newest closed first. `pass ID` reruns one."]
+    for r in rows:
+        extra = ""
+        if r["status"] == "truncated":
+            extra = f"  {r['cut_pieces']} cut piece(s); `pass` reruns it by hand"
+        elif r["status"] == "unavailable":
+            extra = f"  {r['error']}"
+        elif r["status"] in ("proposals",):
+            extra = f"  {r['proposals']} proposal(s)"
+        lines.append(f"  {r['conversation_id'][:8]}  {r['status']:11} attempts {r['attempts']}  "
+                     f"{r['owner'] or '?'}  closed {when(r['ended_at'])}{extra}")
+    return "\n".join(lines)
+
+
 def render_notes(rows) -> str:
     if not rows:
         return "No notes."
@@ -302,10 +356,10 @@ def run(args) -> int:
     c = args.command
     if c == "add":
         print(admin.operator_add(args.kind, args.subject, args.text, subject_user=args.subject_user,
-                                 evidence=args.evidence).message)
+                                 evidence=args.evidence, line=args.line).message)
     elif c == "revise":
         print(admin.operator_revise(args.note_id, args.text, subject=args.subject,
-                                    subject_user=args.subject_user).message)
+                                    subject_user=args.subject_user, line=args.line).message)
     elif c == "retire":
         print(admin.operator_retire(args.note_id).message)
     elif c == "list":
@@ -316,15 +370,13 @@ def run(args) -> int:
         if args.proposal_id:
             print(render_review(admin.review_view(args.proposal_id)))
         else:
-            if not admin.notes_db.approval_required_now():
-                print("NOTE: approval is OFF. New proposals are applied at once; the ones below "
-                      "stay pending until you decide them.\n")
             print(render_pending(admin.list_pending()))
     elif c == "approval":
         if args.state == "status":
             required = admin.notes_db.approval_required_now()
             print("approval is REQUIRED." if required else
-                  "approval is OFF: proposals are applied without review.")
+                  "the stored setting reads OFF, but nothing applies a proposal without review "
+                  "since Notes v2: every proposal waits for you.")
             print(f"{admin.pending_count()} pending proposal(s).")
         else:
             print(admin.set_approval_required(args.state == "on").message)
@@ -333,13 +385,35 @@ def run(args) -> int:
         result = admin.decide(args.proposal_id, decision,
                               text=getattr(args, "text", None),
                               subject_user=getattr(args, "subject_user", None),
-                              reason=getattr(args, "reason", None))
+                              reason=getattr(args, "reason", None),
+                              line=getattr(args, "line", None))
         print(result.message)
         if result.suggestion:
             print(f"note: the subject names household member {result.suggestion}, and no link "
                   f"was set. To link it: note revise {result.note_id[:8]} --text \"...\" "
                   f"--subject-user {result.suggestion}")
         return 1 if result.outcome == "rejected_stale" else 0
+    elif c == "passes":
+        print(render_passes(admin.list_passes(args.all, args.limit)))
+    elif c == "pass":
+        # A model call and a write: one model process, and never beside a running server.
+        try:
+            store_lock.hold_or_refuse("run a note pass")
+        except store_lock.StoreInUse as exc:
+            raise admin.AdminError(str(exc)) from None
+        conversation_id = admin.conversation_by_prefix(args.conversation_id)
+        try:
+            result = note_pass.run_pass(conversation_id)
+        except note_pass.PassRefused as exc:
+            raise admin.AdminError(str(exc)) from None
+        print(f"note pass on {conversation_id[:8]}, attempt {result.attempt}: {result.outcome}; "
+              f"{len(result.proposals)} proposal(s), {result.pieces} piece(s), "
+              f"{result.seconds:.1f}s" + (f"; {result.error}" if result.error else ""))
+        for item in result.set_aside:
+            print(f"  set aside ({item.get('why')}): {item.get('reason')}")
+        if result.proposals:
+            print("`review` lists them.")
+        return 1 if result.outcome == "unavailable" else 0
     elif c == "misses":
         found = admin.misses(args.limit)
         if not found:

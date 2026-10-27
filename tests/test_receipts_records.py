@@ -8,6 +8,13 @@ are held here:
   *unknown*, never inferred from the trace, and never implying a note exists before a person
   accepts it;
 * **the count of receipts equals the count of side-effect calls**, as before.
+
+Since Notes v2 no tool writes a proposal: ``note_propose`` is removed, and the note pass writes
+proposals after a conversation closes (``tests/notes_helpers.py`` writes one the same way). The
+proposal branch is reached only by a trace **stored while ``note_propose`` existed**; such traces
+are simulated here with :func:`stored_note_propose`, which puts the tool back into the watched set
+for one test. With the live catalogue a stored ``note_propose`` entry gives no receipt
+(:func:`test_with_the_live_catalogue_a_stored_note_propose_entry_gives_no_receipt`).
 """
 
 from __future__ import annotations
@@ -17,22 +24,19 @@ import logging
 import sqlite3
 
 import pytest
-from fastapi.testclient import TestClient
 
-from program import auth, config
-from program.api.app import create_app
+from program import config
 from program.artifacts import indexing
 from program.attribution import AttributionContext
-from program.engine import loop, turn
 from program.integrity import classifier, gate, gate_eval
 from program.memory import db, note_admin
-from program.origin import OriginContext
 from program.reflection import journal
 from program.tools import receipts, registry
-from program.tools.note_propose import NOTE_PROPOSE
 from program.tools.registry import Record, Tool, ToolError, ToolOutput, ToolRegistry
+from tests.notes_helpers import pending_proposal
 
 STORY = "The kettle had been on the hob so long it had stopped meaning tea."
+QUOTE = "Jodie takes her coffee with oat milk"
 
 
 @pytest.fixture
@@ -47,19 +51,29 @@ def world(isolated_data_dir, monkeypatch):
     msg = db.save_message(conv, lyle, "user", "Jodie takes her coffee with oat milk, never dairy.",
                           timestamp="2026-10-02T10:00:00+00:00")
     return type("W", (), {
-        "lyle": lyle, "conv": conv,
-        "origin": OriginContext(conv, msg, frozenset({msg})),
-        "attribution": AttributionContext(user_id=lyle),
-        "reg": ToolRegistry([NOTE_PROPOSE])})
+        "lyle": lyle, "conv": conv, "msg": msg,
+        "attribution": AttributionContext(user_id=lyle)})
 
 
-def propose(world, **kw):
-    args = dict(action="add", subject_kind="person", subject="Jodie",
-                text="Takes her coffee with oat milk.",
-                quotes=["Jodie takes her coffee with oat milk"])
-    args.update(kw)
-    return world.reg.dispatch("note_propose", args, attribution=world.attribution,
-                              origin=world.origin)
+@pytest.fixture
+def stored_note_propose(monkeypatch):
+    """A trace stored while ``note_propose`` was a side-effect tool: watch it again here."""
+    watched = lambda: (*registry.side_effect_tools(), "note_propose")  # noqa: E731
+    monkeypatch.setattr(receipts, "side_effect_tools", watched)
+    monkeypatch.setattr(journal, "side_effect_tools", watched)
+
+
+def propose(world):
+    """A stored ``note_propose`` trace entry naming a real pending proposal row."""
+    pid = pending_proposal(world.conv, world.lyle, quote=QUOTE,
+                           context_ids=frozenset({world.msg}))
+    return {"tool": "note_propose", "outcome": "ok", "ran": True, "call_id": "c" * 32,
+            "records": [{"kind": "note_proposal", "id": pid}]}
+
+
+def refused_entry():
+    """A stored ``note_propose`` call that was refused: it named no record."""
+    return {"tool": "note_propose", "outcome": "tool_error", "ran": True, "records": []}
 
 
 def pending_id():
@@ -104,19 +118,13 @@ def test_only_a_tool_that_writes_records_may_report_a_proposal():
         bench.dispatch("scaffold_liar")
 
 
-def test_the_trace_carries_records_and_no_longer_the_old_key(world):
-    result = propose(world)
-    entry = result.to_trace_entry()
-    assert "artifact_ids" not in entry
-    assert entry["records"] == [{"kind": "note_proposal", "id": pending_id()}]
-    assert result.artifact_ids == ()
+def test_note_propose_is_no_longer_a_side_effect_tool_and_proposals_remain_a_record_kind():
+    assert "note_propose" not in registry.side_effect_tools()
+    assert "note_proposal" in registry.RECORD_KINDS
 
 
-def test_the_model_sees_the_same_text_and_no_id(world):
-    from program.tools import note_texts as texts
-    result = propose(world)
-    assert result.value == texts.PENDING_ADD
-    assert pending_id() not in result.value
+def test_with_the_live_catalogue_a_stored_note_propose_entry_gives_no_receipt(world):
+    assert receipts.for_trace([propose(world)]) == []
 
 
 # --- old traces keep rendering the same receipts -----------------------------------------------
@@ -147,14 +155,14 @@ def test_records_win_when_an_entry_somehow_carries_both(world):
     assert one(entry).artifact_id == row["id"]
 
 
-def test_an_entry_with_neither_key_predates_o23_and_is_unknown():
+def test_an_entry_with_neither_key_predates_o23_and_is_unknown(stored_note_propose):
     assert one({"tool": "creative_write", "outcome": "ok", "ran": True}).outcome == "unknown"
     assert one({"tool": "note_propose", "outcome": "ok", "ran": True}).outcome == "unknown"
 
 
 @pytest.mark.parametrize("tool", ["creative_write", "note_propose"])
 @pytest.mark.parametrize("outcome", ["ok", "tool_error", "timeout"])
-def test_a_pre_o23_entry_that_ran_cannot_say_what_it_wrote(tool, outcome):
+def test_a_pre_o23_entry_that_ran_cannot_say_what_it_wrote(stored_note_propose, tool, outcome):
     """No key at all is not an empty list: a `tool_error` there is unknown, not not-saved."""
     r = one({"tool": tool, "outcome": outcome, "ran": True})
     assert r.outcome == "unknown"
@@ -169,8 +177,8 @@ def test_an_artifact_receipt_serialises_exactly_as_before():
 # --- a proposal's receipt is its row's current status -------------------------------------------
 
 
-def test_the_live_receipt_is_pending_and_says_nothing_about_a_note(world):
-    r = one(propose(world).to_trace_entry())
+def test_a_pending_proposals_receipt_says_nothing_about_a_note(world, stored_note_propose):
+    r = one(propose(world))
     assert (r.kind, r.outcome, r.status) == ("note_proposal", "proposed", "pending")
     assert r.text == "Proposed, awaiting a person's review."
     assert r.record_id == pending_id() and r.created_at
@@ -185,8 +193,9 @@ def test_the_live_receipt_is_pending_and_says_nothing_about_a_note(world):
     ("edited", "accepted", "edited", "Reviewed and accepted."),
     ("rejected", "declined", "rejected", "Reviewed and not accepted."),
 ])
-def test_a_decided_proposal_says_what_its_row_says(world, decision, outcome, status, text):
-    entry = propose(world).to_trace_entry()
+def test_a_decided_proposal_says_what_its_row_says(world, stored_note_propose, decision, outcome,
+                                                   status, text):
+    entry = propose(world)
     assert one(entry).outcome == "proposed"
     note_admin.decide(pending_id(), decision, text="Edited text." if decision == "edited" else None)
 
@@ -194,8 +203,8 @@ def test_a_decided_proposal_says_what_its_row_says(world, decision, outcome, sta
     assert (r.outcome, r.status, r.text) == (outcome, status, text)
 
 
-def test_applied_without_review_reads_from_the_row(world):
-    entry = propose(world).to_trace_entry()
+def test_applied_without_review_reads_from_the_row(world, stored_note_propose):
+    entry = propose(world)
     pid = pending_id()
     nid = db.new_id()
     with db.transaction() as conn:
@@ -209,8 +218,9 @@ def test_applied_without_review_reads_from_the_row(world):
     assert (r.outcome, r.text) == ("applied_without_review", "Applied without review.")
 
 
-def test_a_missing_proposal_row_is_unknown_and_not_inferred_pending(world, caplog):
-    entry = propose(world).to_trace_entry()
+def test_a_missing_proposal_row_is_unknown_and_not_inferred_pending(world, stored_note_propose,
+                                                                    caplog):
+    entry = propose(world)
     with db.transaction() as conn:                   # a pending proposal may be deleted
         conn.execute("DELETE FROM note_proposals")
     with caplog.at_level(logging.ERROR):
@@ -220,8 +230,9 @@ def test_a_missing_proposal_row_is_unknown_and_not_inferred_pending(world, caplo
     assert "no such row exists" in caplog.text
 
 
-def test_a_failed_lookup_is_unknown_and_never_empty_and_other_kinds_survive(world, monkeypatch):
-    p = propose(world).to_trace_entry()
+def test_a_failed_lookup_is_unknown_and_never_empty_and_other_kinds_survive(
+        world, stored_note_propose, monkeypatch):
+    p = propose(world)
     a, row = _artifact(world)
     trace = [p, a.to_trace_entry()]
 
@@ -242,8 +253,8 @@ def test_a_failed_lookup_is_unknown_and_never_empty_and_other_kinds_survive(worl
     assert [r.outcome for r in receipts.for_trace(trace)] == ["unknown", "unknown"]
 
 
-def test_an_unrecognised_status_is_unknown(world, monkeypatch):
-    entry = propose(world).to_trace_entry()
+def test_an_unrecognised_status_is_unknown(world, stored_note_propose, monkeypatch):
+    entry = propose(world)
     monkeypatch.setitem(receipts.READERS, "note_proposal",
                         lambda ids: {i: {"status": "weird", "created_at": "t"} for i in ids})
     assert one(entry).outcome == "unknown"
@@ -253,14 +264,14 @@ def test_an_unrecognised_status_is_unknown(world, monkeypatch):
     ("tool_error", "not_proposed"), ("skipped", "not_proposed"),
     ("unknown_tool", "not_proposed"), ("invalid_arguments", "not_proposed"),
     ("timeout", "unknown")])
-def test_a_call_that_named_no_proposal(outcome, expected):
+def test_a_call_that_named_no_proposal(stored_note_propose, outcome, expected):
     r = one({"tool": "note_propose", "outcome": outcome, "ran": outcome == "timeout",
              "records": []})
     assert (r.kind, r.outcome) == ("note_proposal", expected)
     assert r.text == receipts.PROPOSAL_TEXTS[expected]
 
 
-def test_ok_with_no_records_is_unknown_and_logged(caplog):
+def test_ok_with_no_records_is_unknown_and_logged(stored_note_propose, caplog):
     r = one({"tool": "note_propose", "outcome": "ok", "ran": True, "records": []})
     assert r.outcome == "unknown" and "must name what it wrote" in caplog.text
 
@@ -271,72 +282,13 @@ def test_an_unknown_kind_in_a_stored_trace_is_unknown_not_a_crash(caplog):
     assert r.outcome == "unknown" and "unknown kind" in caplog.text
 
 
-def test_a_failed_note_propose_call_in_a_real_turn_is_not_proposed(world):
-    entry = propose(world, quotes=["nobody said this"]).to_trace_entry()
-    assert entry["outcome"] == "tool_error" and entry["records"] == []
-    assert one(entry).outcome == "not_proposed"
-
-
-def test_the_count_equals_the_side_effect_calls_across_kinds(world):
+def test_the_count_equals_the_side_effect_calls_across_kinds(world, stored_note_propose):
     a, _ = _artifact(world)
-    trace = [a.to_trace_entry(), propose(world).to_trace_entry(),
-             propose(world, quotes=["nobody said this"]).to_trace_entry(),
+    trace = [a.to_trace_entry(), propose(world), refused_entry(),
              {"tool": "web_search", "outcome": "ok", "ran": True, "records": []}]
     got = receipts.for_trace(trace)
     assert [r.tool for r in got] == ["creative_write", "note_propose", "note_propose"]
     assert [r.outcome for r in got] == ["saved", "proposed", "not_proposed"]
-
-
-# --- through a real turn and the route -----------------------------------------------------------
-
-SECRET = "test-signing-secret-that-is-long-enough"
-PASSWORD = "correct horse battery staple"
-
-
-def test_the_route_returns_a_pending_receipt_and_rebuilding_after_approval_changes_it(
-        world, monkeypatch):
-    monkeypatch.setenv("ANAM_NOTES_ENABLED", "true")
-    monkeypatch.setenv("ANAM_AUTH_SESSION_SECRET", SECRET)
-    monkeypatch.setenv("ANAM_AUTH_SCRYPT_N", "4096")
-    config.reload()
-    registry.reset_default_registry()
-    auth.throttle.reset()
-    db.set_password_hash(world.lyle, auth.hash_password(PASSWORD))
-    monkeypatch.setattr(turn.retrieval, "search", lambda q: None)
-    calls = {"n": 0}
-
-    def fake(messages, *, model=None, options=None, tools=None, timeout=None):
-        calls["n"] += 1
-        if calls["n"] == 1:
-            return {"message": {"role": "assistant", "content": "", "tool_calls": [
-                {"function": {"name": "note_propose", "arguments": dict(
-                    action="add", subject_kind="person", subject="Jodie",
-                    text="Takes oat milk.", quotes=["takes her coffee with oat milk"])}}]}}
-        return {"message": {"role": "assistant", "content": "I have noted that."}}
-
-    monkeypatch.setattr(loop.ollama, "chat", fake)
-    try:
-        client = TestClient(create_app())
-        token = client.post("/api/login", json={"name": "Lyle", "password": PASSWORD}).json()
-        body = client.post(
-            "/api/chat", json={"message": "Jodie takes her coffee with oat milk, never dairy."},
-            headers={"Authorization": f"Bearer {token['token']}"}).json()
-    finally:
-        registry.reset_default_registry()
-        auth.throttle.reset()
-
-    [live] = body["receipts"]
-    assert live["kind"] == "note_proposal" and live["outcome"] == "proposed"
-    assert live["text"] == "Proposed, awaiting a person's review."
-    assert body["content"] == "I have noted that."       # the entity's words are untouched
-    assert "Proposed" not in body["content"]
-
-    note_admin.decide(live["record_id"], "approved")
-    [stored] = db.get_messages_by_ids([body["message_id"]])
-    [later] = [r.to_dict() for r in receipts.for_trace(json.loads(stored["tool_trace"]))]
-    assert later["outcome"] == "accepted" and later["text"] == "Reviewed and accepted."
-    assert {k: v for k, v in later.items() if k not in ("outcome", "status", "text")} == {
-        k: v for k, v in live.items() if k not in ("outcome", "status", "text")}
 
 
 # --- the journal's system-record lines -----------------------------------------------------------
@@ -347,16 +299,16 @@ def test_the_route_returns_a_pending_receipt_and_rebuilding_after_approval_chang
     ("approved", "proposal reviewed and accepted"),
     ("rejected", "proposal reviewed and not accepted")])
 def test_the_journal_line_for_a_proposal_follows_the_row_and_never_says_saved(
-        world, decision, words):
-    entry = propose(world).to_trace_entry()
+        world, stored_note_propose, decision, words):
+    entry = propose(world)
     if decision:
         note_admin.decide(pending_id(), decision)
     [line] = journal.system_record_lines(json.dumps([entry]))
     assert words in line and "saved" not in line
 
 
-def test_the_journal_line_for_a_call_that_proposed_nothing(world):
-    entry = propose(world, quotes=["nobody said this"]).to_trace_entry()
+def test_the_journal_line_for_a_call_that_proposed_nothing(world, stored_note_propose):
+    entry = refused_entry()
     [line] = journal.system_record_lines(json.dumps([entry]))
     assert "did not propose anything" in line
 

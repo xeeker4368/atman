@@ -94,6 +94,13 @@ def _sweep(conversation_id: str) -> None:
     final chunking failed. One per turn is deliberate: the drain embeds, so it is
     real work, and it belongs here rather than at startup, where a slow model
     would delay serving.
+
+    **It never runs a note pass** (Notes v2, 2026-10-27). Ollama runs one chat at a
+    time and a waiting call's queue time counts against its own timeout, so a pass
+    here could hold a later turn's reply and make its gate classifier (45 s) time
+    out: the turn is then saved unchecked. Passes run from ``/kit/end``, the close
+    script and ``scripts.note pass``; the last two refuse while a server holds the
+    store, so no pass overlaps a turn (``docs/NOTES_V2_DESIGN.md`` section 1).
     """
     try:
         result = idle.close_idle_conversations(

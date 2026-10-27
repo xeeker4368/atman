@@ -1,20 +1,24 @@
 """``note_search``: recall reviewed notes on demand. Notes piece 3.
 
-Design of record: ``docs/NOTES_DESIGN.md`` N0, N1, N5, N6, N11. **The only way notes reach the
-entity**: there is no passive retrieval of notes, and nothing here touches ``memory_search`` or
-conversation memory. Search is **lexical only** (FTS5/BM25), which is stated rather than hidden: a
-paraphrase can miss (N18). Not filtered by who is asking (decision #20): a note about Jodie can
-come up for Lyle, and what to say about it is the entity's discretion.
+Design of record: ``docs/NOTES_DESIGN.md`` N0, N1, N5, N6, N11; Notes v2
+(``docs/NOTES_V2_DESIGN.md`` section 4). **The full text of a note**: since Notes v2 the listing
+gives each active note's one line on every turn (``program/engine/notes_listing.py``), and this
+gives the whole note. Nothing here touches ``memory_search`` or conversation memory. Search is
+**lexical only** (FTS5/BM25), which is stated rather than hidden: a paraphrase can miss (N18).
+Not filtered by who is asking (decision #20): a note about Jodie can come up for Lyle, and what to
+say about it is the entity's discretion.
 
 What it returns is bounded by construction: at most ``notes.max_results`` notes, each at most
 ``notes.max_text_chars`` (derived, N11), so a full page renders under
 ``agent.max_tool_result_chars`` and the loop never has to cut a note mid-sentence.
 
 Each note is shown with its age (*"confirmed 12 days ago"*), so an old note reads as old (N5), and
-by the first 8 characters of its id, which the entity passes back to ``note_propose`` to revise or
-retire it. **A note no person reviewed is never shown as confirmed**: one applied while approval was
-off reads *"added without review 12 days ago"* (or *"changed without review"*), found by a join to
-the proposal row, not a column.
+by the first 8 characters of its id. Nothing takes the id back since ``note_propose`` was removed
+(Notes v2); **the rendering is unchanged on purpose**, so the frozen gate cases that quote it (NS1b
+to NS4) still match production and need no refreeze (``BUILD_PLAN.md``, obligation (b)). **A note
+no person reviewed is never shown as confirmed**: one applied while approval could be off reads
+*"added without review 12 days ago"* (or *"changed without review"*), found by a join to the
+proposal row, not a column.
 """
 
 from __future__ import annotations
@@ -108,6 +112,7 @@ NOTE_SEARCH = Tool(
     empty_result=texts.NO_MATCH,
     description=(
         "Search notes about people, topics and projects in this household. "
+        "Notes are written after a conversation closes. "
         "Not conversation memory (use memory_search)."
     ),
     parameters={

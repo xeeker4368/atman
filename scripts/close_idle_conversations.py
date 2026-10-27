@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Close conversations that have gone quiet past their idle window.
 
-    python -m scripts.close_idle_conversations [--dry-run]
+    python -m scripts.close_idle_conversations [--dry-run] [--drain] [--passes N]
 
 Closing runs final chunking, which is what makes a conversation's trailing turns
 retrievable from outside it — chunking never indexes the open trailing group.
@@ -16,7 +16,7 @@ import argparse
 import sys
 
 from program import config
-from program.memory import idle
+from program.memory import idle, note_pass
 from program.ops import store_lock
 
 
@@ -30,6 +30,11 @@ def main() -> int:
     parser.add_argument(
         "--limit", type=int, default=5,
         help="with --drain, how many queued conversations to attempt (default 5)",
+    )
+    parser.add_argument(
+        "--passes", type=int, default=0, metavar="N",
+        help="then run the note pass on up to N closed, chunked conversations whose pass is "
+             "due, oldest first (Notes v2; nothing when Notes is off)",
     )
     args = parser.parse_args()
 
@@ -73,6 +78,19 @@ def main() -> int:
         for conversation_id, message in drained.failures:
             print(f"  {conversation_id[:8]}  still queued: {message}", file=sys.stderr)
         if drained.failures:
+            return 1
+
+    if args.passes and not args.dry_run:
+        if not config.notes_enabled():
+            print("passes   : none (Notes is off)")
+            return 0
+        results = note_pass.drain(limit=args.passes)
+        print(f"passes   : {len(results)} run")
+        for r in results:
+            print(f"  {r.conversation_id[:8]}  attempt {r.attempt}: {r.outcome}, "
+                  f"{len(r.proposals)} proposal(s), {r.seconds:.1f}s"
+                  + (f"  ({r.error})" if r.error else ""))
+        if any(r.outcome == "unavailable" for r in results):
             return 1
     return 0
 

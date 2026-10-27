@@ -1,4 +1,4 @@
-# Notes v2: design (revision 3, FOR REVIEW of §1.3, nothing built)
+# Notes v2: design (revision 3; BUILT on `cc/notes-v2`, 2026-10-23, for review)
 
 **Basis:** decisions #36 and #37 (2026-10-16), under #27's criteria.
 
@@ -17,6 +17,17 @@ its empty-result sentence. Figures come from live config and the live catalogue 
 *Revision 2 (#37):* the pass runs once per conversation, at close, instead of after each reply. Revision
 1's reviewed decisions are applied as Lyle gave them.
 
+*Built (2026-10-23, `changelog/2026-10-23-notes-v2.md`):* as designed, with three differences of
+fact. The migration is **11**, not 10 (10 went to the Brave call count). The headroom beside a maximal
+message is **85** tokens, not 96 (`note_search`'s longer description costs 11). `NONE` is read in any
+case (the B3 trial's replies included "none"). A maximal block measured **219** tokens; four plus 100
+is 979, under 1,536. `note_search`'s rendering is unchanged, so NS1b to NS4 were not refrozen.
+
+*Changed after the build (2026-10-27, Lyle; `changelog/2026-10-27-notes-v2-pass-timing.md`):* **the
+post-turn sweep no longer runs a pass** (§1). Ollama runs one chat at a time and a waiting call's queue
+time counts against its own timeout, so a pass in the sweep could make a later turn's gate classifier
+(45 s) time out and the turn be saved unchecked. A maximal piece measured 108 s.
+
 *Revision 3 (2026-10-19):* revision 2's three open points decided (Lyle). The output cap is derived
 from a stated number of blocks per piece (§1.3), which raises it from 1,024 to 1,536 tokens and adds a
 quote cap; a cut output keeps its complete blocks and the pass reads `truncated` (§1.3, §5).
@@ -24,11 +35,17 @@ quote cap; a cut output keeps its complete blocks and the pass reads `truncated`
 ## 1. The pass
 
 **What triggers it.** A conversation that is closed, fully chunked and has no completed pass. In the
-code, `note_pass.drain(limit=1)` takes the oldest such conversation. It is called in three places:
-- from `routes/chat.py`'s `_sweep`, right after `drain_recovery_queue(limit=1)`, in the same background
-  task that runs after a turn's response;
+code, `note_pass.drain(limit=1)` takes the oldest such conversation. It is called from two places, and the play kit
+adds a third:
 - by `scripts/close_idle_conversations.py` after it closes conversations (`--passes N`);
-- by `python -m scripts.note pass CONVERSATION`, which runs one conversation by hand.
+- by `python -m scripts.note pass CONVERSATION`, which runs one conversation by hand;
+- the play kit's `/kit/end` (outside the repository) runs it inside the end request, which its one
+  player waits for.
+
+**Never from the post-turn sweep** (changed 2026-10-27). With Ollama serving one chat at a time, a pass
+there would hold the next turn's calls in the queue, whose time counts against their own timeouts.
+Both scripts refuse while a server holds the store, so no pass overlaps a turn. Background model work
+gets its slot from the Phase 6 scheduler (`BUILD_PLAN.md`).
 
 The pass runs after final chunking, so a conversation that is closed but not yet chunked waits.
 
@@ -37,21 +54,16 @@ Nothing can collide with it:
 - An in-process lock lets only one pass run at a time.
 - The script already refuses while a server holds the store.
 
-**If no sweep runs, no pass runs.** Nothing closes a conversation on a timer. The sweep runs only after
-some later turn, in any conversation and by any person, or when Lyle runs the script with the server
-stopped. Until then:
-- the conversation stays open and unchunked;
-- its pass never runs;
-- nothing in it can become a note.
-
-The sweep also excludes the conversation it ran from. And it passes **at most one** conversation per
-turn, so a backlog drains one per turn, oldest first.
+**Until Lyle runs a script, no pass runs** (outside the kit). The sweep still closes and chunks idle
+conversations after a turn; their passes read `not_run` in `note_pass_status` until Lyle runs
+`close_idle_conversations --passes N` or `scripts.note pass` with the server stopped. Nothing in such a
+conversation can become a note before then.
 
 **What it costs.** One model call per piece (§1.2), at the classifier's settings: the chat model,
 temperature 0, the same `num_ctx`, and its own `notes.pass_num_predict` and timeout.
-- It sits on no turn's path.
-- A turn that arrives while a pass is running waits for it at the model, as it would behind any other
-  model call. Run 5 measures how long.
+- It sits on no turn's path, and no turn runs beside it (above).
+- Measured 2026-10-27: run 4's longest conversation (24,110 characters, 6,459 prompt tokens) took 23 s;
+  a synthetic maximal piece (26,571 prompt tokens) took 108 s.
 
 ### 1.1 What it sees, and the instruction
 
@@ -294,12 +306,13 @@ conversation closes. CO17 and its empty-result sentence are unchanged.
   "proposals" alone.
 
 **Retrying.**
-- `unavailable` is retried automatically by `drain` up to `notes.pass_max_attempts` = 3 times.
+- `unavailable` is retried by `drain` (the close script's `--passes N`) up to `notes.pass_max_attempts` = 3
+  times.
 - After that it stays `unavailable`. `scripts.note passes` lists it, and `scripts.note pass` reruns it by
   hand.
 
-**Switching Notes on later.** Every earlier chunked conversation then reads `not_run` and is passed, one
-per sweep, oldest first. Decision 2.
+**Switching Notes on later.** Every earlier chunked conversation then reads `not_run` and is passed by
+the close script's `--passes N`, oldest first. Decision 2.
 
 **No new directory.** `backup.py` copies `working.db` whole, and `isolated_data_dir` and the session
 guard already cover it.

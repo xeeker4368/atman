@@ -384,6 +384,11 @@ criteria). Four questions, each with the recommendation:
 plus Lyle's review; (c) Lyle approves every note until the Notes page exists; (d) a capped listing in every
 conversation. Design for review: `docs/NOTES_V2_DESIGN.md`. **Open until it is built.**
 
+**`note_search`'s framing line keeps an id only `note_propose` used** (filed 2026-10-26, Notes v2). Each
+result opens `[note <id> · kind · subject · …]` (`program/tools/note_search.py` `framing`); the id was
+there for `note_propose`'s revise and retire, which Notes v2 removed. Drop it the next time `note_search`'s
+rendering changes; that change refreezes NS1b to NS4 (`BUILD_PLAN.md` Phase 5, obligation (b)).
+
 **Web search does not work: the public engines refuse the self-hosted SearXNG** (filed 2026-10-06 from
 run 3). Every `web_search` call in run 3 failed. **Open.** Options: change the configured engines, or use a
 keyed search API (an external service and a key, so a settings and credentials question as well).
@@ -448,6 +453,9 @@ by hand.
 actions** appeared: asked by Lyle about Jodie, it said it had kept his secret from her, when its retrieved
 records showed it had told her (R4, decision #26's note). R4 is added as a case (decision #32). **Priority:
 high** (run 4 review); the gate cannot catch it today.
+*AR1's probe (2026-10-22, the Notes v2 refreeze):* the classifier detected the false claim but labelled
+it CONTRADICTS-TOOL, so it went to the advisory channel, not a finding. When stage 2 is designed, first
+read run 4's advisory notes for A1-, C7- and R4-shaped claims.
 
 **The speaker is not linked to the same person named in its records** (filed 2026-10-14, run 4 review;
 one reader, descriptive). With the speaker line on every turn it greeted Jodie by name, yet in C12 it

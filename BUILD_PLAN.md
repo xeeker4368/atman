@@ -265,7 +265,7 @@ build from here rather than assuming the plan continues in one sitting.
 
 ## Phase 5 — Research & Reflection
 
-Status: in progress. Built: reflection journal, read-only Moltbook tools (off by default), Notes pieces 1 to 8 (dark, `notes.enabled = false`; pieces 1 to 8 are in `BUILT.md` "Notes (Phase 5)"). Not built: bounded research execution, the self-flag tool, the mining job, propose-vs-execute authorization for research, source trace collection (no research code in `program/`; `tests/test_db.py` asserts there is no `research_candidates` table; no `allow_*` flag exists). The phase gate has not been run. Notes' ship gate failed on CO15 (`NOW.md` backlog, `docs/CORRECTION_DESIGN.md` CO17).
+Status: in progress. Built: reflection journal, read-only Moltbook tools (off by default), Notes pieces 1 to 8 (dark, `notes.enabled = false`; pieces 1 to 8 are in `BUILT.md` "Notes (Phase 5)"), and Notes v2 on `cc/notes-v2` (for review; the pass at close replaces `note_propose`). Not built: bounded research execution, the self-flag tool, the mining job, propose-vs-execute authorization for research, source trace collection (no research code in `program/`; `tests/test_db.py` asserts there is no `research_candidates` table; no `allow_*` flag exists). The phase gate has not been run. Notes' ship gate failed on CO15 (`NOW.md` backlog, `docs/CORRECTION_DESIGN.md` CO17).
 
 | Task | Tier | Model |
 |---|---|---|
@@ -283,7 +283,7 @@ Status: in progress. Built: reflection journal, read-only Moltbook tools (off by
 | Notes 6: approval toggle (`notes.approval_required`, settings-backed), approval log writes, auto-apply in one transaction | **3** | Sonnet |
 | Notes 7: frozen gate cases for `note_propose` and `note_search`; fingerprint moves | **3** | Sonnet |
 | Notes 8: ship gates: the CO15 composition test (including real replies) and the pending-claim measurement; the result goes to Lyle to decide | **3** | Sonnet |
-| **Notes v2** (decisions #36, #37; design `docs/NOTES_V2_DESIGN.md`). First piece: the refreeze of the gate cases that name `note_propose` (`docs/NOTES_REFREEZE_DESIGN.md`). **Obligations on the v2 build (2026-10-20):** (a) the test that no loaded frozen case names a tool missing from `catalog.TOOLS` tolerates `note_propose` until it is removed; that tolerance is removed in the same piece that removes the tool; (b) if the build changes `note_search`'s rendering, NS1b, NS2, NS3 and NS4 are refrozen in that piece, with traces produced by the new code | see design | |
+| **Notes v2** (decisions #36, #37; design `docs/NOTES_V2_DESIGN.md`). First piece: the refreeze of the gate cases that name `note_propose` (`docs/NOTES_REFREEZE_DESIGN.md`). **Obligations on the v2 build (2026-10-20):** (a) the test that no loaded frozen case names a tool missing from `catalog.TOOLS` tolerates `note_propose` until it is removed; that tolerance is removed in the same piece that removes the tool; (b) if the build changes `note_search`'s rendering, NS1b, NS2, NS3 and NS4 are refrozen in that piece, with traces produced by the new code. **Built on `cc/notes-v2` (2026-10-23), for review:** `note_propose`, `OriginContext` and auto-apply removed; the pass at close, the listing, migration 11, `scripts.note pass`/`passes`, `approval off` refused (`changelog/2026-10-23-notes-v2.md`). (a) met: the tolerance went in the commit that removed the tool. (b) not triggered: the rendering is unchanged, so NS1b to NS4 were not refrozen. **Changed 2026-10-27:** the pass no longer runs from the post-turn sweep (Phase 6's scheduler obligation) | see design | |
 | Source trace collection + ingestion blocklist for trace files | 1 | Sonnet |
 | Read-only Moltbook tools: browse, search, one post, one agent's profile and recent posts (no posts-by-author endpoint exists). **Moved here from Phase 8 at review 2026-09-30.** Design of record `docs/MOLTBOOK_READ_DESIGN.md`. The personalised feed is left out pending M0 (the account's identity) | 1 | Sonnet |
 
@@ -306,7 +306,7 @@ Status: not started. No scheduler module exists (`tests/test_no_person_present.p
 
 | Task | Tier | Model |
 |---|---|---|
-| Nightly tick / scheduler core | 1 | Sonnet |
+| Nightly tick / scheduler core. **Obligation (Lyle, 2026-10-27):** background model work (note passes, the journal, research, mining) must never overlap a turn, and turns take priority; the scheduler is where that is designed. Ollama serves one chat at a time and a waiting call's queue time counts against its own timeout, so a background call can make a turn's gate classifier (45 s) time out (`changelog/2026-10-27-notes-v2-pass-timing.md`). Until then no pass runs from the post-turn sweep. **Open question to settle in that design:** whether Ollama stops a call whose client timed out; if it does not, a timed-out background call keeps the model busy after its caller has given up | 1 | Sonnet |
 | launchd automation for the scheduler | 0 | Sonnet |
 | Confirm `allow_*` flags gate exactly the unattended path, nothing else (decision #4) | 2 | Sonnet |
 

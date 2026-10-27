@@ -1,32 +1,28 @@
-"""Reading and writing the Notes tables. Notes pieces 3 and 6 (`docs/NOTES_BUILD_PLAN.md`).
+"""Reading and writing the Notes tables. Notes pieces 3 and 6 (`docs/NOTES_BUILD_PLAN.md`), and
+Notes v2 (`docs/NOTES_V2_DESIGN.md`).
 
-The schema is migration 8 (`migrations._v8_notes`); its guards live there. This module is the
-small set of queries the two note tools and the turn need. **It writes a proposal and, in exactly
-one case, decides it: when approval is off, `record_proposal` inserts the proposal pending and, in
-the same transaction, writes the note, flips the proposal to `applied_without_review` and writes
-the log row** (N10, piece 6). Every other decision is the operator command's (`note_admin`), which
-shares `apply_change` below so a note is changed by one piece of code whoever decides.
+The schema is migration 8 (`migrations._v8_notes`) with migration 11's `line` column; the guards
+live there. This module is the small set of queries `note_search`, the listing, the note pass and
+the operator command need. **It decides no proposal.** Since Notes v2 there is no auto-apply: the
+pass writes proposals pending (`note_pass`), and every decision is the operator command's
+(`note_admin`), through `apply_change` below.
 
 Kept out of ``db.py`` so that module, whose locking behaviour is a stop-list item, is untouched.
-Every function that opens a write transaction carries ``@retry_on_locked``, enforced by a test.
+It opens no write transaction of its own: its writers take the caller's connection.
 """
 
 from __future__ import annotations
 
-import json
 import logging
 import sqlite3
 from typing import Any, Sequence
 
 from program.memory import db
-from program.memory.db import retry_on_locked
 from program.memory.retrieval import build_fts_query
 from program.settings import store
 
 logger = logging.getLogger(__name__)
 
-#: Who the log names for a decision no person made.
-AUTO_DECIDER = "approval_off"
 APPROVAL_SETTING = "notes.approval_required"
 
 
@@ -131,125 +127,70 @@ def approval_required_now() -> bool:
 
 def insert_note(conn: sqlite3.Connection, *, kind: str, subject: str,
                 subject_user_id: str | None, text: str, origin: str, version: int = 1,
-                previous_note_id: str | None = None) -> str:
+                previous_note_id: str | None = None, line: str | None = None) -> str:
     note_id = db.new_id()
     now = db.now_iso()
     conn.execute(
-        "INSERT INTO notes (id, subject_kind, subject, subject_user_id, text, status, version, "
-        "previous_note_id, origin, created_at, last_confirmed_at) "
-        "VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?)",
-        (note_id, kind, subject, subject_user_id, text, version, previous_note_id, origin, now,
-         now))
+        "INSERT INTO notes (id, subject_kind, subject, subject_user_id, text, line, status, "
+        "version, previous_note_id, origin, created_at, last_confirmed_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?)",
+        (note_id, kind, subject, subject_user_id, text, line, version, previous_note_id, origin,
+         now, now))
     return note_id
 
 
 def apply_change(conn: sqlite3.Connection, *, action: str, kind: str, subject: str,
                  target: sqlite3.Row | None, text: str | None, subject_user_id: str | None,
-                 carry_link: bool) -> tuple[str, dict[str, Any]]:
+                 carry_link: bool, line: str | None = None) -> tuple[str, dict[str, Any]]:
     """Write the note change a proposal asks for, **inside the caller's transaction**. Returns the
     resulting note's id (a retire's is the retired note) and the log detail. The one place a
-    proposal's change is made, shared by the operator's decisions and by auto-apply, so the two
-    cannot drift. New and changed notes are written with ``origin = 'entity'``; ``carry_link``
-    keeps a revised note's existing ``subject_user_id`` unless one was given."""
+    proposal's change is made (the operator's decision). New and changed notes are written with
+    ``origin = 'entity'``; ``carry_link`` keeps a revised note's existing ``subject_user_id``
+    unless one was given."""
     if action == "retire":
         conn.execute("UPDATE notes SET status = 'retired', retired_at = ? WHERE id = ?",
                      (db.now_iso(), target["id"]))
         return target["id"], {"action": "retire", "note_id": target["id"]}
     if action == "add":
         note_id = insert_note(conn, kind=kind, subject=subject, subject_user_id=subject_user_id,
-                              text=text, origin="entity")
+                              text=text, origin="entity", line=line)
         return note_id, {"action": "add", "note_id": note_id}
     conn.execute("UPDATE notes SET status = 'superseded' WHERE id = ?", (target["id"],))
     note_id = insert_note(
         conn, kind=kind, subject=subject,
         subject_user_id=(target["subject_user_id"] if carry_link else subject_user_id),
         text=text, origin="entity", version=target["version"] + 1,
-        previous_note_id=target["id"])
+        previous_note_id=target["id"], line=line)
     return note_id, {"action": "revise", "note_id": note_id, "previous_note_id": target["id"]}
 
 
-@retry_on_locked
-def record_proposal(
-    *,
-    proposal_id: str,
-    action: str,
-    target_note_id: str | None,
-    subject_kind: str,
-    subject: str,
-    text: str | None,
-    evidence: list[dict[str, Any]],
-    conversation_id: str,
-    user_message_id: str,
-    call_id: str | None,
-    user_id: str,
-    integrity_check: str | None,
-) -> str:
-    """Insert one proposal and, **if approval is off, apply it in the same transaction**.
-
-    Returns ``"pending"`` or ``"applied"``. The proposal is always inserted ``pending`` first (the
-    schema refuses any other start). With approval off, the same transaction then writes the note
-    change, flips the proposal to ``applied_without_review`` and writes the log row: if the log row
-    cannot be written, **none of it** happens, including the insert. The setting is read inside the
-    transaction, fresh, and fails closed (:func:`approval_required_in`). A revise or retire whose
-    target is no longer active is **not** applied: the proposal stays pending.
-    ``subject_user_id`` is never set here (never silently).
-    """
-    with db.transaction() as conn:
-        conn.execute(
-            """INSERT INTO note_proposals
-                   (id, action, target_note_id, subject_kind, subject, text, evidence,
-                    conversation_id, user_message_id, call_id, user_id, status,
-                    integrity_check, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)""",
-            (proposal_id, action, target_note_id, subject_kind, subject, text,
-             json.dumps(evidence), conversation_id, user_message_id, call_id, user_id,
-             integrity_check, db.now_iso()),
-        )
-        if approval_required_in(conn):
-            return "pending"
-        target = None
-        if action in ("revise", "retire"):
-            target = conn.execute("SELECT * FROM notes WHERE id = ?", (target_note_id,)).fetchone()
-            if target is None or target["status"] != "active":
-                return "pending"
-        result_id, detail = apply_change(
-            conn, action=action, kind=subject_kind, subject=subject, target=target, text=text,
-            subject_user_id=None, carry_link=True)
-        conn.execute(
-            "UPDATE note_proposals SET status = 'applied_without_review', decided_at = ?, "
-            "resulting_note_id = ? WHERE id = ? AND status = 'pending'",
-            (db.now_iso(), result_id, proposal_id))
-        detail["subject_user_id"] = None
-        db.record_approval(conn, capability="notes", subject_kind="note_proposal",
-                           subject_id=proposal_id, decision="applied_without_review",
-                           decided_by=AUTO_DECIDER, detail=detail)
-        return "applied"
+def active_notes_for_listing() -> list[sqlite3.Row]:
+    """Active notes in the listing's order (Notes v2 section 3): person notes first, then the
+    rest, each newest-confirmed first."""
+    with db.connection() as conn:
+        return conn.execute(
+            "SELECT * FROM notes WHERE status = 'active' "
+            "ORDER BY CASE WHEN subject_kind = 'person' THEN 0 ELSE 1 END, "
+            "last_confirmed_at DESC, rowid DESC").fetchall()
 
 
-@retry_on_locked
-def set_untrusted_context(call_id: str, tools: Sequence[str]) -> int:
-    """Record which untrusted-output tools ran before a proposal, for the proposal(s) made by
-    this call. **A still-pending proposal gets it on its row.** A proposal already applied (approval
-    was off) is decided and therefore frozen by the schema, every column, so its context cannot be
-    written onto it: it is appended to the approval log instead (``untrusted_context_recorded``,
-    once per proposal) and the review reads it from there. ``[]`` means *recorded, none*; both
-    stay unrecorded (NULL / no row) if this never runs. Returns the rows updated or appended."""
-    changed = 0
-    with db.transaction() as conn:
-        cur = conn.execute(
-            "UPDATE note_proposals SET untrusted_context = ? "
-            "WHERE call_id = ? AND status = 'pending'",
-            (json.dumps(list(tools)), call_id))
-        changed += cur.rowcount
-        for row in conn.execute(
-                "SELECT id FROM note_proposals WHERE call_id = ? "
-                "AND status = 'applied_without_review'", (call_id,)).fetchall():
-            if conn.execute(
-                    "SELECT 1 FROM approval_log WHERE capability = 'notes' AND subject_id = ? "
-                    "AND decision = 'untrusted_context_recorded'", (row["id"],)).fetchone():
-                continue
-            db.record_approval(conn, capability="notes", subject_kind="note_proposal",
-                               subject_id=row["id"], decision="untrusted_context_recorded",
-                               decided_by="system", detail={"tools": list(tools)})
-            changed += 1
-    return changed
+def active_notes_newest_first() -> list[sqlite3.Row]:
+    """Every active note, the most recently confirmed first (the note pass's fallback order)."""
+    with db.connection() as conn:
+        return conn.execute(
+            "SELECT * FROM notes WHERE status = 'active' "
+            "ORDER BY last_confirmed_at DESC, rowid DESC").fetchall()
+
+
+def matching_active_ids(text: str, limit: int) -> list[str]:
+    """Ids of active notes ``notes_fts`` matches against ``text``, best first. Re-read and
+    filtered to active like :func:`search_active`."""
+    return [row["id"] for row in search_active(text, limit)]
+
+
+def pending_proposals() -> list[sqlite3.Row]:
+    """Every pending proposal, oldest first."""
+    with db.connection() as conn:
+        return conn.execute(
+            "SELECT * FROM note_proposals WHERE status = 'pending' "
+            "ORDER BY created_at, rowid").fetchall()

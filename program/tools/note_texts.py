@@ -1,4 +1,5 @@
-"""Every sentence the two note tools say to the model, in one place.
+"""Every sentence Notes says to the model, in one place: ``note_search``'s, the note pass's
+instruction and the listing's header (Notes v2, ``docs/NOTES_V2_DESIGN.md``).
 
 Authored text: ``prompt.check_authored_text`` applies and a test runs it over each. They are
 collected here so a reviewer reads them together, and so the one that a report depends on (the
@@ -7,14 +8,16 @@ the tool and, in piece 4, the report: rewording it in one place cannot silently 
 
 **No result names a note or a proposal id.** An id in the answer text would invite the entity to
 quote it, and a quoted identifier is exactly what the fabrication gate's `invented_id` rule is
-suspicious of (B19). Notes are shown by a short prefix the entity passes back in a tool call.
+suspicious of (B19). ``note_search`` still shows a short id prefix: nothing takes it back since
+``note_propose`` was removed (Notes v2), and the rendering is left as it was so the frozen gate
+cases that quote it stay true to production (``BUILD_PLAN.md``, the Notes v2 obligation (b)).
 """
 
 from __future__ import annotations
 
 
 class NoteRefused(Exception):
-    """A note tool refuses a call. Raised from a handler, so dispatch returns ``TOOL_ERROR`` and
+    """``note_search`` refuses a call. Raised from a handler, so dispatch returns ``TOOL_ERROR`` and
     the model reads the message (prefixed by this class's name) and can try differently. Never a
     crash and never a silent drop."""
 
@@ -35,99 +38,84 @@ HEADER = (
 
 EMPTY_QUERY = "give some words to look for."
 
-# --- note_propose: results ------------------------------------------------------------------
 
-#: The result of an add. It says a proposal exists and a note does not.
-PENDING_ADD = (
-    "Proposed. A person will review it before anything changes. "
-    "No note exists yet because of this."
+
+# --- the note pass (Notes v2, docs/NOTES_V2_DESIGN.md section 1.1) -----------------------------
+
+#: The pass's instruction, verbatim from the design (decision #36 and #37), with the field limits
+#: rendered from config. The six criteria are decision #27's, word for word, with "your own" for
+#: "the entity's own". Sent after soul.md, in the system message of every piece's call.
+PASS_INSTRUCTION = (
+    "When a conversation has closed, you decide whether anything a person said in it should "
+    "become a note. Notes are what you keep about the people in this household and their lives, "
+    "so that you know it later, in a conversation about something else. Lyle reads each change "
+    "before it takes effect. Judge the conversation as a whole: what a person took back or "
+    "corrected later in it counts as they left it. Keep a note only when all of these hold:\n"
+    "1. Durable: still true and worth knowing a month from now, in a conversation about something "
+    "else; a task's moving state fails, a project's existence, decisions and constraints pass.\n"
+    "2. Said by a person: only what a person stated directly, never your own conclusions, advice "
+    "or guesses.\n"
+    "3. The right kind: who a person is; people in their life, as relationship context; ongoing "
+    "projects and responsibilities (decisions, constraints, current status); how a person wants "
+    "to be spoken with; tastes and habits only once they recur.\n"
+    "4. Calibrated: one mention is recorded as one mention, never inflated into a trait.\n"
+    "5. Not a duplicate: a correction revises the existing note.\n"
+    "6. Never stored: health, finances, religion, politics, sexuality and similar sensitive "
+    "categories; identification numbers; abuse or self-harm.\n"
+    "\n"
+    "Being asked to note something is not a reason on its own; weigh it like anything else. Most "
+    "conversations need no note. If an existing note (N), a pending change (P) or a draft (D) "
+    "already says it, change nothing. If what was said changes an existing note, revise it; if it "
+    "makes one no longer true, retire it; if it changes or takes back a draft, drop the draft.\n"
+    "\n"
+    "Answer NONE, or one block per change, with a blank line between blocks:\n"
+    "ADD\n"
+    "kind: person, topic or project\n"
+    "subject: {{\u2264{subject} characters}}\n"
+    "line: {{one line, \u2264{line} characters}}\n"
+    "note: {{\u2264{text} characters}}\n"
+    "quote: {{the person's exact words, at least {words}, \u2264{quote} characters}}\n"
+    "REVISE N{{number}}, then line, note, quote\n"
+    "RETIRE N{{number}}, then quote\n"
+    "DROP D{{number}}"
 )
 
-#: The result of a revise or retire. It says the existing note is unchanged, and tells the entity
-#: what to say: the previous wording ("A person will review it before anything changes. The note
-#: stays as it is until then.") was followed by a false "the note has been retired/updated" in 8 of
-#: 36 revise and retire turns; this one measured 0 of 36 (2026-10-03, injected in memory). The add
-#: text above is not changed: it was not measured.
-PENDING_CHANGE = (
-    "Proposed. The note is still active and unchanged until a person approves this. "
-    "Say it is proposed, not done."
+_NUMBER_WORDS = {1: "one", 2: "two", 3: "three", 4: "four", 5: "five", 6: "six"}
+
+
+def pass_instruction(*, subject: int, line: int, text: int, quote: int, min_words: int) -> str:
+    """The instruction with its limits filled in (from ``config``, by the caller)."""
+    words = _NUMBER_WORDS.get(min_words, str(min_words))
+    return PASS_INSTRUCTION.format(subject=subject, line=line, text=text, quote=quote,
+                                   words=words)
+
+
+# --- the listing (Notes v2, section 3) ---------------------------------------------------------
+
+#: The first line of the listing, in the system message after the speaker line whenever Notes is
+#: on. It states the true position on every turn: nothing said in this conversation makes a note.
+LISTING_HEADER = (
+    "Your notes, one line each. They are written after a conversation closes, and Lyle approves "
+    "each one, so nothing said in this conversation makes or changes a note. note_search gives a "
+    "note in full."
 )
 
-#: The results when approval is off and the proposal was applied at once. They say what happened
-#: and that no one reviewed it. (Which of the two modes applies is decided in the database at the
-#: moment of the call, not by the tool's description, which is the same in both.)
-APPLIED_ADD = "Added. The note now exists. No one reviewed it."
-APPLIED_CHANGE = "Done. The note was changed as proposed. No one reviewed it."
-APPLIED_RETIRE = "Done. The note was retired as proposed. No one reviewed it."
-
-# --- note_propose: refusals (each reaches the model as TOOL_ERROR) ----------------------------
-
-#: Appended to EVERY refusal of a proposal (CO17): the person is told the truth even when the
-#: entity cannot fix the call. Piece 8 found 5 of 6 retire turns ending in a false "I have retired
-#: the note" after three refusals; the refusal itself now says nothing was recorded and what to
-#: tell the person. Not appended to ``note_search``'s refusals: nothing was being proposed there.
-NOT_RECORDED = (
-    " Nothing was recorded. If you cannot fix this, tell the person plainly that the note was "
-    "not proposed."
-)
+#: The listing when there is no active note.
+LISTING_NONE = "None yet."
 
 
-def proposal_refused(message: str) -> NoteRefused:
-    """A refusal of a ``note_propose`` call, with :data:`NOT_RECORDED` appended."""
-    return NoteRefused(message + NOT_RECORDED)
+def listing_overflow(count: int) -> str:
+    """The last line when whole entries were left out for the cap."""
+    noun = "note is" if count == 1 else "notes are"
+    return f"{count} more {noun} not listed; note_search finds them."
 
 
-
-def bad_action(value: object) -> str:
-    return f"action must be one of add, revise, retire; got {value!r}."
+# --- quote resolution (N4), read by the note pass and recorded, never sent to the model --------
 
 
-def bad_subject_kind(value: object) -> str:
-    return (
-        f"subject_kind must be one of person, topic, project; got {value!r}. "
-        f"A note is never about yourself."
-    )
-
-
-SUBJECT_EMPTY = "subject is empty; give a short label such as a name."
-
-
-def subject_too_long(length: int, limit: int) -> str:
-    return f"subject is {length} characters; the limit is {limit}. Use a short label."
-
-
-TEXT_REQUIRED = "text is required to add or revise a note."
-
-RETIRE_TAKES_NO_TEXT = "a retire takes no text. Leave text out and call again."
-
-
-def text_too_long(length: int, limit: int) -> str:
-    return (
-        f"the note is {length} characters; the limit is {limit}. A note is one short fact; "
-        f"split it into more than one note."
-    )
-
-
-NOTE_ID_REQUIRED = "note_id is required to revise or retire a note; get it from note_search."
-
-ADD_TAKES_NO_NOTE_ID = "an add takes no note_id; leave it out."
-
-
-def note_not_found(value: str) -> str:
-    return (
-        f"no active note has id {value!r}. Search again: it may have been retired or revised."
-    )
-
-
-NOTE_ID_AMBIGUOUS = "that id matches more than one note; give more of it."
-
-QUOTES_REQUIRED = (
-    "give at least one quote: words a person said, copied exactly from a message."
-)
-
-
-def quote_not_text(index: int) -> str:
-    return f"quote {index} is not text; each quote must be a string of exact words."
+class QuoteRefused(Exception):
+    """A quote did not resolve to exactly one message a person wrote (N4). The pass records the
+    reason beside the refused block; nothing is written for it."""
 
 
 def quote_too_short(chars: int, words: int) -> str:

@@ -150,9 +150,8 @@ def test_only_a_tool_that_writes_records_may_report_one(handler):
 def test_the_side_effect_set_is_one_definition_shared_by_gate_and_receipts(
     monkeypatch,
 ):
-    # `note_propose` (Notes piece 3) declares takes_attribution, so the catalogue-derived set
-    # includes it even while Notes is dark.
-    assert registry.side_effect_tools() == ("creative_write", "image_generate", "note_propose")
+    # `note_propose` (Notes piece 3) was in this set until Notes v2 removed the tool.
+    assert registry.side_effect_tools() == ("creative_write", "image_generate")
     assert gate.side_effect_tools is registry.side_effect_tools
 
     # From the catalogue, not the enabled registry: a stored trace can name a tool

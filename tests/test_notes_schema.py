@@ -342,6 +342,7 @@ def test_every_edge_out_of_a_decided_state_is_refused(world, old, new):
     "text = 'something else'", "evidence = '[]'", "call_id = 'c'", "decided_at = 'later'",
     "resulting_note_id = NULL", "untrusted_context = '[]'", "integrity_check = '{}'",
     "subject = 'Lyle'", "user_id = conversation_id", "created_at = 'x'", "action = 'retire'",
+    "line = 'changed'",
 ])
 def test_every_column_of_a_decided_proposal_is_frozen(world, assignment):
     with db.transaction() as conn:
@@ -776,6 +777,7 @@ NOTE_ASSIGNMENTS = [
     "status = 'retired'", "status = 'superseded'", "version = 2",
     "previous_note_id = NULL", "origin = 'entity'", "created_at = 'x'",
     "last_confirmed_at = 'x'", "retired_at = 'x'",
+    "line = 'changed'",                 # migration 11's column, frozen by migration 8's trigger
     "text = text",                      # even a no-op update is a change attempt
 ]
 

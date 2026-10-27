@@ -484,10 +484,13 @@ def _reserved_beside_a_maximal_message() -> int:
 
     authored = _authored_reserve_tokens()
     situation = history.estimate_tokens_from_chars(600)  # judgment allowance; 206 measured
-    # The speaker line (a name allowance of 64 characters, a judgment) and the earlier-tools
-    # list at its cap (decision #32 D4), each with its separator.
+    # The speaker line (a name allowance of 64 characters, a judgment), the notes listing at its
+    # cap (Notes v2 section 3) and the earlier-tools list at its cap (decision #32 D4), each with
+    # its separator. The listing is counted whether or not Notes is on, so switching it on can
+    # never break the derivation.
     speaker_and_tools = history.estimate_tokens_from_chars(
-        len(prompt.SPEAKER_LINE) + 64 + earlier_tools.LIST_MAX_CHARS + 4)
+        len(prompt.SPEAKER_LINE) + 64 + config.notes_listing_max_chars()
+        + earlier_tools.LIST_MAX_CHARS + 6)
     retrieved_chars = (
         # The records cap itself (B17), not a copy of its arithmetic: top_k x
         # max_input_chars + 1,000 of headers. Before B17 this line assumed that bound
@@ -518,6 +521,19 @@ def test_the_configured_limit_fits_the_context_window_by_its_own_derivation():
         f"chat.max_message_chars {config.chat_max_message_chars()} exceeds the "
         f"{fits_chars:.0f} characters that fit beside a maximal turn"
     )
+
+
+def test_the_headroom_beside_a_maximal_message_is_what_the_notes_v2_design_states():
+    """Notes v2 section 3: with note_propose's schema gone and the 1,200-character listing in,
+    the headroom beside a maximal message goes from 166 tokens to 85 as built (the design's 96,
+    less 11 tokens for note_search's longer description). Pinned so a larger listing cap is paid
+    for on purpose (by lowering chat.max_message_chars), not found later."""
+    from program.engine import history
+
+    context = int(config.model_options()["num_ctx"])
+    free = (context - _reserved_beside_a_maximal_message()
+            - history.estimate_tokens_from_chars(config.chat_max_message_chars()))
+    assert 0 <= free <= 166, f"{free} tokens free beside a maximal message"
 
 
 def test_the_derivation_reserves_both_authored_files_at_their_ceilings():

@@ -91,7 +91,6 @@ from program import config
 from program.attribution import AttributionContext
 from program.engine import ollama, prompt
 from program.memory.retrieval import RetrievalResult
-from program.origin import OriginContext
 from program.tools import brave
 from program.tools import registry as tools
 from program.tools.registry import ToolRegistry, ToolResult
@@ -243,7 +242,6 @@ def _dispatch_call(
     call: Mapping[str, Any],
     seconds_left: float,
     attribution: AttributionContext | None = None,
-    origin: OriginContext | None = None,
 ) -> ToolResult:
     """One tool call, bounded by whatever is left of the turn's budget."""
     name = _call_name(call)
@@ -259,7 +257,7 @@ def _dispatch_call(
     tool = registry.get(name) if registry.has(name) else None
     limit = min(tool.resolved_timeout(), seconds_left) if tool else seconds_left
     return registry.dispatch(
-        name, arguments, timeout_seconds=limit, attribution=attribution, origin=origin
+        name, arguments, timeout_seconds=limit, attribution=attribution
     )
 
 
@@ -275,9 +273,9 @@ def run_turn(
     options: dict[str, Any] | None = None,
     soul_text: str | None = None,
     attribution: AttributionContext | None = None,
-    origin: OriginContext | None = None,
     speaker: str | None = None,
     earlier_tools: str = "",
+    notes_listing: str = "",
 ) -> TurnResult:
     """Run one turn to a terminal answer.
 
@@ -287,15 +285,14 @@ def run_turn(
     nothing in this module reads it. It is **not** an authorization object: see
     ``program/attribution.py``.
 
-    ``origin`` says which exchange this turn is (Notes piece 2): passed straight through to
-    dispatch like ``attribution``, reaching only tools that declare ``takes_origin``, and **read
-    by nothing in this module**. See ``program/origin.py``.
-
     ``speaker`` is the name of the person being answered, stated in the system prompt on every
     call (``prompt.speaker_line``). ``None`` for a turn with no person, which states nothing.
 
     ``earlier_tools`` is the system's list of tools earlier replies used
-    (``earlier_tools.system_list``), placed after the speaker line on every call.
+    (``earlier_tools.system_list``), placed after the notes listing on every call.
+
+    ``notes_listing`` is the entity's notes, one line each (``notes_listing.system_listing``),
+    placed after the speaker line on every call; ``""`` when Notes is off.
 
     ``messages`` is the conversation so far, **including the user message being
     answered** — which the caller has already persisted (task 2.2's obligation
@@ -338,6 +335,7 @@ def run_turn(
                 current_turn_start=current_turn_start,
                 tool_schema_chars=len(json.dumps(payload)) if payload else 0,
                 speaker=speaker, earlier_tools=earlier_tools,
+                notes_listing=notes_listing,
             )
             events = list(assembled.window_events)
             if assembled.needs_final_call:
@@ -348,6 +346,7 @@ def run_turn(
                     [*messages, *extras], situation, retrieval, soul_text=soul_text,
                     current_turn_start=current_turn_start, tool_schema_chars=0,
                     speaker=speaker, earlier_tools=earlier_tools,
+                    notes_listing=notes_listing,
                 )
                 events.extend(assembled.window_events)
             for event in events:
@@ -414,7 +413,7 @@ def run_turn(
 
             for call in calls:
                 result = _dispatch_call(
-                    registry, call, budget - spent, attribution=attribution, origin=origin
+                    registry, call, budget - spent, attribution=attribution
                 )
                 spent += result.duration_seconds
                 trace.append({"iteration": iteration, **result.to_trace_entry()})

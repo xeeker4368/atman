@@ -549,17 +549,17 @@ max_results = 5
 # Notes (Phase 5). Design: docs/NOTES_DESIGN.md; build plan: docs/NOTES_BUILD_PLAN.md.
 # Every key here is bootstrap-only (restart to change), like [moltbook].
 
-# Whether note_search and note_propose exist at all (decision #12's first axis). OFF BY
-# DEFAULT: Notes ships dark until its two ship gates pass (N9), and only Lyle switches it on, in
-# config/local.toml or ANAM_NOTES_ENABLED. A disabled tool is not offered to the model.
+# Whether Notes exists at all (decision #12's first axis): note_search, the listing in every
+# conversation and the note pass at close (Notes v2, docs/NOTES_V2_DESIGN.md). OFF BY DEFAULT:
+# only Lyle switches it on, in config/local.toml or ANAM_NOTES_ENABLED. A disabled tool is not
+# offered to the model.
 enabled = false
 
-# Whether a note_propose needs a person's decision before anything changes (decision #12's second
-# axis). SETTINGS-BACKED and the one Notes key that is not bootstrap: its only writer is
-# `python -m scripts.note approval on|off`, which writes the setting and an approval_log row in
-# one transaction. THIS VALUE IS NOT USED TO DECIDE ANYTHING. The decision path reads the
-# settings row fresh and, with no row or an unreadable one, requires approval: a TOML edit is
-# not a logged event and cannot switch approval off. It is here so the registry has a seed to show.
+# Whether a proposal needs a person's decision (decision #12's second axis). Since Notes v2 every
+# proposal is pending (decision #36(c)) and `python -m scripts.note approval off` REFUSES, until
+# the web UI has a Notes page. Its writer is still `scripts.note approval on`, which writes the
+# setting and an approval_log row in one transaction. THIS VALUE IS NOT USED TO DECIDE ANYTHING;
+# it is here so the registry has a seed to show.
 approval_required = true
 
 # Notes returned by one note_search. JUDGMENT VALUE, like retrieval.top_k.
@@ -580,6 +580,43 @@ max_text_chars = 639
 # many characters and this many words. JUDGMENT VALUES.
 min_quote_chars = 24
 min_quote_words = 4
+
+# --- Notes v2 (docs/NOTES_V2_DESIGN.md) ---
+
+# The one-line form of a note, shown in the listing. JUDGMENT VALUE (section 3).
+line_max_chars = 100
+
+# The listing's cap, whole entries only, header and overflow line included (section 3, decided).
+# Its tokens are in the budget chain (tests/test_turn.py) beside the speaker line.
+listing_max_chars = 1200
+
+# The note pass (section 1). One model call per piece, at the classifier's settings: the chat
+# model, temperature 0, the same num_ctx.
+# Output cap, DERIVED (section 1.3): four maximal ADD blocks (1,050 characters each at every field
+# cap) at 3.0 characters per token is 1,400, plus 100 for anything outside the blocks, rounded up
+# to 3 x 512. tests/test_note_pass.py checks four tokenized maximal blocks plus 100 fit.
+pass_num_predict = 1536
+# A piece's model call. DERIVED from two timed passes (2026-10-26 and 10-27, one process, Ollama
+# serving one chat at a time). Run 4's longest conversation, one piece: 6,459 prompt tokens in
+# 18.9 s, 126 output in 4.2 s, 23.2 s wall. A synthetic maximal piece (88,393 characters of
+# conversation, the notes list at its cap): 26,571 prompt tokens in 103.5 s (257 a second), 107
+# output in 4.3 s (25 a second), 108 s wall. The caps allow at most 30,720 prompt tokens (num_ctx less
+# the output cap and margin; the synthetic text ran 4.4 characters a token, the derivation assumes
+# 4.0) and 1,536 output: 30,720 / 257 + 1,536 / 25 = 120 + 61 = 181 s, and 300 s is about 1.7 times
+# that. The output rate is from 107 tokens only. Ollama's queue time counts against a waiting call's
+# own timeout, which is why no pass runs from the post-turn sweep (docs/NOTES_V2_DESIGN.md section 1).
+pass_timeout_seconds = 300
+# A piece: whole exchanges, greedily, up to this many characters. DERIVED (section 1.2) from
+# num_ctx 32,768 less the output cap, a 512 margin, soul.md at its ceiling, the instruction's
+# 4,000-character allowance, 400 of framing and the notes list's cap, at 4.0 characters per token.
+pass_piece_max_chars = 90000
+# The notes, pending proposals and drafts sent with a piece. Over it, the notes notes_fts
+# matches against the piece go first, then the most recently confirmed (section 1.2).
+pass_notes_max_chars = 24000
+# A quote's cap. Without it there was no maximal block to derive the output cap from.
+pass_quote_max_chars = 200
+# An `unavailable` pass is retried by drain up to this many attempts in all (section 5).
+pass_max_attempts = 3
 
 [ingestion]
 # File/artifact ingestion (task 2.6). Design: docs/INGESTION_DESIGN.md.

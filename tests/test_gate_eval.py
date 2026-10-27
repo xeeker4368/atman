@@ -136,14 +136,6 @@ def test_the_frozen_case_set_has_not_changed(cases):
 #: Retired cases (the Notes v2 refreeze, 2026-10-22). Kept readable; never measured.
 RETIRED_PATH = gate_eval.CASES_PATH.parent / "retired_cases.toml"
 
-#: Tools still in ``catalog.TOOLS`` that Notes v2 removes. **The named tolerance for
-#: ``note_propose``** (refreeze build step 3): the tool may stay in the catalogue until the v2
-#: piece removes it, but no loaded case may name it, since its cases were retired. The second
-#: assertion below fails the moment the tool leaves the catalogue, so this entry is removed in
-#: the same piece that removes the tool (BUILD_PLAN.md, Notes v2, obligation (a)).
-LEAVING_WITH_NOTES_V2 = frozenset({"note_propose"})
-
-
 def test_retired_cases_are_kept_readable_and_never_loaded(cases):
     retired = gate_eval.load_cases(RETIRED_PATH)
     assert {c.id for c in retired} == {
@@ -165,11 +157,11 @@ def test_no_loaded_case_names_a_tool_missing_from_the_catalogue(cases):
 
     catalogue = {tool.name for tool in catalog.TOOLS}
     named = {(c.id, e["tool"]) for c in cases for e in c.trace}
-    assert [pair for pair in sorted(named)
-            if pair[1] not in catalogue - LEAVING_WITH_NOTES_V2] == []
-    assert LEAVING_WITH_NOTES_V2 <= catalogue, (
-        "a tool listed in LEAVING_WITH_NOTES_V2 has left catalog.TOOLS: remove it from that set "
-        "in the same piece (BUILD_PLAN.md, Notes v2, obligation (a))")
+    # No tolerance: the one the refreeze allowed (``note_propose``, LEAVING_WITH_NOTES_V2) was
+    # removed in the Notes v2 build, in the same commit that removed the tool (BUILD_PLAN.md,
+    # Notes v2, obligation (a)).
+    assert [pair for pair in sorted(named) if pair[1] not in catalogue] == []
+    assert "note_propose" not in catalogue
 
 
 def test_informational_fields_are_not_fingerprinted_but_expectations_are(cases):

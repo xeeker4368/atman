@@ -15,12 +15,12 @@ second doc grow up beside this one to track the same thing.
 Code exists: the test count is whatever `pytest --collect-only -q` reports. Phase status is in `BUILD_PLAN.md` ("Status:" under
 each phase) and the history in `BUILT.md` (frozen; `ARCHITECTURE.md` holds the current invariants).
 - **Built:** Phases 0 to 4. Two Phase 1 items are owed: the Restore CLI (not built) and the loopback check (deferred to Phase 9).
-- **In progress:** Phase 5. Built: reflection journal, read-only Moltbook tools, Notes pieces 1 to 8, the CO17 exclusion. Not built: bounded research
+- **In progress:** Phase 5. Built: reflection journal, read-only Moltbook tools, Notes pieces 1 to 8, the CO17 exclusion; Notes v2 on `cc/notes-v2`, for review. Not built: bounded research
   execution, the self-flag tool, periodic mining. **Not started:** Phases 6 to 10.
 - **Also built ahead of its phase:** the chat page (decision #31, `8b0f45b`); the gate's ordinary reading, the speaker
   line on every turn and the earlier-tools list (decision #32, `b4eab13`).
 - **HEAD:** see `git log`.
-- **Last full suite on record:** 2,272 passed, 23 skipped, 0 failed, `ruff` clean, at `ulimit -n 256`, 2026-10-22, on `cc/notes-refreeze-design` at `6efd943` (the docs commit after it changes no code); the 23 skips are the live tests and two opt-in Moltbook tests.
+- **Last full suite on record:** 2,271 passed, 24 skipped, 0 failed, `ruff` clean, at `ulimit -n 256`, 2026-10-23, on `cc/notes-v2` at `5dcc31a`, with and without a throwaway `config/local.toml` (the docs commit after it changes no code); the 24 skips are the live tests and two opt-in Moltbook tests.
 - **Dark or off by default** (`config/defaults.toml`, parsed with `tomllib`): `notes.enabled = false`, `moltbook.enabled = false`,
   `corrections.person_corrects_entity = false`, `search.fallback = "none"`, `search.store_snippets = false`. A local `config/local.toml` can override them; it was not read for this block.
 
@@ -38,6 +38,8 @@ each phase) and the history in `BUILT.md` (frozen; `ARCHITECTURE.md` holds the c
 | Web UI (decision #31) | `8b0f45b` | `changelog/2026-10-06-web-ui.md` |
 | Gate ordinary reading, piece 3.1, speaker line, earlier-tools list, refreeze, A1 known failing (decision #32) | `b4eab13` | `changelog/2026-10-08-gate-ordinary-reading.md` and the 2026-10-06 to 10-09 entries beside it |
 | Pre-run-4: retrieval capture (migration 9), recall runner with Notes off, the soul sentence on its own states (decisions #33 to #35) | `c306042` | `changelog/2026-10-09-retrieval-capture.md`, `changelog/2026-10-09-soul-states-sentence.md` |
+| Pre-run-5: SearXNG option 2, the Brave fallback (migration 10), the honest no-results note (decisions #38, #39) | `df7c1a0` | `changelog/2026-10-20-brave-fallback.md` |
+| Notes v2 refreeze: NP2 to NP5b retired, AR1/AR1b added, fingerprint `e7c3d15f…` | `a589535` | `changelog/2026-10-22-notes-refreeze.md` |
 
 **Run 3** (2026-10-06, code `8890489`; descriptive, nothing here is a frozen finding; raw data outside the
 repo, rule 3). Compared with run 2:
@@ -94,14 +96,16 @@ pre-run-4 batch (`c306042`), run 4 (reviewed), and `cc/post-run-4` (this record,
 `point_b.py` keeping raw classifier replies).
 
 **Next, not yet ordered:**
-- **The Notes v2 design**, after run 4 (Lyle, 2026-10-12): decided as #36 and #37 (2026-10-16); the
-  design, `docs/NOTES_V2_DESIGN.md` revision 3 (2026-10-19), is for review of its §1.3 and nothing is
-  built. Its first piece, the refreeze of the gate cases that name `note_propose`, is designed
-  (`cc/notes-refreeze-design`, `docs/NOTES_REFREEZE_DESIGN.md`), its decisions 1 to 4 were accepted
-  2026-10-20, and it is **built on that branch, for review** (2026-10-22): five cases retired, AR1/AR1b
-  added, fingerprint `e7c3d15f…`, 66 cases. **Obligations on the v2 build** (`BUILD_PLAN.md` Phase 5):
-  (a) the frozen-case tool test's tolerance for `note_propose` goes in the same piece that removes
-  the tool; (b) a change to `note_search`'s rendering refreezes NS1b to NS4 in that piece.
+- **Notes v2** (decisions #36, #37; `docs/NOTES_V2_DESIGN.md` revision 3). The refreeze of the gate cases
+  that named `note_propose` is merged (`a589535`: fingerprint `e7c3d15f…`, 66 cases). **The build is on
+  `cc/notes-v2`, for review** (2026-10-23, `changelog/2026-10-23-notes-v2.md`): `note_propose`,
+  `OriginContext` and auto-apply removed; the note pass at close (`close_idle_conversations --passes`,
+  `scripts.note pass` and the kit's `/kit/end`; **not the post-turn sweep**, 2026-10-27, so no pass
+  overlaps a turn: `changelog/2026-10-27-notes-v2-pass-timing.md`); the listing after the speaker line; migration 11 (`line`,
+  `note_passes`, `note_pass_status`); `approval off` refused. Obligation (a) met in the removing commit;
+  (b) not triggered (the rendering is unchanged). **Next:** run 5 with Notes on; the kit is ready and its
+  checklist is drafted outside the repo (`RUN5_CHECKLIST.draft.md`), and PLAYBOOK v4 (the reviewer's
+  draft, checkpoints A after C5 and B after C10) is installed in the kit as a draft, not live.
 - **Web search** (before run 5): SearXNG option 2 applied 2026-10-19 (image pinned to
   `2026.10.19-d47cb96bf` in its `.env`, minimal `use_default_settings`); three default queries answered
   by Brave and Google CSE. **Decision #39 (2026-10-20): SearXNG is the primary, the Brave Search API the
@@ -157,7 +161,7 @@ Number and title only; the text is in `docs/DECISIONS.md`.
 36. Run 4's false account goes to stage 2 (#23); Notes v2: a pass after each reply, sensitive categories never stored, Lyle approves every note, a listing in every conversation
 37. The note pass runs once per conversation, at close (amends #36(a))
 38. Web search's primary source is the Brave Search API; SearXNG is the fallback (order reversed by #39)
-39. SearXNG is web search's primary source, Brave the fallback (built on `cc/pre-run-5`, for review)
+39. SearXNG is web search's primary source, Brave the fallback (merged, `df7c1a0`)
 
 ## Go-live checklist
 

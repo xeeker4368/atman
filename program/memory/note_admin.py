@@ -1,7 +1,8 @@
 """What the operator does to notes. Notes piece 4 (`docs/NOTES_BUILD_PLAN.md`).
 
 ``scripts/note.py`` is the command line over this module. **This is the only human control on what
-a note may say** (N0): the entity proposes, and nothing becomes a note until a person decides here.
+a note may say** (N0): the entity proposes (since Notes v2, only through the note pass at a
+conversation's close, ``note_pass``), and nothing becomes a note until a person decides here.
 
 Rules that hold for every write in this module:
 
@@ -11,9 +12,9 @@ Rules that hold for every write in this module:
   does not know.
 * **The connection helper is used throughout** (``db.connection`` / ``db.transaction``), because
   ``FOREIGN KEY`` clauses are inert on a plain ``sqlite3`` connection.
-* **It never migrates.** :func:`require_schema` refuses a store below schema version 8 before any
-  other work, and refuses to create a store that does not exist. Migrations run at server startup
-  only.
+* **It never migrates.** :func:`require_schema` refuses a store below schema version 11 (Notes
+  v2's ``line`` column and ``note_passes``) before any other work, and refuses to create a store
+  that does not exist. Migrations run at server startup only.
 * **A proposal is flipped by an UPDATE from ``pending``**, in the same transaction as the note it
   creates or changes; the schema refuses any other route to a decided status.
 * **``subject_user_id`` is set only when the reviewer asks for it** (``--subject-user``). A
@@ -37,7 +38,7 @@ from program.settings.permissions import OPERATOR_ID, Actor
 from program.tools import note_texts
 
 CAPABILITY = "notes"
-MIN_SCHEMA_VERSION = 8
+MIN_SCHEMA_VERSION = 11
 SUBJECT_KINDS = ("person", "topic", "project")
 STALE_REASON = "the note changed since this was proposed"
 
@@ -54,8 +55,8 @@ def require_schema() -> int:
     """Refuse a store this command must not touch; return its schema version.
 
     **Never migrates and never creates**: it opens ``working.db`` read-only and reads
-    ``schema_version``. A missing store, or one below version 8, is refused with the reason. The
-    real store is at version 6 until the server's first startup applies migrations 7 and 8.
+    ``schema_version``. A missing store, or one below :data:`MIN_SCHEMA_VERSION`, is refused with
+    the reason; the server's startup applies the migrations.
     """
     working, archive = db.working_path(), db.archive_path()
     for path in (working, archive):
@@ -135,6 +136,21 @@ def _resolve_subject_user(conn: sqlite3.Connection, name: str | None) -> str | N
     raise AdminError(f"{name!r} is not a household member. Known: {known}.")
 
 
+def check_line(line: str | None) -> str | None:
+    """A note's one-line form (Notes v2): one line, within ``notes.line_max_chars``."""
+    if line is None:
+        return None
+    line = line.strip()
+    if not line:
+        raise AdminError("the line is empty.")
+    if "\n" in line:
+        raise AdminError("the line is one line: it may not contain a line break.")
+    if len(line) > config.notes_line_max_chars():
+        raise AdminError(f"the line is {len(line)} characters; the limit is "
+                         f"{config.notes_line_max_chars()}.")
+    return line
+
+
 def _check_note_fields(
     kind: str, subject: str, text: str | None, need_text: bool
 ) -> tuple[str, str | None]:
@@ -182,13 +198,14 @@ class Done:
 
 @retry_on_locked
 def operator_add(kind: str, subject: str, text: str, *, subject_user: str | None = None,
-                 evidence: list[str] | None = None) -> Done:
+                 evidence: list[str] | None = None, line: str | None = None) -> Done:
     subject, text = _check_note_fields(kind, subject, text, need_text=True)
+    line = check_line(line)
     with db.transaction() as conn:
         user_id = _resolve_subject_user(conn, subject_user)
         evidence_ids = _check_evidence_ids(conn, evidence or [])
         note_id = notes_db.insert_note(conn, kind=kind, subject=subject, subject_user_id=user_id,
-                                   text=text, origin="operator")
+                                   text=text, origin="operator", line=line)
         db.record_approval(conn, capability=CAPABILITY, subject_kind="note", subject_id=note_id,
                            decision="operator_add", decided_by=OPERATOR_ID,
                            detail={"note_id": note_id, "evidence_message_ids": evidence_ids})
@@ -197,7 +214,8 @@ def operator_add(kind: str, subject: str, text: str, *, subject_user: str | None
 
 @retry_on_locked
 def operator_revise(note_prefix: str, text: str, *, subject: str | None = None,
-                    subject_user: str | None = None) -> Done:
+                    subject_user: str | None = None, line: str | None = None) -> Done:
+    line = check_line(line)
     with db.transaction() as conn:
         old = _require_active(conn, note_prefix)
         new_subject, text = _check_note_fields(old["subject_kind"], subject or old["subject"],
@@ -207,7 +225,8 @@ def operator_revise(note_prefix: str, text: str, *, subject: str | None = None,
         conn.execute("UPDATE notes SET status = 'superseded' WHERE id = ?", (old["id"],))
         new_id = notes_db.insert_note(conn, kind=old["subject_kind"], subject=new_subject,
                               subject_user_id=user_id, text=text, origin="operator",
-                              version=old["version"] + 1, previous_note_id=old["id"])
+                              version=old["version"] + 1, previous_note_id=old["id"],
+                              line=line if line is not None else old["line"])
         db.record_approval(conn, capability=CAPABILITY, subject_kind="note", subject_id=new_id,
                            decision="operator_revise", decided_by=OPERATOR_ID,
                            detail={"previous_note_id": old["id"], "note_id": new_id,
@@ -251,7 +270,8 @@ def _flip(conn: sqlite3.Connection, proposal_id: str, status: str, resulting: st
 
 @retry_on_locked
 def decide(proposal_prefix: str, decision: str, *, text: str | None = None,
-           subject_user: str | None = None, reason: str | None = None) -> Decision:
+           subject_user: str | None = None, reason: str | None = None,
+           line: str | None = None) -> Decision:
     """Approve, edit or reject one pending proposal, in **one transaction** with the note change
     and the log row. ``decision`` is ``approved``, ``edited`` or ``rejected``.
 
@@ -260,8 +280,9 @@ def decide(proposal_prefix: str, decision: str, *, text: str | None = None,
     """
     if decision not in ("approved", "edited", "rejected"):
         raise AdminError(f"unknown decision {decision!r}.")
-    if decision == "edited" and not (text or "").strip():
-        raise AdminError("an edit needs the changed text.")
+    if decision == "edited" and not (text or "").strip() and line is None:
+        raise AdminError("an edit needs the changed text, the changed line, or both.")
+    line = check_line(line)
     with db.transaction() as conn:
         proposal = _by_prefix(conn, "note_proposals", proposal_prefix, "proposal")
         pid = proposal["id"]
@@ -293,7 +314,9 @@ def decide(proposal_prefix: str, decision: str, *, text: str | None = None,
 
         user_id = _resolve_subject_user(conn, subject_user)
         entity_text = proposal["text"]
-        final_text = (text or "").strip() if decision == "edited" else entity_text
+        final_text = (text or "").strip() if (decision == "edited" and (text or "").strip()) \
+            else entity_text
+        final_line = line if (decision == "edited" and line is not None) else proposal["line"]
         suggestion = None
         if user_id is None and subject_user is None:
             match = household_match(conn, proposal["subject"])
@@ -305,10 +328,13 @@ def decide(proposal_prefix: str, decision: str, *, text: str | None = None,
         result_id, detail = notes_db.apply_change(
             conn, action=proposal["action"], kind=proposal["subject_kind"],
             subject=proposal["subject"], target=target, text=final_text,
-            subject_user_id=user_id, carry_link=(subject_user is None))
+            subject_user_id=user_id, carry_link=(subject_user is None),
+            line=final_line if proposal["action"] != "retire" else None)
         detail["subject_user_id"] = user_id
         if decision == "edited":
             detail["before"], detail["after"] = entity_text, final_text
+            if final_line != proposal["line"]:
+                detail["line_before"], detail["line_after"] = proposal["line"], final_line
         _flip(conn, pid, decision, result_id)
         db.record_approval(conn, capability=CAPABILITY, subject_kind="note_proposal",
                            subject_id=pid, decision=decision, decided_by=OPERATOR_ID,
@@ -336,12 +362,26 @@ class Toggle:
     message: str
 
 
-@retry_on_locked
+#: Why ``approval off`` is refused (Notes v2 section 4).
+APPROVAL_OFF_REFUSED = (
+    "approval cannot be switched off: every note proposal waits for you (decision #36(c)), "
+    "and nothing applies one without review. This stays so until the web UI has a Notes page."
+)
+
+
 def set_approval_required(required: bool) -> Toggle:
-    """Switch approval on or off. **The only writer of ``notes.approval_required``**
-    (``store.set`` and ``store.clear`` refuse it): the setting and its ``approval_required_on`` /
-    ``approval_required_off`` log row are written in ONE transaction, so there is no change of it
-    the log does not know about. Pending proposals are not touched either way (N10, piece 6)."""
+    """Switch approval on, or refuse to switch it off. **The only writer of
+    ``notes.approval_required``** (``store.set`` and ``store.clear`` refuse it): the setting and
+    its ``approval_required_on`` log row are written in ONE transaction, so there is no change of
+    it the log does not know about. **Off is refused** since Notes v2 (#36(c)): the auto-apply
+    path it switched on is gone."""
+    if not required:
+        raise AdminError(APPROVAL_OFF_REFUSED)
+    return _write_approval_required(required)
+
+
+@retry_on_locked
+def _write_approval_required(required: bool) -> Toggle:
     with db.transaction() as conn:
         previous = notes_db.approval_required_in(conn)
         store.write_in_transaction(conn, notes_db.APPROVAL_SETTING, required, Actor.operator())
@@ -352,15 +392,10 @@ def set_approval_required(required: bool) -> Toggle:
             decided_by=OPERATOR_ID, detail={"before": previous, "after": required})
     store.invalidate()      # this process's cache; another process reads fresh regardless
     pending = pending_count()
-    if required:
-        message = ("approval is now REQUIRED: every proposal waits for a person.")
-    else:
-        message = ("approval is now OFF: a proposal the entity makes is applied at once, with no "
-                   "one reviewing it, and logged as applied_without_review. Read them with "
-                   "`review --applied`.")
+    message = "approval is now REQUIRED: every proposal waits for a person."
     if pending:
-        message += (f"\n{pending} pending proposal(s) stay pending in either state: switching "
-                    f"approval off does not apply them. Decide them with approve, edit or reject.")
+        message += (f"\n{pending} pending proposal(s). Decide them with approve, edit or "
+                    f"reject.")
     return Toggle(required, previous, pending, message)
 
 
@@ -437,7 +472,16 @@ def review_view(proposal_prefix: str) -> dict[str, Any]:
                 (p["id"],)).fetchone()
             if logged:
                 untrusted = json.dumps(json.loads(logged["detail"])["tools"])
+        conversation_messages = [dict(r) for r in conn.execute(
+            "SELECT m.id, m.role, m.content, m.timestamp, u.name AS speaker FROM messages m "
+            "LEFT JOIN users u ON u.id = m.user_id WHERE m.conversation_id = ? "
+            "ORDER BY m.timestamp, m.id", (p["conversation_id"],))]
+        passes = [dict(r) for r in conn.execute(
+            "SELECT attempt, outcome, pieces, proposals, seconds, created_at FROM note_passes "
+            "WHERE conversation_id = ? ORDER BY attempt", (p["conversation_id"],))]
         return {
+            "conversation_messages": conversation_messages,
+            "passes": passes,
             "untrusted_raw": untrusted,
             "result_note": dict(result_note) if result_note else None,
             "proposal": p,
@@ -454,6 +498,28 @@ def review_view(proposal_prefix: str) -> dict[str, Any]:
             "made_for": made_for["name"] if made_for else None,
             "reply": _reply_for(conn, p["conversation_id"], p["call_id"]),
         }
+
+
+def list_passes(include_done: bool = False, limit: int = 50) -> list[sqlite3.Row]:
+    """Ended conversations by their note pass status, newest closed first (``note_pass_status``,
+    Notes v2 section 5). By default only those needing a look: ``unavailable``, ``truncated``,
+    ``not_run`` and ``waiting``."""
+    where = "" if include_done else "WHERE s.status NOT IN ('proposals', 'none')"
+    with db.connection() as conn:
+        return conn.execute(
+            f"SELECT s.*, u.name AS owner, "
+            f"(SELECT p.error FROM note_passes p WHERE p.conversation_id = s.conversation_id "
+            f" ORDER BY p.attempt DESC LIMIT 1) AS error, "
+            f"(SELECT p.proposals FROM note_passes p WHERE p.conversation_id = s.conversation_id "
+            f" ORDER BY p.attempt DESC LIMIT 1) AS proposals "
+            f"FROM note_pass_status s LEFT JOIN users u ON u.id = s.user_id {where} "
+            f"ORDER BY s.ended_at DESC LIMIT ?", (limit,)).fetchall()
+
+
+def conversation_by_prefix(prefix: str) -> str:
+    """A conversation's full id from a prefix (the ``pass`` command)."""
+    with db.connection() as conn:
+        return _by_prefix(conn, "conversations", prefix, "conversation")["id"]
 
 
 def list_applied(limit: int = 50) -> list[sqlite3.Row]:

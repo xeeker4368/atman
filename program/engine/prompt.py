@@ -12,12 +12,13 @@ Every turn's prompt is seven parts, in this order (S11, S32):
                                 tool honesty, the correction wording.
 3. current-situation block    — timestamp, elapsed time, and its gap statement.
 4. speaker line               — "You are talking with <name>.", on every turn with a person.
-5. earlier tools              — the system's list of tools earlier replies used (decision #32 D4).
-6. retrieved chunks           — each rendered with when it happened, in local time.
-7. windowed history           — **not** text in the system prompt; the message
+5. the notes listing          — the entity's notes, one line each, when Notes is on (Notes v2).
+6. earlier tools              — the system's list of tools earlier replies used (decision #32 D4).
+7. retrieved chunks           — each rendered with when it happened, in local time.
+8. windowed history           — **not** text in the system prompt; the message
                                 array that follows it.
 
-Parts 1–6 are the system message. Part 7 is separate because that is what it
+Parts 1–7 are the system message. Part 7 is separate because that is what it
 structurally is, and because it puts the live conversation closest to the
 generation point.
 
@@ -967,6 +968,8 @@ class AssembledPrompt:
     situation_chars: int = 0
     #: The speaker line (:func:`speaker_line`), its own part so the parts sum to ``system``.
     speaker_chars: int = 0
+    #: The notes listing (``notes_listing.system_listing``), its own part as well.
+    notes_listing_chars: int = 0
     #: The earlier-tools list (``earlier_tools.system_list``), its own part as well.
     earlier_tools_chars: int = 0
     retrieved_chars: int = 0
@@ -1020,6 +1023,18 @@ def speaker_line(speaker: str | None) -> str:
     return line
 
 
+def _listing(text: str | None) -> str:
+    """The notes listing as given. Its header is this system's text and is checked like every
+    other; the entries are not, by S9's rule for retrieved records: a note holds what a person
+    said, and a person may say "Anam" (the project) where the system may not."""
+    listing = (text or "").strip()
+    if listing:
+        from program.tools import note_texts
+
+        check_authored_text(note_texts.LISTING_HEADER, "notes listing header")
+    return listing
+
+
 def _authored(soul_text: str | None) -> tuple[str, str]:
     """(soul, operational) for one assembly: the two files, or an injected text alone."""
     if soul_text is None:
@@ -1035,8 +1050,10 @@ def build_system_prompt(
     *,
     speaker: str | None = None,
     earlier_tools: str | None = None,
+    notes_listing: str | None = None,
 ) -> str:
-    """soul.md, operational.md, situation, speaker line, earlier-tools list, retrieved records.
+    """soul.md, operational.md, situation, speaker line, notes listing, earlier-tools list,
+    retrieved records.
 
     ``soul_text`` is injectable for tests; it is naming- and trait-checked, so a
     caller cannot route around those constraints by supplying its own. An
@@ -1051,10 +1068,11 @@ def build_system_prompt(
     check_authored_text(_SUPERSESSION_UNRESOLVED, "supersession-unresolved note")
 
     said_by = speaker_line(speaker)
+    listing = _listing(notes_listing)
     tools_list = (earlier_tools or "").strip()
     retrieved = render_retrieved(retrieval)
-    parts = [part for part in (soul, operational, situation, said_by, tools_list, retrieved)
-             if part]
+    parts = [part for part in (soul, operational, situation, said_by, listing, tools_list,
+                               retrieved) if part]
     return _SECTION_SEP.join(parts)
 
 
@@ -1069,6 +1087,7 @@ def assemble_turn(
     tool_schema_chars: int = 0,
     speaker: str | None = None,
     earlier_tools: str | None = None,
+    notes_listing: str | None = None,
 ) -> AssembledPrompt:
     """Build the system prompt, then give history whatever window is left (S12).
 
@@ -1104,11 +1123,12 @@ def assemble_turn(
     situation = (situation or "").strip()
     _check_pairing(situation)
     said_by = speaker_line(speaker)
+    listing = _listing(notes_listing)
     tools_list = (earlier_tools or "").strip()
 
     def compose(retrieved: str) -> tuple[str, int, history.BudgetBreakdown]:
-        parts = [part for part in (soul, operational, situation, said_by, tools_list, retrieved)
-                 if part]
+        parts = [part for part in (soul, operational, situation, said_by, listing, tools_list,
+                                   retrieved) if part]
         # Separators plus the retrieved header, which render_retrieved() folds into
         # the retrieved text. Counted against the system side so the two reported
         # figures sum to what was actually sent.
@@ -1116,7 +1136,7 @@ def assemble_turn(
         budget = history.plan_budget(
             system_prompt_chars=(
                 len(soul) + len(operational) + len(situation) + len(said_by)
-                + len(tools_list) + scaffolding),
+                + len(listing) + len(tools_list) + scaffolding),
             retrieved_chars=len(retrieved),
             context_tokens=context_tokens,
             tool_schema_chars=tool_schema_chars,
@@ -1133,6 +1153,7 @@ def assemble_turn(
             operational_chars=len(operational),
             situation_chars=len(situation),
             speaker_chars=len(said_by),
+            notes_listing_chars=len(listing),
             earlier_tools_chars=len(tools_list),
             retrieved_chars=len(retrieved),
             scaffolding_chars=scaffolding,

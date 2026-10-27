@@ -813,6 +813,79 @@ def _v10_brave_calls(conn: sqlite3.Connection) -> None:
         CREATE INDEX idx_brave_calls_month ON brave_calls(month);
     """)
 
+
+def _v11_notes_v2(conn: sqlite3.Connection) -> None:
+    """Version 11 — Notes v2 (decisions #36, #37; ``docs/NOTES_V2_DESIGN.md`` section 5).
+
+    The design calls this migration 10; that number went to the Brave call count first.
+
+    * **``line``** on ``notes`` and ``note_proposals``: the one-line form the listing shows,
+      written by the pass and shown in review. Nullable, because rows made before it have none
+      (the listing then shows the note's text, cut). One line: no newline is accepted. Its
+      length limit is config's (``notes.line_max_chars``), checked in code like ``subject``'s.
+      **Migration 8's freeze triggers already cover it**: they refuse every change to a retired
+      or superseded note and to a decided proposal, whatever the column, so nothing is added
+      (a test proves the new column is frozen with the rest).
+    * **``note_passes``**: one row per attempt of the note pass over a closed conversation,
+      ``UNIQUE(conversation_id, attempt)``. ``outcome`` is ``proposals``, ``none``,
+      ``truncated`` or ``unavailable``; the JSON columns hold each piece's raw reply, which pieces
+      were cut and each cut block's text, and the blocks dropped, refused or malformed. Written
+      once, in the transaction that writes the attempt's proposals; never updated (a trigger
+      refuses it), so a later attempt is a new row.
+    * **``note_pass_status``**, a view with **one row per ended conversation**: the latest
+      attempt's outcome; ``not_run`` when the conversation is fully chunked and has no attempt;
+      ``waiting`` when it is closed but not yet chunked. A failed pass is therefore never "nothing
+      to note" (#33's rule), and a cut one never reads as ``proposals`` alone.
+    """
+    _execute_script(conn, """
+        ALTER TABLE notes ADD COLUMN line TEXT
+            CHECK (line IS NULL OR (length(line) >= 1 AND instr(line, char(10)) = 0));
+        ALTER TABLE note_proposals ADD COLUMN line TEXT
+            CHECK (line IS NULL OR (length(line) >= 1 AND instr(line, char(10)) = 0));
+
+        CREATE TABLE note_passes (
+            id                TEXT PRIMARY KEY,
+            conversation_id   TEXT NOT NULL REFERENCES conversations(id),
+            attempt           INTEGER NOT NULL CHECK (attempt >= 1),
+            outcome           TEXT NOT NULL
+                CHECK (outcome IN ('proposals', 'none', 'truncated', 'unavailable')),
+            pieces            INTEGER NOT NULL CHECK (pieces >= 0),
+            proposals         INTEGER NOT NULL CHECK (proposals >= 0),
+            piece_replies     TEXT NOT NULL CHECK (json_valid(piece_replies)),
+            cut_pieces        TEXT NOT NULL CHECK (json_valid(cut_pieces)),
+            cut_blocks        TEXT NOT NULL CHECK (json_valid(cut_blocks)),
+            set_aside         TEXT NOT NULL CHECK (json_valid(set_aside)),
+            notes_list_cut    INTEGER NOT NULL CHECK (notes_list_cut IN (0, 1)),
+            error             TEXT,
+            seconds           REAL NOT NULL CHECK (seconds >= 0),
+            created_at        TEXT NOT NULL,
+            UNIQUE (conversation_id, attempt),
+            CHECK ((outcome = 'unavailable') = (error IS NOT NULL)),
+            CHECK (outcome = 'proposals' OR outcome = 'truncated' OR proposals = 0),
+            CHECK (outcome <> 'truncated' OR json_array_length(cut_pieces) >= 1)
+        );
+
+        CREATE TRIGGER note_passes_no_update BEFORE UPDATE ON note_passes
+        BEGIN
+            SELECT RAISE(ABORT, 'a note pass attempt is recorded once; a rerun is a new attempt');
+        END;
+
+        CREATE VIEW note_pass_status AS
+            SELECT c.id AS conversation_id, c.user_id, c.ended_at, c.chunked,
+                   (SELECT COUNT(*) FROM note_passes p WHERE p.conversation_id = c.id)
+                       AS attempts,
+                   COALESCE(
+                       (SELECT p.outcome FROM note_passes p WHERE p.conversation_id = c.id
+                        ORDER BY p.attempt DESC LIMIT 1),
+                       CASE WHEN c.chunked = 1 THEN 'not_run' ELSE 'waiting' END) AS status,
+                   (SELECT json_array_length(p.cut_pieces) FROM note_passes p
+                    WHERE p.conversation_id = c.id ORDER BY p.attempt DESC LIMIT 1)
+                       AS cut_pieces
+            FROM conversations c
+            WHERE c.ended_at IS NOT NULL;
+    """)
+
+
 MIGRATIONS: list[Migration] = [
     Migration(version=2, name="artifacts_and_chunk_link", apply=_v2_artifacts),
     Migration(version=3, name="message_integrity_check", apply=_v3_integrity_check),
@@ -823,6 +896,7 @@ MIGRATIONS: list[Migration] = [
     Migration(version=8, name="notes", apply=_v8_notes),
     Migration(version=9, name="retrieval_capture", apply=_v9_retrieval_capture),
     Migration(version=10, name="brave_calls", apply=_v10_brave_calls),
+    Migration(version=11, name="notes_v2", apply=_v11_notes_v2),
 ]
 
 

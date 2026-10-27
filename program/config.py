@@ -954,9 +954,9 @@ MOLTBOOK_HOST = "www.moltbook.com"
 
 
 def notes_enabled() -> bool:
-    """Whether the two note tools exist at all (decision #12's first axis). Default **false**:
-    Notes ships dark until its two ship gates pass, and only Lyle switches it on. Read at call
-    time by ``default_registry()``, so a disabled tool is never offered to the model."""
+    """Whether Notes exists at all (decision #12's first axis): ``note_search``, the listing and
+    the note pass. Default **false**; only Lyle switches it on. Read at call time by
+    ``default_registry()``, so a disabled tool is never offered to the model."""
     return bool(get("notes", "enabled", False))
 
 
@@ -992,6 +992,49 @@ def notes_min_quote_chars() -> int:
 def notes_min_quote_words() -> int:
     """Fewest words in a quote (N4 step 2; judgment value)."""
     return _notes_int("min_quote_words", 4)
+
+
+def notes_line_max_chars() -> int:
+    """Longest one-line form of a note, shown in the listing (Notes v2; judgment value)."""
+    return _notes_int("line_max_chars", 100)
+
+
+def notes_listing_max_chars() -> int:
+    """The listing's cap, whole entries only, header and overflow line included (Notes v2)."""
+    return _notes_int("listing_max_chars", 1200)
+
+
+def notes_pass_num_predict() -> int:
+    """The note pass's output cap, derived from four maximal blocks (Notes v2 section 1.3)."""
+    return _notes_int("pass_num_predict", 1536)
+
+
+def notes_pass_timeout_seconds() -> float:
+    """How long one piece's model call may take."""
+    value = float(get("notes", "pass_timeout_seconds", 300))
+    if value <= 0:
+        raise ConfigError(f"notes.pass_timeout_seconds is {value}; it must be positive.")
+    return value
+
+
+def notes_pass_piece_max_chars() -> int:
+    """A piece's cap: whole exchanges up to this many characters (Notes v2 section 1.2)."""
+    return _notes_int("pass_piece_max_chars", 90000)
+
+
+def notes_pass_notes_max_chars() -> int:
+    """The notes, pending proposals and drafts sent with a piece (Notes v2 section 1.2)."""
+    return _notes_int("pass_notes_max_chars", 24000)
+
+
+def notes_pass_quote_max_chars() -> int:
+    """A quote's cap in a pass block (Notes v2 section 1.3)."""
+    return _notes_int("pass_quote_max_chars", 200)
+
+
+def notes_pass_max_attempts() -> int:
+    """Attempts ``note_pass.drain`` makes at an ``unavailable`` pass (Notes v2 section 5)."""
+    return _notes_int("pass_max_attempts", 3)
 
 
 def moltbook_enabled() -> bool:

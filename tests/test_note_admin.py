@@ -1,4 +1,8 @@
-"""`scripts.note` and `program/memory/note_admin.py`: Notes piece 4 (`docs/NOTES_BUILD_PLAN.md`).
+"""`scripts.note` and `program/memory/note_admin.py`: Notes piece 4 (`docs/NOTES_BUILD_PLAN.md`),
+as Notes v2 leaves them (`docs/NOTES_V2_DESIGN.md` sections 4 and 5).
+
+Proposals are seeded the way the note pass writes them (`tests/notes_helpers.py`); `note_propose`
+no longer exists.
 
 The only human control on what a note may say. Every test runs on a temporary store; the real
 `data/` is never opened (the suite's isolation guard would stop it). The identity classifier is
@@ -18,18 +22,18 @@ from pathlib import Path
 import pytest
 
 from program import config
-from program.attribution import AttributionContext
 from program.engine import loop, turn
 from program.integrity import classifier
 from program.memory import db, migrations, notes
 from program.memory import note_admin as admin
-from program.origin import OriginContext
+from program.ops import store_lock
 from program.settings.permissions import Actor, Role
+from program.tools import note_quotes
 from program.tools import note_texts as texts
-from program.tools.note_propose import NOTE_PROPOSE
 from program.tools.note_search import NOTE_SEARCH
 from program.tools.registry import Tool, ToolRegistry
 from scripts import note as cli
+from tests.notes_helpers import pending_proposal
 
 HEX = "0123456789abcdef"
 
@@ -61,23 +65,23 @@ def world(isolated_data_dir, monkeypatch):
         "store": say(other, jodie, "user", "My grandmother kept her starter above the stove.",
                      "2026-09-30T09:00:00+00:00"),
     }
-    origin = OriginContext(conv, ids["trigger"], frozenset({ids["context"], ids["trigger"]}))
+    context = frozenset({ids["context"], ids["trigger"]})
     return type("W", (), {"lyle": lyle, "jodie": jodie, "conv": conv, "other": other,
-                          "ids": ids, "origin": origin,
-                          "attribution": AttributionContext(user_id=lyle),
-                          "reg": ToolRegistry([NOTE_SEARCH, NOTE_PROPOSE])})
+                          "ids": ids, "context": context})
 
 
-def propose(world, **kw):
-    base = dict(action="add", subject_kind="person", subject="Jodie",
-                text="Takes her coffee with oat milk.",
-                quotes=["Jodie takes her coffee with oat milk"])
-    base.update(kw)
-    base = {k: v for k, v in base.items() if v is not None}
-    out = world.reg.dispatch("note_propose", base, attribution=world.attribution,
-                             origin=world.origin)
-    assert out.outcome.value == "ok", out
-    return out
+def propose(world, *, action="add", note_id=None, text="Takes her coffee with oat milk.",
+            subject="Jodie", line="Takes her coffee with oat milk.",
+            quote="Jodie takes her coffee with oat milk", untrusted=None):
+    """A pending proposal, written as the note pass writes one. Returns its id."""
+    target = None
+    if note_id is not None:
+        [target] = notes.get_active_by_id_prefix(note_id)
+    return pending_proposal(
+        world.conv, world.lyle, action=action, subject=subject,
+        text=None if action == "retire" else text,
+        line=None if action == "retire" else line, quote=quote, context_ids=world.context,
+        target_note_id=target["id"] if target else None, untrusted=untrusted)
 
 
 def rows(table):
@@ -116,8 +120,8 @@ def store_at(version, monkeypatch):
     assert migrations.current_version() == version
 
 
-@pytest.mark.parametrize("version", (6, 7))
-def test_a_store_below_version_8_is_refused_untouched(isolated_data_dir, monkeypatch, capsys,
+@pytest.mark.parametrize("version", (8, 10))
+def test_a_store_below_version_11_is_refused_untouched(isolated_data_dir, monkeypatch, capsys,
                                                       version):
     store_at(version, monkeypatch)
     before = store_hash()
@@ -133,12 +137,13 @@ def test_a_store_below_version_8_is_refused_untouched(isolated_data_dir, monkeyp
 @pytest.mark.parametrize("argv", [
     ["add", "--kind", "person", "--subject", "J", "--text", "t"], ["revise", "abc", "--text", "t"],
     ["retire", "abc"], ["list"], ["review"], ["review", "abc"], ["approve", "abc"],
-    ["edit", "abc", "--text", "t"], ["reject", "abc"], ["misses"], ["check"], ["reindex"]])
+    ["edit", "abc", "--text", "t"], ["reject", "abc"], ["misses"], ["check"], ["reindex"],
+    ["pass", "abc"], ["passes"], ["approval", "status"]])
 def test_every_command_is_guarded_by_the_schema_check(isolated_data_dir, monkeypatch, capsys, argv):
-    store_at(7, monkeypatch)
+    store_at(10, monkeypatch)
     before = store_hash()
     code, _, err = run_cli(capsys, *argv)
-    assert code == 3 and "schema version 7" in err
+    assert code == 3 and "schema version 10" in err
     assert store_hash() == before
 
 
@@ -320,7 +325,8 @@ def test_a_household_name_in_the_subject_is_suggested_and_never_applied(world, c
     result = admin.decide(pid, "approved")
     assert result.suggestion == "Jodie" and rows("notes")[0]["subject_user_id"] is None
 
-    propose(world, subject="the market stall")
+    propose(world, subject="the market stall", line="Sells bread on Saturdays.",
+            text="Sells bread on Saturdays.")
     assert admin.decide(pending_id(), "approved").suggestion is None
 
 
@@ -508,35 +514,47 @@ def test_every_write_in_the_admin_module_carries_the_retry():
 # --- the review output ---------------------------------------------------------------------
 
 
-def seed_review(world, *, untrusted='["web_fetch"]', flagged=True, reply_claims_saved=True):
-    """A proposal with evidence from BOTH tiers, a gate flag, an untrusted context (or NULL), and
-    the entity's own reply to the turn, claiming the note is saved."""
+def seed_review(world, *, untrusted='["web_fetch"]', flagged=True, reply_claims_saved=True,
+                with_call=False):
+    """A pass proposal with evidence from BOTH tiers, a gate flag and an untrusted context (or
+    NULL). ``with_call`` makes it a proposal with a call id, as `note_propose` made before Notes
+    v2 (set by direct SQL on the pending row), with the entity's own reply to that turn claiming
+    the note is saved."""
     import types
 
     if flagged:
         classifier.classify = lambda p: (
             "CONTRADICTS-SELF\n- Takes her coffee with oat milk. | nothing runs between replies")
-    out = propose(world, quotes=["Jodie takes her coffee with oat milk",
-                                 "My grandmother kept her starter above the stove"],
-                  text="Takes her coffee with oat milk.")
-    pid = pending_id()
-    if untrusted is not None:
-        notes.set_untrusted_context(out.call_id, json.loads(untrusted))
-    # an earlier assistant message in the same conversation that is NOT the reply to this turn
-    db.save_message(world.conv, world.lyle, "assistant", "An earlier answer, unrelated.",
-                    tool_trace=json.dumps([{"iteration": 1, "tool": "web_search",
-                                            "call_id": "x" * 32, "outcome": "ok",
-                                            # mentions this call's id without being its turn
-                                            "value": f"see call {out.call_id}"}]),
-                    timestamp="2026-10-02T14:00:30+00:00")
-    reply = db.save_message(
-        world.conv, world.lyle, "assistant",
-        "I've saved that note about Jodie." if reply_claims_saved else "Proposed for review.",
-        tool_trace=json.dumps([{"iteration": 1, "tool": "note_propose", "call_id": out.call_id,
-                                "outcome": "ok", "value": texts.PENDING_ADD}]),
-        timestamp="2026-10-02T14:01:20+00:00")
-    db.set_message_integrity_check(reply, json.dumps({"status": "clean", "findings": []}))
-    return types.SimpleNamespace(pid=pid, call_id=out.call_id, reply=reply)
+    pid = propose(world, untrusted=json.loads(untrusted) if untrusted is not None else [])
+    second = note_quotes.resolve_quote("My grandmother kept her starter above the stove",
+                                       world.context)
+    with db.transaction() as conn:
+        evidence = json.loads(conn.execute("SELECT evidence FROM note_proposals WHERE id = ?",
+                                           (pid,)).fetchone()[0])
+        conn.execute("UPDATE note_proposals SET evidence = ? WHERE id = ?",
+                     (json.dumps([*evidence, second.to_dict()]), pid))
+        if untrusted is None:
+            conn.execute("UPDATE note_proposals SET untrusted_context = NULL WHERE id = ?", (pid,))
+    call_id = None
+    if with_call:
+        call_id = "c" * 32
+        with db.transaction() as conn:
+            conn.execute("UPDATE note_proposals SET call_id = ? WHERE id = ?", (call_id, pid))
+        # an earlier assistant message in the same conversation that is NOT the reply to this turn
+        db.save_message(world.conv, world.lyle, "assistant", "An earlier answer, unrelated.",
+                        tool_trace=json.dumps([{"iteration": 1, "tool": "web_search",
+                                                "call_id": "x" * 32, "outcome": "ok",
+                                                # mentions this call's id without being its turn
+                                                "value": f"see call {call_id}"}]),
+                        timestamp="2026-10-02T14:00:30+00:00")
+        reply = db.save_message(
+            world.conv, world.lyle, "assistant",
+            "I've saved that note about Jodie." if reply_claims_saved else "Proposed for review.",
+            tool_trace=json.dumps([{"iteration": 1, "tool": "note_propose", "call_id": call_id,
+                                    "outcome": "ok", "value": "Proposed."}]),
+            timestamp="2026-10-02T14:01:20+00:00")
+        db.set_message_integrity_check(reply, json.dumps({"status": "clean", "findings": []}))
+    return types.SimpleNamespace(pid=pid, call_id=call_id)
 
 
 def review(capsys, pid):
@@ -546,13 +564,14 @@ def review(capsys, pid):
 
 
 def test_the_review_prints_origin_evidence_both_tiers_gate_and_the_entitys_reply(world, capsys):
-    s = seed_review(world)
+    s = seed_review(world, with_call=True)
     out = review(capsys, s.pid)
 
     assert f"PROPOSAL {s.pid}" in out
-    # origin: conversation, triggering message verbatim, call id
+    # origin: conversation, the message the first quote resolved to, verbatim, and the call id
     assert world.conv in out and "belongs to Lyle" in out
-    assert world.ids["trigger"] in out and "Please make a note of that for her." in out
+    assert world.ids["context"] in out
+    assert "Jodie takes her coffee with oat milk, never dairy." in out
     assert f"call id: {s.call_id}" in out
     # evidence: quote verbatim, the speaker's NAME, tier, duplicate count, the message itself
     assert "quote: 'Jodie takes her coffee with oat milk'" in out
@@ -561,7 +580,8 @@ def test_the_review_prints_origin_evidence_both_tiers_gate_and_the_entitys_reply
     assert "speaker: Jodie (role user)    tier: store    identical messages: 1" in out
     assert "Jodie takes her coffee with oat milk, never dairy." in out
     assert "found only outside this turn's context" in out
-    # proposed text and the gate, stated as a noisy aid
+    # proposed line and text, and the gate, stated as a noisy aid
+    assert "line: Takes her coffee with oat milk." in out
     assert "text: Takes her coffee with oat milk." in out
     assert "a noisy aid, NOT a control" in out
     assert "status: flagged" in out and "nothing runs between replies" in out
@@ -607,9 +627,24 @@ def test_the_untrusted_context_is_printed_before_everything_else(world, capsys):
 
 
 def test_a_reply_that_was_not_found_is_said_plainly(world, capsys):
-    propose(world)
-    out = review(capsys, pending_id())
+    pid = propose(world)
+    with db.transaction() as conn:
+        conn.execute("UPDATE note_proposals SET call_id = ? WHERE id = ?", ("d" * 32, pid))
+    out = review(capsys, pid)
     assert "no reply found whose trace contains this call" in out
+
+
+def test_a_pass_proposal_shows_the_conversation_it_came_from_instead_of_a_reply(world, capsys):
+    s = seed_review(world)
+    out = review(capsys, s.pid)
+    assert "made by the note pass after the conversation closed" in out
+    assert "THE CONVERSATION IT CAME FROM" in out
+    assert "Lyle: Jodie takes her coffee with oat milk, never dairy." in out
+    assert "Lyle: Please make a note of that for her." in out
+    assert "My grandmother kept her starter above the stove." not in out.split(
+        "THE CONVERSATION IT CAME FROM")[1], "only this conversation's messages are shown"
+    assert "THE ENTITY'S OWN REPLY" not in out and "no reply found" not in out
+    assert "note pass attempt 1: proposals, 1 proposal(s)" in out
 
 
 def test_a_clean_unavailable_and_missing_verdict_are_distinguished(world, capsys):
@@ -774,8 +809,9 @@ def test_help_states_the_guarantees_and_names_every_command(capsys):
     assert exit_info.value.code == 0
     text = " ".join(capsys.readouterr().out.split())
     for word in ("add", "revise", "retire", "list", "review", "approve", "edit", "reject",
-                 "misses", "check", "reindex", "ONE transaction", "never migrates",
-                 "schema version 8", "decided once", "never applied", "NOT a control"):
+                 "misses", "check", "reindex", "pass", "passes", "ONE transaction",
+                 "never migrates", "schema version 11", "decided once", "never applied",
+                 "NOT a control", "REFUSED"):
         assert word in text, word
 
 
@@ -824,7 +860,7 @@ def test_the_pending_list_shows_not_recorded_none_and_a_flag_distinctly_in_one_l
 ])
 def test_the_closing_line_of_a_review_follows_the_proposals_status(
         world, capsys, status, expected, forbidden):
-    s = seed_review(world)
+    s = seed_review(world, with_call=True)
     if status == "approved":
         admin.decide(s.pid, "approved")
     elif status == "edited":
@@ -848,38 +884,6 @@ def test_every_status_the_schema_allows_has_a_closing_line():
         assert status in cli.OUTCOME_LINES
 
 
-def test_note_propose_does_nothing_fallible_after_the_row_is_written(world, monkeypatch):
-    """A `tool_error` with a proposal row present would read as "Nothing was recorded" (piece 5's
-    receipt). So the result is built before the insert: if building it fails, no row exists."""
-    from program.tools import note_propose
-
-    def boom(*a, **k):
-        raise RuntimeError("injected")
-
-    monkeypatch.setattr(note_propose, "ToolOutput", boom)
-    result = world.reg.dispatch(
-        "note_propose", dict(
-            action="add", subject_kind="person", subject="Jodie", text="Takes oat milk.",
-            quotes=["Jodie takes her coffee with oat milk"]),
-        attribution=world.attribution, origin=world.origin)
-    assert result.outcome.value == "tool_error"
-    assert rows("note_proposals") == [], "a failed call left a proposal row behind"
-
-
-def test_the_insert_is_the_last_thing_note_propose_does_before_it_returns():
-    import ast
-    import inspect
-
-    from program.tools import note_propose
-
-    fn = ast.parse(inspect.getsource(note_propose.propose_note)).body[0]
-    last_two = fn.body[-2:]
-    # the write (which may also apply the note) is the last statement that can fail, and what is
-    # returned is looked up in results built BEFORE it
-    assert isinstance(last_two[0], ast.Assign) and "record_proposal" in ast.dump(last_two[0])
-    assert isinstance(last_two[1], ast.Return) and isinstance(last_two[1].value, ast.Subscript)
-
-
 def test_a_decided_revise_does_not_warn_that_its_target_changed(world, capsys):
     """Found by reading the sample: the target of an applied or approved revise is superseded BY
     that proposal, so "approving will be refused" was a false warning on a decided proposal."""
@@ -891,3 +895,102 @@ def test_a_decided_revise_does_not_warn_that_its_target_changed(world, capsys):
     out = review(capsys, pid)
     assert "[SUPERSEDED]" in out
     assert "approving will be refused" not in out
+
+
+# --- Notes v2: the line, the pass commands -----------------------------------------------------
+
+
+def test_add_line_stores_the_line(world, capsys):
+    code, out, _ = run_cli(capsys, "add", "--kind", "person", "--subject", "Jodie",
+                           "--text", "Takes her coffee with oat milk, never dairy.",
+                           "--line", "Oat milk in her coffee")
+    assert code == 0
+    [note] = rows("notes")
+    assert note["line"] == "Oat milk in her coffee"
+
+
+def test_revise_keeps_the_line_unless_given_one(world):
+    old = admin.operator_add("person", "Jodie", "Takes milk.", line="Milk").note_id
+    kept = admin.operator_revise(old[:8], "Takes oat milk.").note_id
+    changed = admin.operator_revise(kept[:8], "Takes oat milk, never dairy.",
+                                    line="Oat milk only").note_id
+    by_id = {n["id"]: n for n in rows("notes")}
+    assert by_id[kept]["line"] == "Milk" and by_id[changed]["line"] == "Oat milk only"
+
+
+@pytest.mark.parametrize("bad", ["two\nlines", "L" * 101, "   "])
+def test_a_line_with_a_break_over_the_cap_or_empty_is_refused(world, bad):
+    assert config.notes_line_max_chars() == 100
+    with pytest.raises(admin.AdminError, match="line"):
+        admin.operator_add("person", "Jodie", "Takes milk.", line=bad)
+    pid = propose(world)
+    before = snapshot()
+    with pytest.raises(admin.AdminError, match="line"):
+        admin.decide(pid, "edited", line=bad)
+    assert snapshot() == before and rows("notes") == []
+
+
+def test_edit_line_changes_the_line_and_logs_both(world, capsys):
+    pid = propose(world)
+    code, out, err = run_cli(capsys, "edit", pid[:8], "--line", "Oat milk, never dairy")
+    assert code == 0, err
+    [note] = rows("notes")
+    assert note["line"] == "Oat milk, never dairy"
+    assert note["text"] == "Takes her coffee with oat milk.", (
+        "the text is kept when only the line changes")
+    [proposal] = rows("note_proposals")
+    assert proposal["status"] == "edited" and proposal["line"] == "Takes her coffee with oat milk."
+    detail = json.loads(rows("approval_log")[0]["detail"])
+    assert (detail["line_before"], detail["line_after"]) == (
+        "Takes her coffee with oat milk.", "Oat milk, never dairy")
+
+
+def test_an_edit_with_neither_text_nor_line_is_refused(world, capsys):
+    pid = propose(world)
+    before = snapshot()
+    code, _, err = run_cli(capsys, "edit", pid[:8])
+    assert code == 1 and "an edit needs" in err
+    assert snapshot() == before
+
+
+def test_approval_off_is_refused_and_changes_nothing(world, capsys):
+    before = snapshot()
+    code, out, err = run_cli(capsys, "approval", "off")
+    assert code == 1 and "cannot be switched off" in err and "Notes page" in err
+    assert snapshot() == before
+    assert run_cli(capsys, "approval", "on")[0] == 0
+    assert rows("approval_log")[-1]["decision"] == "approval_required_on"
+
+
+def _ended(world, *, chunked):
+    conv = db.start_conversation(world.jodie)
+    db.save_message(conv, world.jodie, "user", "A short conversation about the allotment.",
+                    timestamp="2026-10-03T09:00:00+00:00")
+    db.end_conversation(conv)
+    if chunked:
+        db.mark_conversation_chunked(conv)
+    return conv
+
+
+def test_passes_lists_waiting_and_not_run_conversations(world, capsys):
+    waiting = _ended(world, chunked=False)
+    not_run = _ended(world, chunked=True)
+    code, out, _ = run_cli(capsys, "passes")
+    assert code == 0
+    by_id = {ln.split()[0]: ln for ln in out.splitlines()[1:] if ln.strip()}
+    assert "waiting" in by_id[waiting[:8]] and "not_run" in by_id[not_run[:8]]
+    assert "Jodie" in by_id[waiting[:8]]
+
+
+def test_passes_says_when_nothing_needs_a_look(world, capsys):
+    code, out, _ = run_cli(capsys, "passes")
+    assert code == 0 and out.strip() == "No conversation's note pass needs a look."
+
+
+def test_pass_on_an_open_conversation_is_refused_and_writes_no_row(world, capsys, monkeypatch):
+    monkeypatch.setenv("ANAM_NOTES_ENABLED", "true")
+    config.reload()
+    monkeypatch.setattr(store_lock, "hold_or_refuse", lambda action: None)
+    code, out, err = run_cli(capsys, "pass", world.conv[:8])
+    assert code == 1 and "still open" in err
+    assert rows("note_passes") == []

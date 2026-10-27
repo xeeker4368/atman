@@ -43,7 +43,6 @@ NO_FIXED_EMPTY = {
     "moltbook_read_agent": "a lookup by name: its not-found sentence names the agent, so it is not one fixed sentence",
     "image_generate": "writes an artifact; not a search",
     "creative_write": "writes an artifact; not a search",
-    "note_propose": "writes a proposal; not a search",
 }
 
 

@@ -17,8 +17,8 @@ What is hidden, each replaced by ``[N characters, not shown here]``:
   such a header line is hidden too: that errs toward hiding, never toward showing.
 
 Not hidden, on purpose: ``image_generate``'s prompt (the picture is made for the person asking),
-``note_propose`` and ``note_search`` (what people said about themselves, decision #27), and the
-web and Moltbook tools (outside content).
+``note_search`` (what people said about themselves, decision #27; ``note_propose`` too, in traces
+stored before Notes v2 removed it), and the web and Moltbook tools (outside content).
 """
 
 from __future__ import annotations

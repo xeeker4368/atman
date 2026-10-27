@@ -106,7 +106,7 @@ from typing import Any
 
 from program import config
 from program.attribution import AttributionContext
-from program.engine import earlier_tools, loop, turn_locks
+from program.engine import earlier_tools, loop, notes_listing, turn_locks
 from program.engine import situation as situation_block
 
 # Re-exported deliberately: a caller catches one name from this module beside the
@@ -114,11 +114,8 @@ from program.engine import situation as situation_block
 from program.engine.turn_locks import TurnAlreadyRunning  # noqa: F401
 from program.integrity import corrections, gate
 from program.memory import db, retrieval, retrieval_capture
-from program.memory import notes as notes_db
 from program.memory.retrieval import RetrievalResult
-from program.origin import OriginContext
 from program.settings.permissions import Actor
-from program.tools import registry as tool_registry
 from program.tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
@@ -358,92 +355,6 @@ def _unless_person_took_it(
     return None
 
 
-def _offers_a_tool_that_takes_origin(registry: ToolRegistry | None) -> bool:
-    """Whether any tool this turn will offer declares ``takes_origin``.
-
-    Resolves the registry exactly as the loop does: the one passed in, or **the default when none
-    is** (``loop.run_turn`` does the same). With Notes dark nothing declares it, so the origin is
-    never built and a turn does none of its work: no read of the messages behind retrieved chunks.
-    """
-    active = registry if registry is not None else tool_registry.default_registry()
-    return any(tool.takes_origin for tool in active)
-
-
-def _build_origin(
-    conversation_id: str,
-    user_message_id: str,
-    history,
-    retrieved: RetrievalResult | None,
-) -> OriginContext:
-    """Which exchange this turn is, for a tool that declares it takes origin (Notes piece 2).
-
-    ``context_message_ids`` is the conversation's own messages (a superset of what the window
-    sends, since the loop's window holds normalised dicts with no ids) **plus the messages behind
-    the passive retrieval's chunks**. It is built here, before the loop runs, so it **cannot hold
-    what a ``memory_search`` call returns during the turn**: a recorded gap (N18), not an oversight.
-
-    A failure reading the chunks' messages degrades to the conversation's alone, with a warning:
-    this only widens a *preference* tier for quote resolution, so losing it must not fail a turn.
-    """
-    ids = {row["id"] for row in history}
-    chunk_ids = [hit.chunk_id for hit in retrieved.results] if retrieved else []
-    if chunk_ids:
-        try:
-            ids.update(row["id"] for row in db.get_messages_in_chunks(chunk_ids))
-        except Exception as exc:  # noqa: BLE001 - degrades; it must never fail the turn
-            logger.warning(
-                "origin: could not read the messages behind %d retrieved chunk(s) (%s: %s); "
-                "context_message_ids holds the conversation's messages only",
-                len(chunk_ids), type(exc).__name__, exc,
-            )
-    return OriginContext(
-        conversation_id=conversation_id,
-        user_message_id=user_message_id,
-        context_message_ids=frozenset(ids),
-    )
-
-
-def untrusted_context_by_call(
-    trace, registry: ToolRegistry | None = None
-) -> dict[str, list[str]]:
-    """For each successful ``note_propose`` call in the trace, the **untrusted-output tools that
-    returned text earlier in the same trace** (N7).
-
-    The handler cannot see its turn's earlier calls (the origin is built before the loop and
-    dispatch passes no trace), so the turn fills this in afterwards. A tool counts when it
-    **returned** text (``outcome == "ok"``): a failed or timed-out call gave the entity nothing
-    written outside the household to read. Order is the order of the trace, so a proposal made
-    before a page was fetched in the same round is not flagged for it. Names are listed once, in
-    the order first seen. ``[]`` is a real answer: *recorded, none*.
-
-    "Untrusted" is what the registry **in use** declares (``Tool.untrusted_output``), resolved as
-    the loop resolves it: those are the tools that actually ran. (``registry.untrusted_tools()``
-    answers the same question from the full catalogue, for a stored trace whose tool has since
-    been disabled.)
-    """
-    active = registry if registry is not None else tool_registry.default_registry()
-    untrusted = {tool.name for tool in active if tool.untrusted_output}
-    seen: list[str] = []
-    found: dict[str, list[str]] = {}
-    for entry in loop.call_entries(trace):
-        tool = entry.get("tool")
-        if tool == "note_propose" and entry.get("outcome") == "ok" and entry.get("call_id"):
-            found[entry["call_id"]] = list(seen)
-        if tool in untrusted and entry.get("outcome") == "ok" and tool not in seen:
-            seen.append(tool)
-    return found
-
-
-def _record_untrusted_context(trace, registry: ToolRegistry | None) -> None:
-    """Fill ``note_proposals.untrusted_context`` for this turn's proposals. NULL (not recorded)
-    is what a proposal keeps if this fails, so a failure never reads as *none*. Does nothing, and
-    reads nothing, in a turn that proposed no note."""
-    if not any(e.get("tool") == "note_propose" for e in trace):
-        return
-    for call_id, tools in untrusted_context_by_call(trace, registry).items():
-        notes_db.set_untrusted_context(call_id, tools)
-
-
 def _build_situation(actor: Actor, user_message_id: str) -> str:
     """The current-situation block for this turn (decision #5).
 
@@ -566,16 +477,12 @@ def _answer(
         # actor's role is deliberately not carried across (see
         # `program/attribution.py`), so nothing downstream can gate on it.
         attribution=AttributionContext(user_id=actor.user_id),
-        # Which exchange this is, for a tool that declares it takes origin. Built only when a
-        # tool this turn offers declares it, so a turn with Notes dark does none of that work.
-        # Passed through the loop unread; it reaches no tool built before Notes.
-        origin=(
-            _build_origin(conversation_id, user_message_id, history, retrieved)
-            if _offers_a_tool_that_takes_origin(registry) else None
-        ),
         # Named on every turn, apart from the situation block, which names them only on a
         # first message or after a gap of 15 minutes or more and is what the gate reads.
         speaker=actor.name,
+        # The entity's notes, one line each, when Notes is on (Notes v2 section 3). Read fresh
+        # every turn: a note Lyle approved between turns is listed on the next one.
+        notes_listing=notes_listing.system_listing(),
         earlier_tools=earlier_tools.system_list(history),
     )
 
@@ -664,9 +571,6 @@ def _answer(
         retrieval_capture.record(
             assistant_message_id, result.prompt.records if result.prompt else None,
             retrieved)
-
-    with _after_durable("the untrusted context of note proposals", conversation_id):
-        _record_untrusted_context(result.trace, registry)
 
     with _after_durable("correction links", conversation_id):
         _record_corrections(actor, conversation_id, retrieved, content,
