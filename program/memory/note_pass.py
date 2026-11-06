@@ -448,7 +448,7 @@ def _prepare(drafts: list[Draft], conversation: Any, context_ids: frozenset[str]
             "subject_kind": b.fields["kind"] if b.action == "add" else target["subject_kind"],
             "subject": b.fields["subject"] if b.action == "add" else target["subject"],
             "text": text, "line": b.fields.get("line"),
-            "evidence": json.dumps([resolved.to_dict()]),
+            "evidence": json.dumps(resolved.evidence()),
             "conversation_id": conversation["id"], "user_message_id": resolved.message_id,
             "user_id": conversation["user_id"],
             "untrusted_context": json.dumps(untrusted),

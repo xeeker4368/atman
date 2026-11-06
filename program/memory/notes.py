@@ -81,18 +81,6 @@ def messages_by_ids(ids: Sequence[str]) -> list[sqlite3.Row]:
     return out
 
 
-def messages_containing(word: str, roles: Sequence[str]) -> list[sqlite3.Row]:
-    """Messages of the given roles whose lower-cased text contains ``word``: a **prefilter**,
-    narrowed in Python by the exact normalised match. Covers every stored message, including the
-    open trailing group that chunking has not indexed."""
-    marks = ",".join("?" for _ in roles)
-    with db.connection() as conn:
-        return conn.execute(
-            f"SELECT id, role, user_id, content, timestamp FROM messages "
-            f"WHERE role IN ({marks}) AND lower(content) LIKE ? ESCAPE '!'",
-            [*roles, f"%{_like_escape(word.lower())}%"]).fetchall()
-
-
 def approval_required_in(conn: sqlite3.Connection) -> bool:
     """Whether a proposal needs a person, **read fresh, on this connection**.
 

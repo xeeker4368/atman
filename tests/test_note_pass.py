@@ -295,6 +295,25 @@ def test_an_unresolvable_quote_is_set_aside_with_its_reason(world, monkeypatch):
     assert aside["why"] == "refused" and texts.QUOTE_NO_MATCH in aside["reason"]
 
 
+def test_a_quote_joined_from_two_messages_writes_evidence_for_each(world, monkeypatch):
+    """Run 5's shape: the person said it over two messages and the quote joins them with an
+    ellipsis inside quote marks. Each fragment is evidence; the first is the trigger."""
+    cid = conversation(world.lyle, COFFEE, ("And the grinder stays on the left shelf.", "Ok."))
+    quote = '"Jodie takes her coffee with oat milk....the grinder stays on the left shelf"'
+    script(monkeypatch, ADD.replace("quote: Jodie takes her coffee with oat milk",
+                                    f"quote: {quote}"))
+    assert note_pass.run_pass(cid).outcome == "proposals"
+    (p,) = proposals()
+    evidence = json.loads(p["evidence"])
+    with db.connection() as conn:
+        persons = [r["id"] for r in conn.execute(
+            "SELECT id FROM messages WHERE conversation_id = ? AND role = 'user' "
+            "ORDER BY timestamp", (cid,))]
+    assert [e["message_id"] for e in evidence] == persons
+    assert p["user_message_id"] == persons[0]
+    assert {e["quote"] for e in evidence} == {quote}
+
+
 def test_a_quote_of_the_entitys_own_reply_is_refused(world, monkeypatch):
     cid = conversation(world.lyle, ("Tell me about oat milk.",
                                     "Jodie takes her coffee with oat milk, you said."))

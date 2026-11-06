@@ -503,17 +503,23 @@ def review_view(proposal_prefix: str) -> dict[str, Any]:
 def list_passes(include_done: bool = False, limit: int = 50) -> list[sqlite3.Row]:
     """Ended conversations by their note pass status, newest closed first (``note_pass_status``,
     Notes v2 section 5). By default only those needing a look: ``unavailable``, ``truncated``,
-    ``not_run`` and ``waiting``."""
-    where = "" if include_done else "WHERE s.status NOT IN ('proposals', 'none')"
+    ``not_run``, ``waiting``, and any whose latest attempt refused something. ``refused`` counts
+    the latest attempt's blocks set aside as refused (an unresolved quote or a duplicate), read
+    from its ``set_aside``."""
+    where = "" if include_done else "WHERE status NOT IN ('proposals', 'none') OR refused > 0"
     with db.connection() as conn:
         return conn.execute(
-            f"SELECT s.*, u.name AS owner, "
+            f"SELECT * FROM (SELECT s.*, u.name AS owner, "
             f"(SELECT p.error FROM note_passes p WHERE p.conversation_id = s.conversation_id "
             f" ORDER BY p.attempt DESC LIMIT 1) AS error, "
             f"(SELECT p.proposals FROM note_passes p WHERE p.conversation_id = s.conversation_id "
-            f" ORDER BY p.attempt DESC LIMIT 1) AS proposals "
-            f"FROM note_pass_status s LEFT JOIN users u ON u.id = s.user_id {where} "
-            f"ORDER BY s.ended_at DESC LIMIT ?", (limit,)).fetchall()
+            f" ORDER BY p.attempt DESC LIMIT 1) AS proposals, "
+            f"(SELECT (SELECT count(*) FROM json_each(p.set_aside) j "
+            f"         WHERE json_extract(j.value, '$.why') = 'refused') "
+            f" FROM note_passes p WHERE p.conversation_id = s.conversation_id "
+            f" ORDER BY p.attempt DESC LIMIT 1) AS refused "
+            f"FROM note_pass_status s LEFT JOIN users u ON u.id = s.user_id) {where} "
+            f"ORDER BY ended_at DESC LIMIT ?", (limit,)).fetchall()
 
 
 def conversation_by_prefix(prefix: str) -> str:

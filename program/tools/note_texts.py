@@ -114,14 +114,14 @@ def listing_overflow(count: int) -> str:
 
 
 class QuoteRefused(Exception):
-    """A quote did not resolve to exactly one message a person wrote (N4). The pass records the
-    reason beside the refused block; nothing is written for it."""
+    """A quote did not resolve to messages a person wrote in this conversation (N4). The pass
+    records the reason beside the refused block; nothing is written for it."""
 
 
-def quote_too_short(chars: int, words: int) -> str:
+def quote_too_short(words: int) -> str:
     return (
         f"that quote is too short to identify a message; quote more of what was said "
-        f"(at least {chars} characters and {words} words)."
+        f"(at least {words} words)."
     )
 
 
@@ -135,6 +135,3 @@ QUOTE_NO_MATCH = (
     "exactly: not the text of a note, and not your own reply."
 )
 
-
-def quote_ambiguous(count: int) -> str:
-    return f"that quote appears in {count} messages; quote more of it so it identifies one."

@@ -100,8 +100,8 @@ _FALLBACK: dict[str, Any] = {
         "max_results": 5,
         "max_subject_chars": 60,
         "max_text_chars": 639,      # derived; see config/defaults.toml
-        "min_quote_chars": 24,
         "min_quote_words": 4,
+        "min_fragment_words": 3,
     },
     "ingestion": {
         "max_upload_bytes": 10_000_000,
@@ -984,14 +984,15 @@ def notes_max_text_chars() -> int:
     return _notes_int("max_text_chars", 1)
 
 
-def notes_min_quote_chars() -> int:
-    """Shortest quote that can identify a message (N4 step 2; judgment value)."""
-    return _notes_int("min_quote_chars", 24)
-
-
 def notes_min_quote_words() -> int:
-    """Fewest words in a quote (N4 step 2; judgment value)."""
+    """Fewest words the pass instruction asks a quote for (judgment value). The check itself
+    reads :func:`notes_min_fragment_words`."""
     return _notes_int("min_quote_words", 4)
+
+
+def notes_min_fragment_words() -> int:
+    """Fewest words in each fragment of a quote, checked by ``note_quotes`` (judgment value)."""
+    return _notes_int("min_fragment_words", 3)
 
 
 def notes_line_max_chars() -> int:

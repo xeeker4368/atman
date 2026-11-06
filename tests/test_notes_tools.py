@@ -266,6 +266,8 @@ def test_search_does_not_touch_conversation_memory_and_is_not_filtered_by_who_as
 
 
 # --- resolving a quote: what is accepted, and from where ----------------------------------------
+# The world's context is one conversation: the trigger and "later" (Lyle) and one reply (the
+# entity). "elsewhere" is Jodie's, in another conversation.
 
 
 def resolve(world, quote, context=None):
@@ -278,23 +280,64 @@ def refused(world, reason, quote, context=None):
     assert str(caught.value) == reason
 
 
+def say(world, text, ts, role="user"):
+    return db.save_message(world.conv, world.lyle, role, text, timestamp=ts)
+
+
 def test_resolve_quote_takes_the_context_ids_directly():
     params = list(inspect.signature(note_quotes.resolve_quote).parameters)
     assert params == ["quote", "context_message_ids"]
 
 
-def test_a_quote_too_short_in_characters_or_in_words(world):
-    reason = texts.quote_too_short(config.notes_min_quote_chars(), config.notes_min_quote_words())
-    refused(world, reason, "oat milk, never dairy")
-    refused(world, reason, "supercalifragilisticexpialidocious oat")   # long, but two words
+def test_a_quote_of_one_two_word_fragment_is_too_short(world):
+    reason = texts.quote_too_short(config.notes_min_fragment_words())
+    assert config.notes_min_fragment_words() == 3
+    refused(world, reason, "oat milk")
+    refused(world, reason, "never dairy.")
+    refused(world, reason, '"  "')                                     # nothing left
+    refused(world, reason, '"...!"')
+
+
+def test_a_quote_of_only_short_matching_fragments_is_refused_and_named(world):
+    reason = texts.quote_too_short(config.notes_min_fragment_words())
+    refused(world, f"all 3 fragments ('oat milk', 'never dairy', 'a schedule'): {reason}",
+            "oat milk... never dairy. a schedule")
+
+
+def test_a_three_word_fragment_is_enough(world):
+    got = resolve(world, "oat milk, never")
+    assert got.message_id == world.ids["trigger"]
+
+
+def test_a_short_matching_sentence_beside_a_long_one_is_accepted(world):
+    got = resolve(world, "Never dairy. The backup should eventually run on a schedule.")
+    assert [f.text for f in got.fragments] == ["Never dairy",
+                                               "The backup should eventually run on a schedule"]
+    assert [f.message_id for f in got.fragments] == [world.ids["trigger"], world.ids["later"]]
+
+
+def test_a_short_fragment_must_still_match(world):
+    refused(world, "fragment 2 of 2 ('never tea'): " + texts.QUOTE_NO_MATCH,
+            "Jodie takes her coffee with oat milk... never tea")
 
 
 def test_a_quote_of_the_entitys_own_reply_is_not_a_persons_words(world):
     refused(world, texts.QUOTE_NOT_A_PERSONS_WORDS, "Jodie prefers a flat white in the mornings")
 
 
+def test_a_fragment_taken_from_the_entitys_reply_is_refused_and_named(world):
+    refused(world, "fragment 2 of 2 ('prefers a flat white'): " + texts.QUOTE_NOT_A_PERSONS_WORDS,
+            "Jodie takes her coffee with oat milk... prefers a flat white")
+
+
 def test_a_quote_that_appears_in_no_message(world):
     refused(world, texts.QUOTE_NO_MATCH, "Jodie hates mushrooms with a passion")
+
+
+def test_an_exact_quote_with_one_invented_fragment_is_refused_and_named(world):
+    refused(world, "fragment 2 of 3 ('and she hates mushrooms'): " + texts.QUOTE_NO_MATCH,
+            "Jodie takes her coffee with oat milk... and she hates mushrooms... "
+            "The backup should eventually run on a schedule")
 
 
 def test_a_paraphrase_is_not_a_quote(world):
@@ -305,86 +348,112 @@ def test_a_paraphrase_is_not_a_quote(world):
     refused(world, texts.QUOTE_NO_MATCH, "oat milk with her coffee Jodie takes")
 
 
-def test_a_quote_matching_two_different_messages_is_ambiguous(world):
-    def say(t, ts):
-        return db.save_message(world.conv, world.lyle, "user", t, timestamp=ts)
+@pytest.mark.parametrize("joiner", [". ", "! ", "? ", ".  ", ".\" ", "!\u201d "])
+def test_messages_joined_as_sentences_are_split_and_accepted(world, joiner):
+    """Run 5's commonest shape: two messages run together as sentences, no ellipsis."""
+    got = resolve(world, f"Jodie takes her coffee with oat milk, never dairy{joiner}"
+                         "The backup should eventually run on a schedule")
+    assert [f.message_id for f in got.fragments] == [world.ids["trigger"], world.ids["later"]]
 
-    a = say("Lyle wants the backups to live on the NAS in the hall.", "2026-10-02T09:00:00+00:00")
-    b = say("Lyle wants the backups to live on the NAS in the cellar.", "2026-10-02T09:01:00+00:00")
-    refused(world, texts.quote_ambiguous(2), "Lyle wants the backups to live on the NAS",
+
+def test_sentence_end_punctuation_the_person_did_not_type_is_ignored(world):
+    """Run 5: the quote ends each sentence with a period the message does not have."""
+    plain = say(world, "taking the dog out now", "2026-10-02T11:00:00+00:00")
+    other = say(world, "back in ten minutes or so", "2026-10-02T11:01:00+00:00")
+    for quote in ("taking the dog out now.", "taking the dog out now!", "taking the dog out now?",
+                  "taking the dog out now,", "taking the dog out now. back in ten minutes.",
+                  '"taking the dog out now."'):
+        assert resolve(world, quote, frozenset({plain, other})).message_id == plain
+
+
+def test_a_joined_quote_with_a_changed_word_in_one_sentence_is_refused_and_named(world):
+    """Run 5's row 8: one sentence's word differs from what the person typed."""
+    a = say(world, "the fence gets its first coat today", "2026-10-02T11:00:00+00:00")
+    b = say(world, "supposed to stay dry all weekend", "2026-10-02T11:01:00+00:00")
+    refused(world, "fragment 2 of 2 ('suppose to stay dry all weekend'): " + texts.QUOTE_NO_MATCH,
+            "the fence gets its first coat today. suppose to stay dry all weekend.",
             frozenset({a, b}))
 
 
-def test_identical_words_from_two_different_people_are_ambiguous(world):
-    same = "We need more of the good coffee for Saturday."
-    ts = "2026-10-02T09:0{}:00+00:00"
-    a = db.save_message(world.conv, world.lyle, "user", same, timestamp=ts.format(0))
-    b = db.save_message(world.other, world.jodie, "user", same, timestamp=ts.format(1))
-    refused(world, texts.quote_ambiguous(2), "We need more of the good coffee for Saturday",
-            frozenset({a, b}))
+def test_a_sentence_end_inside_a_message_is_still_one_message_s_words(world):
+    """Splitting inside one message still requires each sentence in a person's message."""
+    got = resolve(world, "Jodie takes her coffee with oat milk, never dairy.")
+    assert got.message_id == world.ids["trigger"] and len(got.fragments) == 1
+
+
+@pytest.mark.parametrize("joiner", ["...", "....", " ... ", "\u2026", " \u2026 ", "\n", "\r\n",
+                                    ".. ", "...\n"])
+def test_fragments_joined_from_two_person_messages_are_accepted(world, joiner):
+    """Run 5's shape (a): the parts of what a person said in several messages, joined with an
+    ellipsis (with or without spaces, three dots or four) or a line break."""
+    quote = f"Jodie takes her coffee with oat milk{joiner}The backup should eventually run"
+    got = resolve(world, quote)
+    assert [f.message_id for f in got.fragments] == [world.ids["trigger"], world.ids["later"]]
+    assert got.message_id == world.ids["trigger"]
+
+
+@pytest.mark.parametrize("quote", [
+    '"Jodie takes her coffee with oat milk"',
+    "'Jodie takes her coffee with oat milk'",
+    "\u201cJodie takes her coffee with oat milk\u201d",
+    "  \u2018Jodie takes her coffee with oat milk\u2019  ",
+    "  \u2018Jodie takes her coffee with oat milk.\u2019  ",
+    '"Jodie takes her coffee with oat milk... The backup should eventually run"',
+    '"Jodie takes her coffee with oat milk"... "The backup should eventually run"',
+])
+def test_wrapping_quote_marks_are_stripped(world, quote):
+    """Run 5's shape (b): the quote, or each fragment, wrapped in quote marks."""
+    assert resolve(world, quote).message_id == world.ids["trigger"]
 
 
 def test_normalisation_folds_whitespace_quote_marks_and_case_and_nothing_else(world):
-    msg = db.save_message(world.conv, world.lyle, "user",
-                          'Lyle said it’s "fine" for the grinder   to stay\nwhere it is.',
-                          timestamp="2026-10-02T09:30:00+00:00")
-    got = resolve(world, "LYLE SAID IT'S “fine” for the grinder to stay where it is",
+    """Shape (c): curly against straight, case and whitespace runs, on either side."""
+    msg = say(world, 'Lyle said it\u2019s "fine" for the grinder   to stay\nwhere it is.',
+              "2026-10-02T09:30:00+00:00")
+    got = resolve(world, "LYLE SAID IT'S \u201cfine\u201d for the grinder to stay where it is",
                   frozenset({msg}))
-    assert got.message_id == msg and got.tier == "context" and got.identical_count == 1
-    assert note_quotes.normalise("  A’b \t C ") == "a'b c"
+    assert got.message_id == msg and got.fragments[0].identical_count == 1
+    assert note_quotes.normalise("  A\u2019b \t C ") == "a'b c"
 
 
-def test_a_quote_from_a_message_in_the_context_resolves_in_the_context_tier(world):
-    got = resolve(world, "The backup should eventually run on a schedule")
-    assert (got.message_id, got.tier) == (world.ids["later"], "context")
+def test_a_quote_from_another_conversation_is_refused(world):
+    """Only this conversation's person messages count: no other conversation is searched."""
+    refused(world, texts.QUOTE_NO_MATCH, "My grandmother kept her starter above the stove")
 
 
-def test_the_context_tier_is_preferred_over_the_store(world):
-    """The same words said by a person inside the context and in another conversation: the
-    context one is taken, and not as an ambiguity."""
-    same = "The market opens at nine unless it rains in the morning."
-    inside = db.save_message(world.conv, world.lyle, "user", same,
-                             timestamp="2026-10-02T09:00:00+00:00")
-    db.save_message(world.other, world.jodie, "user", same, timestamp="2026-09-01T09:00:00+00:00")
-    got = resolve(world, "The market opens at nine unless it rains", frozenset({inside}))
-    assert (got.message_id, got.tier) == (inside, "context")
-
-
-def test_a_quote_outside_the_context_resolves_in_the_store_tier_and_says_so(world):
-    got = resolve(world, "My grandmother kept her starter above the stove")
-    assert (got.message_id, got.tier) == (world.ids["elsewhere"], "store")
-
-
-def test_the_store_tier_is_not_chunk_based(world):
-    """No chunk exists for any message here; the store tier still finds it."""
-    assert rows("chunks") == []
-    assert resolve(world, "My grandmother kept her starter above the stove").tier == "store"
+def test_a_fragment_in_two_different_messages_resolves_to_the_newest(world):
+    a = say(world, "Lyle wants the backups to live on the NAS in the hall.",
+            "2026-10-02T09:00:00+00:00")
+    b = say(world, "Lyle wants the backups to live on the NAS in the cellar.",
+            "2026-10-02T09:01:00+00:00")
+    got = resolve(world, "Lyle wants the backups to live on the NAS", frozenset({a, b}))
+    assert (got.message_id, got.fragments[0].identical_count) == (b, 1)
 
 
 def test_identical_text_from_the_same_person_is_one_piece_of_evidence_with_its_count(world):
     text = "Make me an image of a copper kettle on a slate worktop."
-    first = db.save_message(world.conv, world.lyle, "user", text,
-                            timestamp="2026-10-02T08:00:00+00:00")
-    newest = db.save_message(world.conv, world.lyle, "user", text,
-                             timestamp="2026-10-02T08:30:00+00:00")
+    first = say(world, text, "2026-10-02T08:00:00+00:00")
+    newest = say(world, text, "2026-10-02T08:30:00+00:00")
     got = resolve(world, "image of a copper kettle on a slate worktop", frozenset({first, newest}))
-    assert (got.message_id, got.identical_count) == (newest, 2)
+    assert (got.message_id, got.fragments[0].identical_count) == (newest, 2)
 
 
 def test_a_quote_said_by_a_person_and_repeated_by_the_entity_resolves_to_the_person(world):
-    said = db.save_message(world.conv, world.lyle, "user", "Grind the beans finer for the shot.",
-                           timestamp="2026-10-02T09:00:00+00:00")
-    db.save_message(world.conv, world.lyle, "assistant", "Grind the beans finer for the shot.",
-                    timestamp="2026-10-02T09:00:05+00:00")
-    got = resolve(world, "Grind the beans finer for the shot", frozenset())
-    assert got.message_id == said and got.tier == "store"
+    said = say(world, "Grind the beans finer for the shot.", "2026-10-02T09:00:00+00:00")
+    echo = say(world, "Grind the beans finer for the shot.", "2026-10-02T09:00:05+00:00",
+               role="assistant")
+    got = resolve(world, "Grind the beans finer for the shot", frozenset({said, echo}))
+    assert got.message_id == said
 
 
-def test_a_resolved_quote_serialises_as_the_stored_evidence_shape(world):
-    got = resolve(world, "The backup should eventually run on a schedule")
-    assert got.to_dict() == {"quote": "The backup should eventually run on a schedule",
-                             "message_id": world.ids["later"], "tier": "context",
-                             "identical_count": 1}
+def test_the_evidence_is_one_entry_per_fragment_with_the_quote_as_given(world):
+    quote = ' "Jodie takes her coffee with oat milk....the backup should EVENTUALLY run" '
+    assert resolve(world, quote).evidence() == [
+        {"quote": quote, "fragment": "Jodie takes her coffee with oat milk",
+         "message_id": world.ids["trigger"], "tier": "context", "identical_count": 1},
+        {"quote": quote, "fragment": "the backup should EVENTUALLY run",
+         "message_id": world.ids["later"], "tier": "context", "identical_count": 1},
+    ]
 
 
 # --- the writers carry the retry --------------------------------------------------------------

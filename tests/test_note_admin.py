@@ -24,11 +24,10 @@ import pytest
 from program import config
 from program.engine import loop, turn
 from program.integrity import classifier
-from program.memory import db, migrations, notes
+from program.memory import db, migrations, note_pass, notes
 from program.memory import note_admin as admin
 from program.ops import store_lock
 from program.settings.permissions import Actor, Role
-from program.tools import note_quotes
 from program.tools import note_texts as texts
 from program.tools.note_search import NOTE_SEARCH
 from program.tools.registry import Tool, ToolRegistry
@@ -526,13 +525,16 @@ def seed_review(world, *, untrusted='["web_fetch"]', flagged=True, reply_claims_
         classifier.classify = lambda p: (
             "CONTRADICTS-SELF\n- Takes her coffee with oat milk. | nothing runs between replies")
     pid = propose(world, untrusted=json.loads(untrusted) if untrusted is not None else [])
-    second = note_quotes.resolve_quote("My grandmother kept her starter above the stove",
-                                       world.context)
+    # A store-tier entry, the shape `note_propose` wrote before the pass existed; the resolver
+    # no longer searches other conversations, but `review` still renders such a row.
+    second = {"quote": "My grandmother kept her starter above the stove",
+              "message_id": world.ids["store"],
+              "tier": "store", "identical_count": 1}
     with db.transaction() as conn:
         evidence = json.loads(conn.execute("SELECT evidence FROM note_proposals WHERE id = ?",
                                            (pid,)).fetchone()[0])
         conn.execute("UPDATE note_proposals SET evidence = ? WHERE id = ?",
-                     (json.dumps([*evidence, second.to_dict()]), pid))
+                     (json.dumps([*evidence, second]), pid))
         if untrusted is None:
             conn.execute("UPDATE note_proposals SET untrusted_context = NULL WHERE id = ?", (pid,))
     call_id = None
@@ -980,6 +982,50 @@ def test_passes_lists_waiting_and_not_run_conversations(world, capsys):
     by_id = {ln.split()[0]: ln for ln in out.splitlines()[1:] if ln.strip()}
     assert "waiting" in by_id[waiting[:8]] and "not_run" in by_id[not_run[:8]]
     assert "Jodie" in by_id[waiting[:8]]
+
+
+def _recorded_pass(conv, outcome, set_aside):
+    note_pass._write(conv, outcome, [], pieces=1, replies=["(test)"], cut_pieces=[],
+                     cut_blocks=[], set_aside=set_aside, notes_list_cut=False, error=None,
+                     seconds=0.0)
+
+
+def test_passes_shows_the_refused_count_beside_the_outcome(world, capsys):
+    """Run 5: a pass whose only ADD was refused read "none", and the refusal was invisible.
+    The count is display only: the stored outcome stays "none"."""
+    refused_only = _ended(world, chunked=True)
+    _recorded_pass(refused_only, "none", [
+        {"raw": "ADD ...", "reason": "quote: ...", "why": "refused"},
+        {"raw": "ADD ...", "piece": 1, "why": "malformed", "reason": "missing quote"},
+        {"raw": "ADD ...", "piece": 1, "why": "dropped", "reason": "D1 dropped"}])
+    clean = _ended(world, chunked=True)
+    _recorded_pass(clean, "none", [])
+    code, out, _ = run_cli(capsys, "passes", "--all")
+    assert code == 0
+    by_id = {ln.split()[0]: ln for ln in out.splitlines()[1:] if ln.strip()}
+    assert "none (1 refused)" in by_id[refused_only[:8]]
+    assert "refused" not in by_id[clean[:8]] and " none " in by_id[clean[:8]]
+    assert [r["outcome"] for r in rows("note_passes")] == ["none", "none"]
+
+
+def test_the_default_passes_view_lists_a_pass_with_refusals_and_hides_a_clean_one(world, capsys):
+    refused_only = _ended(world, chunked=True)
+    _recorded_pass(refused_only, "none", [{"raw": "x", "reason": "quote: x", "why": "refused"}])
+    clean = _ended(world, chunked=True)
+    _recorded_pass(clean, "none", [{"raw": "x", "piece": 1, "why": "malformed", "reason": "x"}])
+    code, out, _ = run_cli(capsys, "passes")
+    assert code == 0
+    assert f"{refused_only[:8]}  none (1 refused)" in out and clean[:8] not in out
+    _recorded_pass(refused_only, "none", [])        # a clean later attempt: no longer listed
+    assert run_cli(capsys, "passes")[1].strip() == "No conversation's note pass needs a look."
+
+
+def test_passes_counts_the_latest_attempts_refusals_only(world, capsys):
+    conv = _ended(world, chunked=True)
+    _recorded_pass(conv, "none", [{"raw": "x", "reason": "quote: x", "why": "refused"}] * 2)
+    _recorded_pass(conv, "none", [{"raw": "x", "reason": "quote: x", "why": "refused"}])
+    out = run_cli(capsys, "passes", "--all")[1]
+    assert "none (1 refused)" in out and "(2 refused)" not in out
 
 
 def test_passes_says_when_nothing_needs_a_look(world, capsys):

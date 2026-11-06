@@ -34,7 +34,7 @@ guarantees:
     still lists anything applied without review before that.
   * `pass` runs the note pass by hand on one closed, chunked conversation (a new attempt each
     time; it refuses while a server holds the store). `passes` lists the conversations whose
-    pass needs a look: unavailable, truncated, not run or waiting.
+    pass needs a look: unavailable, truncated, not run, waiting, or with refusals.
   * subject_user_id is set only by --subject-user. A household member's name in the subject is
     suggested, never applied.
   * the identity gate's verdict shown in `review` is a noisy aid, NOT a control: the control is you
@@ -112,7 +112,7 @@ def build_parser() -> argparse.ArgumentParser:
     passes = sub.add_parser(
         "passes", help="conversations whose note pass needs a look (read-only)")
     passes.add_argument("--all", action="store_true", help="include passes that found nothing "
-                                                          "or made proposals")
+                                                          "or made proposals, none refused")
     passes.add_argument("--limit", type=int, default=50)
 
     misses = sub.add_parser("misses", help="searches that found no note, newest first (read-only)")
@@ -235,6 +235,8 @@ def render_review(view: dict) -> str:
     for i, item in enumerate(view["evidence"], start=1):
         message = item["message"]
         add(f"  {i}. quote: {item['quote']!r}")
+        if item.get("fragment") not in (None, item["quote"]):
+            add(f"     fragment: {item['fragment']!r}")
         speaker = (f"{message['speaker']} (role {message['role']})" if message else "unknown")
         add(f"     speaker: {speaker}    tier: {item['tier']}    "
             f"identical messages: {item.get('identical_count', 1)}"
@@ -331,7 +333,8 @@ def render_passes(rows) -> str:
             extra = f"  {r['error']}"
         elif r["status"] in ("proposals",):
             extra = f"  {r['proposals']} proposal(s)"
-        lines.append(f"  {r['conversation_id'][:8]}  {r['status']:11} attempts {r['attempts']}  "
+        status = r["status"] + (f" ({r['refused']} refused)" if r["refused"] else "")
+        lines.append(f"  {r['conversation_id'][:8]}  {status:11} attempts {r['attempts']}  "
                      f"{r['owner'] or '?'}  closed {when(r['ended_at'])}{extra}")
     return "\n".join(lines)
 

@@ -576,10 +576,11 @@ max_subject_chars = 60
 # A note that needs more is two notes: a note is a fact, not an essay.
 max_text_chars = 639
 
-# The shortest quote that can identify one message (N4 step 2): after normalising, at least this
-# many characters and this many words. JUDGMENT VALUES.
-min_quote_chars = 24
+# The words the note pass instruction asks a quote for (rendered into the instruction), and the
+# fewest words in each fragment of a quote that the check accepts (a quote splits into fragments
+# on ellipses and line breaks; program/tools/note_quotes.py). JUDGMENT VALUES.
 min_quote_words = 4
+min_fragment_words = 3
 
 # --- Notes v2 (docs/NOTES_V2_DESIGN.md) ---
 
