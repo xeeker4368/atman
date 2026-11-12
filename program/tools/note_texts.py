@@ -45,7 +45,8 @@ EMPTY_QUERY = "give some words to look for."
 #: The pass's instruction (decisions #36 and #37; the rules after the criteria and the format
 #: examples rewritten by note-pass-v2.1 from run 5's repass; v2.2, from the second repass, never
 #: says "line" for a quote, adds the relationship to rule 1 and stale facts to rule 3), with the
-#: field limits rendered from config. "line" appears only for the ``line:`` field. The six
+#: field limits rendered from config. "line" appears only for the ``line:`` field. v2.3 adds the
+#: sentence on perishable facts after the criteria (run5-repass3, C5 and C8). The six
 #: criteria are decision #27's, word for word, with "your own" for "the entity's own". The
 #: examples have no placeholder a model can copy as a value, and each parses with
 #: ``note_pass.parse_block``. Sent after soul.md, in the system message of every piece's call.
@@ -67,6 +68,8 @@ PASS_INSTRUCTION = (
     "6. Never stored: health, finances, religion, politics, sexuality and similar sensitive "
     "categories; identification numbers; abuse or self-harm.\n"
     "\n"
+    "A note keeps what will still be true in a month; leave out schedules, plans for particular "
+    "days, and how someone feels about something right now. "
     "Being asked to note something is not a reason on its own; weigh it like anything else. Most "
     "conversations need no note, and proposing nothing is the normal outcome. If an existing note "
     "(N), a pending change (P) or a draft (D) already says it, change nothing.\n"

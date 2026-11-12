@@ -91,20 +91,27 @@ def test_several_quote_lines_are_kept_in_order_and_other_fields_still_may_not_re
 
 
 def test_quote_lines_up_to_the_cap_are_accepted_and_one_more_is_malformed_and_named():
-    """Amendment 2: the cap bounds a maximal block, so the output cap can be derived."""
+    """v2.1 amendment 2: the cap bounds a maximal block, so the output cap can be derived. v2.3
+    raised it from 3 to 5 (run5-repass3 set aside a grounded ADD with four)."""
     most = config.notes_pass_max_quote_lines()
-    assert most == 3
+    assert most == 5
     extra = "".join(f"\nquote: words number {i} here" for i in range(2, most + 1))
     assert len(note_pass.parse_block(ADD + extra).quotes) == most
     parsed = note_pass.parse(ADD + extra + "\nquote: one line too many")
     assert parsed.blocks == []
-    assert parsed.malformed[0]["reason"] == f"{most + 1} quote lines; the limit is {most}"
+    assert parsed.malformed[0]["reason"] == f"{most + 1} quotes; the limit is {most}"
     retire = "RETIRE N1" + "".join(f"\nquote: line {i} of it" for i in range(most + 1))
-    assert "quote lines; the limit is" in note_pass.parse(retire).malformed[0]["reason"]
+    assert "quotes; the limit is" in note_pass.parse(retire).malformed[0]["reason"]
+
+
+def test_four_quotes_two_from_one_message_parse():
+    """run5-repass3's C1 shape: four quote: entries, set aside under the old cap of 3."""
+    four = ADD + "".join(f"\nquote: more words number {i}" for i in range(2, 5))
+    assert len(note_pass.parse_block(four).quotes) == 4
 
 
 def test_the_instruction_states_the_quote_cap_from_config(monkeypatch):
-    assert "give one quote: for each message, at most three." in note_pass.instruction()
+    assert "give one quote: for each message, at most five." in note_pass.instruction()
     monkeypatch.setattr(config, "notes_pass_max_quote_lines", lambda: 2)
     assert "give one quote: for each message, at most two." in note_pass.instruction()
 
@@ -199,22 +206,22 @@ def maximal_block(quote_lines: int | None = None) -> str:
 
 #: The ONE-quote-line maximal block, tokenized by the model's own tokenizer at build (2026-10-23,
 #: the B3 trial, ``changelog/2026-10-23-notes-v2.md``): Ollama's ``prompt_eval_count`` for a user
-#: message of the block (232), less the same for an empty message (13). The three-line block has
-#: not been tokenized (note-pass-v2.1 made no model calls); the live test below measures it.
+#: message of the block (232), less the same for an empty message (13). The block at the quote cap
+#: has not been tokenized (v2.1 and v2.3 made no model calls); the live test below measures it.
 ONE_QUOTE_BLOCK_TOKENS = 219
 
 
-def test_a_maximal_block_is_1466_characters_as_the_derivation_says():
+def test_a_maximal_block_is_1882_characters_as_the_derivation_says():
     assert len(maximal_block(quote_lines=1)) == 1050          # the design's one-quote block
-    assert len(maximal_block()) == 1050 + 2 * 208 == 1466
+    assert len(maximal_block()) == 1050 + 4 * 208 == 1882     # five quotes (v2.3)
 
 
 def test_four_maximal_blocks_and_100_fit_the_output_cap():
     """At 3.0 characters per token (the design's output rate), rounded up to a multiple of 512."""
     per_block = math.ceil(len(maximal_block()) / 3)
-    assert per_block == 489
+    assert per_block == 628
     needed = 4 * per_block + 100
-    assert needed == 2056 and needed <= config.notes_pass_num_predict() == 2560
+    assert needed == 2612 and needed <= config.notes_pass_num_predict() == 3072
     assert config.notes_pass_num_predict() == math.ceil(needed / 512) * 512
     # the recorded one-quote measurement, scaled by length, is well inside the 3.0 estimate
     assert ONE_QUOTE_BLOCK_TOKENS * len(maximal_block()) / 1050 < per_block
@@ -223,12 +230,20 @@ def test_four_maximal_blocks_and_100_fit_the_output_cap():
 def test_the_piece_cap_fits_the_window_left_by_the_output_cap():
     """Section 1.2's chain at 4.0 characters per token: num_ctx less the output cap, a 512 margin,
     soul.md at 3,000 characters, the instruction's 4,000 allowance, 400 of framing and the notes
-    list's cap. Re-derived when the output cap moved to 2,560."""
+    list's cap. Re-derived when the output cap moved to 2,560 (v2.1) and 3,072 (v2.3)."""
     left = (32768 - config.notes_pass_num_predict() - 512 - 3000 // 4 - 4000 // 4 - 400 // 4
             - config.notes_pass_notes_max_chars() // 4)
-    assert left == 21846
-    assert config.notes_pass_piece_max_chars() <= 4 * left
+    assert left == 21334
+    assert config.notes_pass_piece_max_chars() == 85000 <= 4 * left
     assert len(note_pass.instruction()) <= 4000
+
+
+def test_the_pass_timeout_covers_a_full_prompt_and_a_full_output():
+    """config/defaults.toml's timeout derivation: the most prompt the caps allow (num_ctx less the
+    output cap and the margin) at 257 tokens a second, plus the output cap at 25 a second."""
+    out = config.notes_pass_num_predict()
+    seconds = (32768 - out - 512) / 257 + out / 25
+    assert round(seconds) == 236 and seconds < config.notes_pass_timeout_seconds() == 300
 
 
 @pytest.mark.live
@@ -326,7 +341,7 @@ def test_it_sends_soul_and_the_instruction_then_the_date_names_lists_and_piece(w
     assert "Lyle: Jodie takes her coffee with oat milk, never dairy." in user
     assert "you: Got it." in user
     assert "Your notes:\nnone" in user and "waiting for Lyle:\nnone" in user
-    assert call["options"]["num_predict"] == config.notes_pass_num_predict() == 2560
+    assert call["options"]["num_predict"] == config.notes_pass_num_predict() == 3072
     assert call["options"]["temperature"] == config.classifier_temperature() == 0
     assert call["model"] == config.chat_model() and call["tools"] is None
     assert call["timeout"] == config.notes_pass_timeout_seconds()
@@ -380,6 +395,9 @@ def test_the_instruction_is_within_its_allowance_and_keeps_the_criteria():
     "give one quote: for each message",
     # (v2.2) the line: field described as the summary
     "line: is the note's one-sentence summary, at most 100 characters.",
+    # (v2.3) perishable facts (run5-repass3, C5 and C8)
+    "A note keeps what will still be true in a month; leave out schedules, plans for particular "
+    "days, and how someone feels about something right now.",
 ])
 def test_the_instruction_states_each_rule(rule):
     assert rule in note_pass.instruction()

@@ -111,7 +111,7 @@ format section above are superseded; the text of record is `note_texts.PASS_INST
 - worked examples that parse, with no placeholder values and no `kind:` on REVISE or RETIRE.
 
 The parser now:
-- accepts up to `notes.pass_max_quote_lines` (3) `quote:` lines, resolved together; more is malformed;
+- accepts up to `notes.pass_max_quote_lines` (3; 5 since v2.3) `quote:` lines, resolved together; more is malformed;
 - ignores and records a `kind:` or `subject:` line on REVISE and RETIRE;
 - reads a reply with no change block as no blocks. The criteria are unchanged.
 
@@ -120,6 +120,12 @@ characters, 489 tokens at 3.0; four plus 100 is 2,056, so `notes.pass_num_predic
 The window left for the piece is then 32,768 − 2,560 − 512 − 750 − 1,000 − 100 − 6,000 = 21,846 tokens,
 87,384 characters, so `notes.pass_piece_max_chars` is **87,000**. The tables below keep the 1,536 figures
 as first derived; `config/defaults.toml` is the value of record.
+
+**Re-derived again by note-pass-v2.3 (2026-11-12),** the quote cap raised to 5: a maximal ADD is 1,050 +
+4 × 208 = 1,882 characters, 628 tokens; four plus 100 is 2,612, so `notes.pass_num_predict` is **3,072**
+(6 × 512), and the piece's window 32,768 − 3,072 − 512 − 750 − 1,000 − 100 − 6,000 = 21,334 tokens, 85,336
+characters, so `notes.pass_piece_max_chars` is **85,000**. The timeout holds: 29,184 / 257 + 3,072 / 25 =
+236 s against 300.
 
 The criteria are #27's, word for word, with one change: criterion 2 reads "your own" for "the entity's
 own". The limits are rendered from config.

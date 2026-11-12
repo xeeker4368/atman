@@ -160,7 +160,7 @@ def parse_block(raw: str) -> Block:
         block.fields.setdefault(key, value)
     most = config.notes_pass_max_quote_lines()
     if len(block.quotes) > most:
-        raise ValueError(f"{len(block.quotes)} quote lines; the limit is {most}")
+        raise ValueError(f"{len(block.quotes)} quotes; the limit is {most}")
     missing = [k for k in _NEEDS[word] if k not in block.fields]
     if missing:
         raise ValueError(f"missing {', '.join(missing)}")
