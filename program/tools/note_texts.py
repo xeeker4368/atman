@@ -129,10 +129,14 @@ def pass_instruction(*, subject: int, line: int, text: int, quote: int, min_word
 
 #: The first line of the listing, in the system message after the speaker line whenever Notes is
 #: on. It states the true position on every turn: nothing said in this conversation makes a note.
+#: The second sentence (notes-listing-approval, from run 5's C11, where the entity described
+#: showing a draft in the chat for approval) says how approval does not happen. Its length is
+#: bounded by the design's five worst-case entries beside the overflow line (322 characters).
 LISTING_HEADER = (
     "Your notes, one line each. They are written after a conversation closes, and Lyle approves "
-    "each one, so nothing said in this conversation makes or changes a note. note_search gives a "
-    "note in full."
+    "each one, so nothing said in this conversation makes or changes a note. You never see "
+    "proposed notes or approvals: Lyle reviews them outside conversations, never in the chat. "
+    "note_search gives a note in full."
 )
 
 #: The listing when there is no active note.

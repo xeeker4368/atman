@@ -265,13 +265,18 @@ present whenever Notes is on, and reads "none yet" when there are no notes.
 **Format** (`/` is a new line):
 
 > Your notes, one line each. They are written after a conversation closes, and Lyle approves each one,
-> so nothing said in this conversation makes or changes a note. note_search gives a note in full. / -
+> so nothing said in this conversation makes or changes a note. You never see proposed notes or approvals:
+> Lyle reviews them outside conversations, never in the chat. note_search gives a note in full. / -
 > {subject}: {line} / … / {n} more notes are not listed; note_search finds them.
+
+*The sentence on approvals was added by notes-listing-approval (2026-11-12): in run 5's C11 the entity
+described showing a draft in the chat and approval by reply.*
 
 The `line` field is written by the pass and shown in review.
 
 **Cap: 1,200 characters, whole entries only (decided).**
-- The header is about 190 characters and the overflow line about 55, leaving about 950 for entries.
+- The header is 299 characters (196 before notes-listing-approval) and the overflow line about 55, leaving
+  about 845 for entries. The header may grow to 322 before five worst-case entries stop fitting.
 - That fits 5 worst-case entries (165 characters each) or about 11 typical ones (80 each).
 
 **Arithmetic.** B6a's chain, at 4.0 characters per token. The test

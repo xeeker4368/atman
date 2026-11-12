@@ -34,12 +34,38 @@ def test_the_header_is_the_designs_and_passes_the_authored_text_checks():
     assert texts.LISTING_HEADER == (
         "Your notes, one line each. They are written after a conversation closes, and Lyle "
         "approves each one, so nothing said in this conversation makes or changes a note. "
-        "note_search gives a note in full.")
+        + APPROVAL_SENTENCE + " note_search gives a note in full.")
     for text in (texts.LISTING_HEADER, texts.LISTING_NONE, texts.listing_overflow(3),
                  texts.listing_overflow(1)):
         prompt.check_authored_text(text, "listing")
     assert texts.listing_overflow(3) == "3 more notes are not listed; note_search finds them."
     assert texts.listing_overflow(1) == "1 more note is not listed; note_search finds them."
+
+
+#: notes-listing-approval: run 5's C11 described showing a draft in the chat and approval by
+#: reply. Neither happens; the header says so on every turn.
+APPROVAL_SENTENCE = (
+    "You never see proposed notes or approvals: Lyle reviews them outside conversations, never "
+    "in the chat.")
+
+
+def test_every_rendered_listing_carries_the_approval_sentence(store):
+    assert APPROVAL_SENTENCE in notes_listing.system_listing()          # "None yet."
+    admin.operator_add("person", "Jodie", "Takes oat milk.", line="Oat milk in coffee.")
+    assert APPROVAL_SENTENCE in notes_listing.system_listing()
+    assert APPROVAL_SENTENCE in notes_listing.render(
+        [{"subject": f"S{i}", "line": "w" * 90, "text": "x"} for i in range(30)])  # overflowing
+
+
+def test_the_header_leaves_room_for_five_worst_case_entries_and_a_long_overflow_line():
+    """The header counts against notes.listing_max_chars (the turn budget counts the cap). The
+    design's five worst-case entries (165 characters each, with their newline) must fit beside
+    an overflow line for up to 999 left out."""
+    assert len(texts.LISTING_HEADER) == 299
+    worst = 1 + len("- ") + config.notes_max_subject_chars() + len(": ") + 100
+    assert worst == 165
+    overflow = 1 + len(texts.listing_overflow(999))
+    assert len(texts.LISTING_HEADER) + 5 * worst + overflow <= config.notes_listing_max_chars()
 
 
 def test_with_no_notes_it_reads_none_yet(store):
@@ -93,8 +119,10 @@ def test_five_worst_case_entries_fit_beside_the_overflow_line_as_the_design_stat
              "text": "t"} for _ in range(7)]
     listing = notes_listing.render(rows)
     assert listing.count("\n- ") == 5 and listing.endswith(texts.listing_overflow(2))
-    # with no overflow line to carry, a sixth fits: 196 + 6 x 165 = 1,186
-    assert notes_listing.render(rows[:6]).count("\n- ") == 6
+    # with no overflow line to carry, six do not fit beside the longer header (notes-listing-
+    # approval): 299 + 6 x 165 = 1,289 > 1,200, so the sixth is counted instead
+    six = notes_listing.render(rows[:6])
+    assert six.count("\n- ") == 5 and six.endswith(texts.listing_overflow(1))
 
 
 def test_it_sits_after_the_speaker_line_and_before_the_tools_list_and_is_counted():
