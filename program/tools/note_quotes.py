@@ -24,6 +24,11 @@ enter a proposal. In order:
 A fragment found in several of the person's messages resolves to the most recent, with the
 count of messages identical to it. The refusal names the fragment that failed when there is
 more than one. The quote is stored as the model gave it.
+
+**Several quote lines** (note-pass-v2.1): a block may give one ``quote:`` line per message it
+quotes. :func:`resolve_quotes` takes them all: every fragment of every line must match, the
+minimum applies across the block, and the evidence has an entry for every fragment. A closing
+quote mark, whitespace and an opening quote mark (``" "``) also split fragments.
 """
 
 from __future__ import annotations
@@ -37,7 +42,7 @@ from program.tools import note_texts as texts
 
 _CURLY = str.maketrans({"‘": "'", "’": "'", "“": '"', "”": '"'})
 _QUOTE_MARKS = "\"'‘’“”"
-_SPLIT = re.compile(r"\.{2,}|…|\r\n|\r|\n|(?<=[.!?])[\"'’”]*\s+")
+_SPLIT = re.compile(r"\.{2,}|…|\r\n|\r|\n|(?<=[.!?])[\"'’”]*\s+|[\"'’”]\s+[\"'‘“]")
 _TRAILING = ".!?,"
 
 
@@ -72,6 +77,7 @@ def _words(fragment: str) -> int:
 
 @dataclass(frozen=True)
 class Fragment:
+    quote: str           # the quote line it came from, as the model gave it
     text: str            # as the model gave it, stripped of marks and trailing punctuation
     message_id: str
     identical_count: int
@@ -79,8 +85,12 @@ class Fragment:
 
 @dataclass(frozen=True)
 class Resolved:
-    quote: str           # as the model gave it
     fragments: tuple[Fragment, ...]
+
+    @property
+    def quote(self) -> str:
+        """The first quote line, as the model gave it."""
+        return self.fragments[0].quote
 
     @property
     def message_id(self) -> str:
@@ -88,42 +98,62 @@ class Resolved:
         return self.fragments[0].message_id
 
     def evidence(self) -> list[dict]:
-        """The stored evidence: one entry per fragment, each carrying the whole quote."""
-        return [{"quote": self.quote, "fragment": f.text, "message_id": f.message_id,
+        """The stored evidence: one entry per fragment, each carrying its whole quote line."""
+        return [{"quote": f.quote, "fragment": f.text, "message_id": f.message_id,
                  "tier": "context", "identical_count": f.identical_count}
                 for f in self.fragments]
 
 
-def _refuse(reason: str, index: int, parts: list[str]):
+def _refuse(reason: str, index: int, parts: list[str], where: str):
     if len(parts) > 1:
         reason = f"fragment {index} of {len(parts)} ({parts[index - 1]!r}): {reason}"
-    raise texts.QuoteRefused(reason)
+    raise texts.QuoteRefused(where + reason)
 
 
 def resolve_quote(quote: str, context_message_ids: frozenset[str] = frozenset()) -> Resolved:
     """What ``quote`` came from, or :class:`note_texts.QuoteRefused` with the reason."""
-    parts = fragments(quote)
+    return resolve_quotes([quote], context_message_ids)
+
+
+def resolve_quotes(quotes: list[str],
+                   context_message_ids: frozenset[str] = frozenset()) -> Resolved:
+    """What a block's ``quote:`` lines came from, or :class:`note_texts.QuoteRefused`.
+
+    Each line is split and matched by the rule above; every fragment of every line must match,
+    and the minimum applies across the block: at least one fragment, of any line, has
+    ``notes.min_fragment_words`` words. With several lines the reason starts ``quote i of n:``."""
     minimum = config.notes_min_fragment_words()
-    if not parts:
+    split = [fragments(q) for q in quotes]
+    if not quotes:
         raise texts.QuoteRefused(texts.quote_too_short(minimum))
+
+    def where(qi: int) -> str:
+        return f"quote {qi} of {len(quotes)}: " if len(quotes) > 1 else ""
+
+    for qi, parts in enumerate(split, start=1):
+        if not parts:
+            raise texts.QuoteRefused(where(qi) + texts.quote_too_short(minimum))
 
     rows = notes.messages_by_ids(sorted(context_message_ids))
     persons = [r for r in rows if r["role"] == "user"]
     replies = [r for r in rows if r["role"] == "assistant"]
     found: list[Fragment] = []
-    for i, part in enumerate(parts, start=1):
-        needle = normalise(part)
-        matches = [r for r in persons if needle in normalise(r["content"])]
-        if not matches:
-            said_by_entity = any(needle in normalise(r["content"]) for r in replies)
-            _refuse(texts.QUOTE_NOT_A_PERSONS_WORDS if said_by_entity else texts.QUOTE_NO_MATCH,
-                    i, parts)
-        newest = max(matches, key=lambda m: (m["timestamp"], m["id"]))
-        same = sum(1 for m in matches if normalise(m["content"]) == normalise(newest["content"]))
-        found.append(Fragment(part, newest["id"], same))
-    if all(_words(part) < minimum for part in parts):
+    for qi, (quote, parts) in enumerate(zip(quotes, split), start=1):
+        for i, part in enumerate(parts, start=1):
+            needle = normalise(part)
+            matches = [r for r in persons if needle in normalise(r["content"])]
+            if not matches:
+                said_by_entity = any(needle in normalise(r["content"]) for r in replies)
+                _refuse(texts.QUOTE_NOT_A_PERSONS_WORDS if said_by_entity
+                        else texts.QUOTE_NO_MATCH, i, parts, where(qi))
+            newest = max(matches, key=lambda m: (m["timestamp"], m["id"]))
+            same = sum(1 for m in matches
+                       if normalise(m["content"]) == normalise(newest["content"]))
+            found.append(Fragment(quote, part, newest["id"], same))
+    every = [part for parts in split for part in parts]
+    if all(_words(part) < minimum for part in every):
         reason = texts.quote_too_short(minimum)
-        if len(parts) > 1:
-            reason = f"all {len(parts)} fragments ({', '.join(map(repr, parts))}): {reason}"
+        if len(every) > 1:
+            reason = f"all {len(every)} fragments ({', '.join(map(repr, every))}): {reason}"
         raise texts.QuoteRefused(reason)
-    return Resolved(quote, tuple(found))
+    return Resolved(tuple(found))

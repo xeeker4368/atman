@@ -1006,8 +1006,9 @@ def notes_listing_max_chars() -> int:
 
 
 def notes_pass_num_predict() -> int:
-    """The note pass's output cap, derived from four maximal blocks (Notes v2 section 1.3)."""
-    return _notes_int("pass_num_predict", 1536)
+    """The note pass's output cap, derived from four maximal blocks with
+    :func:`notes_pass_max_quote_lines` quote lines each (Notes v2 section 1.3)."""
+    return _notes_int("pass_num_predict", 2560)
 
 
 def notes_pass_timeout_seconds() -> float:
@@ -1020,7 +1021,7 @@ def notes_pass_timeout_seconds() -> float:
 
 def notes_pass_piece_max_chars() -> int:
     """A piece's cap: whole exchanges up to this many characters (Notes v2 section 1.2)."""
-    return _notes_int("pass_piece_max_chars", 90000)
+    return _notes_int("pass_piece_max_chars", 87000)
 
 
 def notes_pass_notes_max_chars() -> int:
@@ -1031,6 +1032,11 @@ def notes_pass_notes_max_chars() -> int:
 def notes_pass_quote_max_chars() -> int:
     """A quote's cap in a pass block (Notes v2 section 1.3)."""
     return _notes_int("pass_quote_max_chars", 200)
+
+
+def notes_pass_max_quote_lines() -> int:
+    """Most ``quote:`` lines in one pass block; more is malformed (bounds the output cap)."""
+    return _notes_int("pass_max_quote_lines", 3)
 
 
 def notes_pass_max_attempts() -> int:

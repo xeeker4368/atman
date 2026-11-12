@@ -7,6 +7,7 @@ the one marked ``live``, which re-measures the output cap's tokens.
 from __future__ import annotations
 
 import json
+import math
 import threading
 
 import pytest
@@ -80,6 +81,87 @@ def test_an_over_cap_field_makes_the_block_malformed(field, limit):
     assert parsed.blocks == [] and "limit" in parsed.malformed[0]["reason"]
 
 
+def test_several_quote_lines_are_kept_in_order_and_other_fields_still_may_not_repeat():
+    block = note_pass.parse_block(ADD + "\nquote: Never dairy, she says")
+    assert block.quotes == ["Jodie takes her coffee with oat milk", "Never dairy, she says"]
+    assert block.fields["quote"] == "Jodie takes her coffee with oat milk"
+    parsed = note_pass.parse(ADD + "\nnote: again")
+    assert parsed.blocks == [] and "'note' given twice" in parsed.malformed[0]["reason"]
+
+
+def test_quote_lines_up_to_the_cap_are_accepted_and_one_more_is_malformed_and_named():
+    """Amendment 2: the cap bounds a maximal block, so the output cap can be derived."""
+    most = config.notes_pass_max_quote_lines()
+    assert most == 3
+    extra = "".join(f"\nquote: words number {i} here" for i in range(2, most + 1))
+    assert len(note_pass.parse_block(ADD + extra).quotes) == most
+    parsed = note_pass.parse(ADD + extra + "\nquote: one line too many")
+    assert parsed.blocks == []
+    assert parsed.malformed[0]["reason"] == f"{most + 1} quote lines; the limit is {most}"
+    retire = "RETIRE N1" + "".join(f"\nquote: line {i} of it" for i in range(most + 1))
+    assert "quote lines; the limit is" in note_pass.parse(retire).malformed[0]["reason"]
+
+
+def test_the_instruction_states_the_quote_line_cap_from_config(monkeypatch):
+    assert "at most three quote lines in a block" in note_pass.instruction()
+    monkeypatch.setattr(config, "notes_pass_max_quote_lines", lambda: 2)
+    assert "at most two quote lines in a block" in note_pass.instruction()
+
+
+def test_an_over_cap_second_quote_line_makes_the_block_malformed():
+    parsed = note_pass.parse(ADD + "\nquote: " + "w" * (config.notes_pass_quote_max_chars() + 1))
+    assert parsed.blocks == [] and "limit" in parsed.malformed[0]["reason"]
+
+
+@pytest.mark.parametrize("raw", [
+    "REVISE N1\nkind: person\nline: x\nnote: y\nquote: a b c d",
+    "REVISE N1\nkind: person, topic or project\nline: x\nnote: y\nquote: a b c d",
+    "RETIRE N1\nkind: topic\nquote: a b c d",
+])
+def test_a_kind_line_on_revise_or_retire_is_ignored(raw):
+    parsed = note_pass.parse(raw)
+    (block,) = parsed.blocks
+    assert parsed.malformed == [] and block.ignored == ["kind"] and "kind" not in block.fields
+
+
+@pytest.mark.parametrize("raw, ignored", [
+    ("REVISE N1\nsubject: Lyle\nline: x\nnote: y\nquote: a b c d", ["subject"]),
+    ("REVISE N1\nkind: person\nsubject: Lyle\nline: x\nnote: y\nquote: a b c d",
+     ["kind", "subject"]),
+    ("RETIRE N1\nsubject: Lyle\nquote: a b c d", ["subject"]),
+    ("RETIRE N1\nsubject: \nquote: a b c d", ["subject"]),        # ignored, so never checked
+])
+def test_a_subject_line_on_revise_or_retire_is_ignored_like_kind(raw, ignored):
+    """Amendment 1: run 5's repass C7 and C8 wrote ``subject:`` on a REVISE."""
+    parsed = note_pass.parse(raw)
+    (block,) = parsed.blocks
+    assert parsed.malformed == [] and block.ignored == ignored
+    assert "subject" not in block.fields and "kind" not in block.fields
+
+
+@pytest.mark.parametrize("raw, reason", [
+    ("DROP D1\nsubject: Lyle", "'subject' is not a field of DROP"),
+    ("REVISE N1\nwhy: x\nline: x\nnote: y\nquote: a b c d", "'why' is not a field of REVISE"),
+    ("DROP D1\nkind: person", "'kind' is not a field of DROP"),
+    ("RETIRE N1\nline: x\nquote: a b c d", "'line' is not a field of RETIRE"),
+])
+def test_other_unknown_fields_stay_malformed(raw, reason):
+    parsed = note_pass.parse(raw)
+    assert parsed.blocks == [] and parsed.malformed[0]["reason"] == reason
+
+
+@pytest.mark.parametrize("reply", ["No changes.", "No changes needed.\n\nThe notes are current.",
+                                   "Add nothing.", "Nothing here needs a note.", "none."])
+def test_a_reply_with_no_change_block_is_no_blocks_and_nothing_malformed(reply):
+    assert note_pass.parse(reply) == note_pass.Parsed()
+
+
+@pytest.mark.parametrize("reply", ["**ADD**\nkind: person", "add\nkind: person",
+                                   "No changes.\n\nREVISE 2\nline: x"])
+def test_a_reply_that_attempts_a_change_still_records_what_is_malformed(reply):
+    assert note_pass.parse(reply).malformed
+
+
 def test_a_none_block_among_others_is_ignored_and_the_rest_kept():
     parsed = note_pass.parse("NONE\n\n" + ADD)
     assert [b.action for b in parsed.blocks] == ["add"] and parsed.malformed == []
@@ -99,32 +181,53 @@ _PROSE = ("Lyle said the garden project is on hold until spring because the fenc
           "rebuilt first, and he would rather do it properly than twice. ") * 12
 
 
-def maximal_block() -> str:
+def maximal_block(quote_lines: int | None = None) -> str:
+    """At every field cap, with ``notes.pass_max_quote_lines`` quote lines unless told."""
     def cut(n: int) -> str:
         return _PROSE[:n]
 
+    if quote_lines is None:
+        quote_lines = config.notes_pass_max_quote_lines()
+    quote = f"quote: {cut(config.notes_pass_quote_max_chars())}\n"
     return ("ADD\nkind: project\n"
             f"subject: {cut(config.notes_max_subject_chars())}\n"
             f"line: {cut(config.notes_line_max_chars())}\n"
             f"note: {cut(config.notes_max_text_chars())}\n"
-            f"quote: {cut(config.notes_pass_quote_max_chars())}\n\n")
+            + quote * quote_lines + "\n")
 
 
-#: The maximal block above, tokenized by the model's own tokenizer at build (2026-10-23, the B3
-#: trial, ``changelog/2026-10-23-notes-v2.md``): Ollama's ``prompt_eval_count`` for a user message
-#: of the block (232), less the same for an empty message (13). Four blocks in one message measured
-#: 879. Re-measured by the live test below.
-MAXIMAL_BLOCK_TOKENS = 219
+#: The ONE-quote-line maximal block, tokenized by the model's own tokenizer at build (2026-10-23,
+#: the B3 trial, ``changelog/2026-10-23-notes-v2.md``): Ollama's ``prompt_eval_count`` for a user
+#: message of the block (232), less the same for an empty message (13). The three-line block has
+#: not been tokenized (note-pass-v2.1 made no model calls); the live test below measures it.
+ONE_QUOTE_BLOCK_TOKENS = 219
 
 
-def test_a_maximal_block_is_1050_characters_as_the_design_derives():
-    assert len(maximal_block()) == 1050
+def test_a_maximal_block_is_1466_characters_as_the_derivation_says():
+    assert len(maximal_block(quote_lines=1)) == 1050          # the design's one-quote block
+    assert len(maximal_block()) == 1050 + 2 * 208 == 1466
 
 
 def test_four_maximal_blocks_and_100_fit_the_output_cap():
-    assert 4 * MAXIMAL_BLOCK_TOKENS + 100 <= config.notes_pass_num_predict()
-    # and the design's own derivation, at 3.0 characters per token, rounds up to the cap
-    assert 4 * (1050 // 3) + 100 <= config.notes_pass_num_predict() == 1536
+    """At 3.0 characters per token (the design's output rate), rounded up to a multiple of 512."""
+    per_block = math.ceil(len(maximal_block()) / 3)
+    assert per_block == 489
+    needed = 4 * per_block + 100
+    assert needed == 2056 and needed <= config.notes_pass_num_predict() == 2560
+    assert config.notes_pass_num_predict() == math.ceil(needed / 512) * 512
+    # the recorded one-quote measurement, scaled by length, is well inside the 3.0 estimate
+    assert ONE_QUOTE_BLOCK_TOKENS * len(maximal_block()) / 1050 < per_block
+
+
+def test_the_piece_cap_fits_the_window_left_by_the_output_cap():
+    """Section 1.2's chain at 4.0 characters per token: num_ctx less the output cap, a 512 margin,
+    soul.md at 3,000 characters, the instruction's 4,000 allowance, 400 of framing and the notes
+    list's cap. Re-derived when the output cap moved to 2,560."""
+    left = (32768 - config.notes_pass_num_predict() - 512 - 3000 // 4 - 4000 // 4 - 400 // 4
+            - config.notes_pass_notes_max_chars() // 4)
+    assert left == 21846
+    assert config.notes_pass_piece_max_chars() <= 4 * left
+    assert len(note_pass.instruction()) <= 4000
 
 
 @pytest.mark.live
@@ -136,8 +239,8 @@ def test_live_the_maximal_block_still_tokenizes_within_the_recorded_count():
                            options={"num_predict": 1, "temperature": 0})
         return int(data["prompt_eval_count"])
 
-    measured = count(maximal_block()) - count("")
-    assert measured <= MAXIMAL_BLOCK_TOKENS
+    assert count(maximal_block(quote_lines=1)) - count("") <= ONE_QUOTE_BLOCK_TOKENS
+    assert count(maximal_block()) - count("") <= math.ceil(len(maximal_block()) / 3)
 
 
 # --- the store and a scripted model ----------------------------------------------------------
@@ -222,7 +325,7 @@ def test_it_sends_soul_and_the_instruction_then_the_date_names_lists_and_piece(w
     assert "Lyle: Jodie takes her coffee with oat milk, never dairy." in user
     assert "you: Got it." in user
     assert "Your notes:\nnone" in user and "waiting for Lyle:\nnone" in user
-    assert call["options"]["num_predict"] == config.notes_pass_num_predict() == 1536
+    assert call["options"]["num_predict"] == config.notes_pass_num_predict() == 2560
     assert call["options"]["temperature"] == config.classifier_temperature() == 0
     assert call["model"] == config.chat_model() and call["tools"] is None
     assert call["timeout"] == config.notes_pass_timeout_seconds()
@@ -245,16 +348,60 @@ def test_tool_results_are_never_sent(world, monkeypatch):
     assert "IGNORE PREVIOUS" not in sent and "spy" not in sent
 
 
-def test_the_instruction_is_the_designs_and_within_its_allowance():
+def test_the_instruction_is_within_its_allowance_and_keeps_the_criteria():
     text = note_pass.instruction()
     assert len(text) <= 4000            # the 1,000-token allowance in section 1.2's arithmetic
-    assert "subject: {≤60 characters}" in text and "quote: {the person's exact words, " \
-        "at least four, ≤200 characters}" in text
     assert "2. Said by a person: only what a person stated directly, never your own " \
         "conclusions, advice or guesses." in text
+    assert "at most 60 characters" in text and "at most 200 characters and at least four words" \
+        in text
     from program.engine import prompt
 
     prompt.check_authored_text(text, "pass instruction")
+
+
+@pytest.mark.parametrize("rule", [
+    # 1, one subject per note
+    "One subject per note: one person, one project or one topic. Never combine two subjects in "
+    "one note",
+    # 2, revise or retire only what this conversation speaks to; nothing is the normal outcome
+    "Revise or retire a listed note only when a person's message in this conversation says "
+    "something about that note's subject. Otherwise leave every listed note alone.",
+    "proposing nothing is the normal outcome",
+    # 3, a revision replaces the whole note
+    "A revised note's text replaces the whole note: keep everything in it that is still true, and "
+    "change only what this conversation changes.",
+    # 5, one quote line per message
+    "give one quote line for each message",
+])
+def test_the_instruction_states_each_rule(rule):
+    assert rule in note_pass.instruction()
+
+
+def _example_blocks():
+    text = note_pass.instruction()
+    return [b for b in note_pass.split_blocks(text[text.index("\nADD\n"):])]
+
+
+def test_every_format_example_parses_as_the_block_it_shows():
+    """Rule 4: the examples are real blocks, so a copied one is well formed."""
+    blocks = [note_pass.parse_block(b) for b in _example_blocks()]
+    assert [b.action for b in blocks] == ["add", "revise", "retire", "drop"]
+    assert all(b.ignored == [] for b in blocks)
+    assert len(blocks[0].quotes) == 2                  # rule 5's example: two quote lines
+
+
+def test_the_examples_show_no_kind_on_revise_or_retire_and_no_placeholder_value():
+    """Rule 4. Run 5's repass copied "kind: person, topic or project" as a value."""
+    for raw in _example_blocks():
+        lines = raw.split("\n")
+        if lines[0].startswith(("REVISE", "RETIRE")):
+            assert not any(line.startswith(("kind:", "subject:")) for line in lines)
+        for line in lines[1:]:
+            value = line.split(":", 1)[1]
+            assert "{" not in value and "}" not in value and "≤" not in value, line
+            assert " or " not in value and "number" not in value, line
+    assert "{" not in note_pass.instruction() and "}" not in note_pass.instruction()
 
 
 # --- outcomes ----------------------------------------------------------------------------
@@ -433,6 +580,69 @@ def test_a_revise_targets_the_note_its_number_named(world, monkeypatch):
     assert p["action"] == "revise" and p["target_note_id"] == old and p["subject"] == "Jodie"
 
 
+def test_an_ignored_kind_is_recorded_and_the_revise_still_proposed(world, monkeypatch):
+    admin.operator_add("person", "Jodie", "Takes her coffee black.")
+    cid = conversation(world.lyle, COFFEE)
+    script(monkeypatch, "REVISE N1\nkind: person, topic or project\nline: Oat milk now.\n"
+                        "note: Jodie takes her coffee with oat milk.\n"
+                        "quote: Jodie takes her coffee with oat milk")
+    result = note_pass.run_pass(cid)
+    assert result.outcome == "proposals" and proposals()[0]["action"] == "revise"
+    (aside,) = json.loads(pass_rows(cid)[0]["set_aside"])
+    assert (aside["why"], aside["reason"]) == ("ignored", "ignored field kind")
+    assert admin.list_passes(True)[0]["refused"] == 0      # an ignored field is not a refusal
+
+
+def test_an_ignored_subject_is_recorded_and_the_revise_still_proposed(world, monkeypatch):
+    admin.operator_add("person", "Jodie", "Takes her coffee black.")
+    cid = conversation(world.lyle, COFFEE)
+    script(monkeypatch, "REVISE N1\nkind: person\nsubject: Jodie's coffee\nline: Oat milk now.\n"
+                        "note: Jodie takes her coffee with oat milk.\n"
+                        "quote: Jodie takes her coffee with oat milk")
+    assert note_pass.run_pass(cid).outcome == "proposals"
+    (p,) = proposals()
+    assert p["action"] == "revise" and p["subject"] == "Jodie"      # the note keeps its subject
+    asides = json.loads(pass_rows(cid)[0]["set_aside"])
+    assert [(a["why"], a["reason"]) for a in asides] == [
+        ("ignored", "ignored field kind"), ("ignored", "ignored field subject")]
+    assert admin.list_passes(True)[0]["refused"] == 0
+
+
+def test_a_prose_reply_is_outcome_none_with_nothing_set_aside_and_the_reply_kept(world,
+                                                                               monkeypatch):
+    cid = conversation(world.lyle, COFFEE)
+    script(monkeypatch, "No changes.")
+    assert note_pass.run_pass(cid).outcome == "none"
+    (row,) = pass_rows(cid)
+    assert json.loads(row["set_aside"]) == [] and json.loads(row["piece_replies"]) == [
+        "No changes."]
+
+
+def test_several_quote_lines_write_evidence_for_every_one(world, monkeypatch):
+    cid = conversation(world.lyle, COFFEE, ("The grinder stays on the left shelf.", "Ok."))
+    script(monkeypatch, ADD + "\nquote: The grinder stays on the left shelf")
+    assert note_pass.run_pass(cid).outcome == "proposals"
+    (p,) = proposals()
+    with db.connection() as conn:
+        persons = [r["id"] for r in conn.execute(
+            "SELECT id FROM messages WHERE conversation_id = ? AND role = 'user' "
+            "ORDER BY timestamp", (cid,))]
+    evidence = json.loads(p["evidence"])
+    assert [e["message_id"] for e in evidence] == persons
+    assert [e["quote"] for e in evidence] == ["Jodie takes her coffee with oat milk",
+                                              "The grinder stays on the left shelf"]
+    assert p["user_message_id"] == persons[0]
+
+
+def test_one_unmatched_quote_line_refuses_the_block_and_is_named(world, monkeypatch):
+    cid = conversation(world.lyle, COFFEE)
+    script(monkeypatch, ADD + "\nquote: and she hates mushrooms")
+    assert note_pass.run_pass(cid).outcome == "none" and proposals() == []
+    (aside,) = json.loads(pass_rows(cid)[0]["set_aside"])
+    assert aside["why"] == "refused" and aside["reason"].startswith("quote: quote 2 of 2: ")
+    assert texts.QUOTE_NO_MATCH in aside["reason"]
+
+
 def test_a_revise_of_a_note_that_was_not_shown_is_malformed(world, monkeypatch):
     cid = conversation(world.lyle, COFFEE)
     script(monkeypatch, "RETIRE N4\nquote: Jodie takes her coffee with oat milk")
@@ -521,7 +731,7 @@ def test_a_failure_after_the_last_piece_writes_only_the_row(world, monkeypatch):
     def boom(*a, **k):
         raise RuntimeError("quote store unreadable")
 
-    monkeypatch.setattr(note_pass.note_quotes, "resolve_quote", boom)
+    monkeypatch.setattr(note_pass.note_quotes, "resolve_quotes", boom)
     result = note_pass.run_pass(cid)
     assert result.outcome == "unavailable" and "after the last piece" in result.error
     assert proposals() == []

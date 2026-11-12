@@ -42,9 +42,11 @@ EMPTY_QUERY = "give some words to look for."
 
 # --- the note pass (Notes v2, docs/NOTES_V2_DESIGN.md section 1.1) -----------------------------
 
-#: The pass's instruction, verbatim from the design (decision #36 and #37), with the field limits
-#: rendered from config. The six criteria are decision #27's, word for word, with "your own" for
-#: "the entity's own". Sent after soul.md, in the system message of every piece's call.
+#: The pass's instruction (decisions #36 and #37; the rules after the criteria and the format
+#: examples rewritten by note-pass-v2.1 from run 5's repass), with the field limits rendered from
+#: config. The six criteria are decision #27's, word for word, with "your own" for "the entity's
+#: own". The examples have no placeholder a model can copy as a value, and each parses with
+#: ``note_pass.parse_block``. Sent after soul.md, in the system message of every piece's call.
 PASS_INSTRUCTION = (
     "When a conversation has closed, you decide whether anything a person said in it should "
     "become a note. Notes are what you keep about the people in this household and their lives, "
@@ -64,30 +66,57 @@ PASS_INSTRUCTION = (
     "categories; identification numbers; abuse or self-harm.\n"
     "\n"
     "Being asked to note something is not a reason on its own; weigh it like anything else. Most "
-    "conversations need no note. If an existing note (N), a pending change (P) or a draft (D) "
-    "already says it, change nothing. If what was said changes an existing note, revise it; if it "
-    "makes one no longer true, retire it; if it changes or takes back a draft, drop the draft.\n"
+    "conversations need no note, and proposing nothing is the normal outcome. If an existing note "
+    "(N), a pending change (P) or a draft (D) already says it, change nothing.\n"
     "\n"
-    "Answer NONE, or one block per change, with a blank line between blocks:\n"
+    "One subject per note: one person, one project or one topic. Never combine two subjects in "
+    "one note; give each its own.\n"
+    "Revise or retire a listed note only when a person's message in this conversation says "
+    "something about that note's subject. Otherwise leave every listed note alone. If what a "
+    "person said changes a listed note, revise it; if it makes one no longer true, retire it; if "
+    "it changes or takes back a draft, drop the draft.\n"
+    "A revised note's text replaces the whole note: keep everything in it that is still true, and "
+    "change only what this conversation changes.\n"
+    "A quote line is a person's exact words, copied from one of their messages. To quote words "
+    "from more than one message, give one quote line for each message, at most {quote_lines} "
+    "quote lines in a block.\n"
+    "\n"
+    "Answer NONE, or one block per change, with a blank line between blocks. kind is person, "
+    "topic or project. A subject is at most {subject} characters, a line at most {line}, a note "
+    "at most {text}, and each quote at most {quote} characters and at least {words} words. REVISE "
+    "and RETIRE keep the note's kind and subject, so they have only the lines shown. The names "
+    "and words below only show the format; never copy them.\n"
+    "\n"
     "ADD\n"
-    "kind: person, topic or project\n"
-    "subject: {{\u2264{subject} characters}}\n"
-    "line: {{one line, \u2264{line} characters}}\n"
-    "note: {{\u2264{text} characters}}\n"
-    "quote: {{the person's exact words, at least {words}, \u2264{quote} characters}}\n"
-    "REVISE N{{number}}, then line, note, quote\n"
-    "RETIRE N{{number}}, then quote\n"
-    "DROP D{{number}}"
+    "kind: person\n"
+    "subject: Sam\n"
+    "line: Sam is learning the fiddle.\n"
+    "note: Sam started fiddle lessons in September and practises at weekends.\n"
+    "quote: Sam started fiddle lessons in September\n"
+    "quote: he practises every weekend now\n"
+    "\n"
+    "REVISE N2\n"
+    "line: Sam is learning the fiddle and the banjo.\n"
+    "note: Sam started fiddle lessons in September and practises at weekends. He has taken up "
+    "the banjo as well.\n"
+    "quote: Sam has picked up the banjo as well\n"
+    "\n"
+    "RETIRE N3\n"
+    "quote: we sold the boat last month\n"
+    "\n"
+    "DROP D1"
 )
 
 _NUMBER_WORDS = {1: "one", 2: "two", 3: "three", 4: "four", 5: "five", 6: "six"}
 
 
-def pass_instruction(*, subject: int, line: int, text: int, quote: int, min_words: int) -> str:
+def pass_instruction(*, subject: int, line: int, text: int, quote: int, min_words: int,
+                     quote_lines: int) -> str:
     """The instruction with its limits filled in (from ``config``, by the caller)."""
-    words = _NUMBER_WORDS.get(min_words, str(min_words))
-    return PASS_INSTRUCTION.format(subject=subject, line=line, text=text, quote=quote,
-                                   words=words)
+    return PASS_INSTRUCTION.format(
+        subject=subject, line=line, text=text, quote=quote,
+        words=_NUMBER_WORDS.get(min_words, str(min_words)),
+        quote_lines=_NUMBER_WORDS.get(quote_lines, str(quote_lines)))
 
 
 # --- the listing (Notes v2, section 3) ---------------------------------------------------------

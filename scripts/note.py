@@ -413,7 +413,8 @@ def run(args) -> int:
               f"{len(result.proposals)} proposal(s), {result.pieces} piece(s), "
               f"{result.seconds:.1f}s" + (f"; {result.error}" if result.error else ""))
         for item in result.set_aside:
-            print(f"  set aside ({item.get('why')}): {item.get('reason')}")
+            label = "noted" if item.get("why") == "ignored" else "set aside"
+            print(f"  {label} ({item.get('why')}): {item.get('reason')}")
         if result.proposals:
             print("`review` lists them.")
         return 1 if result.outcome == "unavailable" else 0

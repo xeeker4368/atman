@@ -446,6 +446,59 @@ def test_a_quote_said_by_a_person_and_repeated_by_the_entity_resolves_to_the_per
     assert got.message_id == said
 
 
+@pytest.mark.parametrize("quote", [
+    '"Jodie takes her coffee with oat milk" "The backup should eventually run"',
+    "\u201cJodie takes her coffee with oat milk\u201d  "
+    "\u201cThe backup should eventually run\u201d",
+    "'Jodie takes her coffee with oat milk' 'The backup should eventually run'",
+])
+def test_a_closing_mark_space_and_opening_mark_splits_fragments(world, quote):
+    """Run 5's repass, C5: two messages quoted as two quoted strings on one line."""
+    got = resolve(world, quote)
+    assert [f.message_id for f in got.fragments] == [world.ids["trigger"], world.ids["later"]]
+
+
+def test_an_apostrophe_inside_words_does_not_split_and_a_mark_pair_still_resolves(world):
+    msg = say(world, "the kids' 'fort' is pure rock 'n' roll", "2026-10-02T11:00:00+00:00")
+    got = resolve(world, "pure rock 'n' roll", frozenset({msg}))
+    assert [f.text for f in got.fragments] == ["pure rock 'n' roll"]
+    # a closing apostrophe, a space and an opening mark do split, and both parts must match
+    got = resolve(world, "the kids' 'fort' is pure rock", frozenset({msg}))
+    assert [f.text for f in got.fragments] == ["the kids", "fort' is pure rock"]
+
+
+def resolve_all(world, quotes, context=None):
+    return note_quotes.resolve_quotes(quotes, world.context if context is None else context)
+
+
+def test_several_quote_lines_each_resolve_and_all_are_evidence(world):
+    got = resolve_all(world, ["Jodie takes her coffee with oat milk",
+                              "The backup should eventually run"])
+    assert [(e["quote"], e["message_id"]) for e in got.evidence()] == [
+        ("Jodie takes her coffee with oat milk", world.ids["trigger"]),
+        ("The backup should eventually run", world.ids["later"])]
+
+
+def test_the_minimum_is_across_the_block_not_per_quote_line(world):
+    """A short line beside a long one is accepted; short lines alone are refused, all named."""
+    got = resolve_all(world, ["never dairy", "The backup should eventually run"])
+    assert len(got.fragments) == 2
+    reason = texts.quote_too_short(config.notes_min_fragment_words())
+    with pytest.raises(texts.QuoteRefused) as caught:
+        resolve_all(world, ["never dairy", "a schedule"])
+    assert str(caught.value) == f"all 2 fragments ('never dairy', 'a schedule'): {reason}"
+
+
+def test_every_quote_line_must_match_and_the_failing_one_is_named(world):
+    with pytest.raises(texts.QuoteRefused) as caught:
+        resolve_all(world, ["Jodie takes her coffee with oat milk",
+                            "Jodie prefers a flat white"])
+    assert str(caught.value) == "quote 2 of 2: " + texts.QUOTE_NOT_A_PERSONS_WORDS
+    with pytest.raises(texts.QuoteRefused) as caught:
+        resolve_all(world, ["Jodie takes her coffee with oat milk", '""'])
+    assert str(caught.value).startswith("quote 2 of 2: that quote is too short")
+
+
 def test_the_evidence_is_one_entry_per_fragment_with_the_quote_as_given(world):
     quote = ' "Jodie takes her coffee with oat milk....the backup should EVENTUALLY run" '
     assert resolve(world, quote).evidence() == [

@@ -80,7 +80,9 @@ class Block:
     action: str                       # add | revise | retire | drop
     raw: str
     number: int | None = None         # N{number} for revise/retire, D{number} for drop
-    fields: dict[str, str] = field(default_factory=dict)
+    fields: dict[str, str] = field(default_factory=dict)   # "quote" holds the first quote line
+    quotes: list[str] = field(default_factory=list)       # every quote line, in order
+    ignored: list[str] = field(default_factory=list)      # fields read and ignored
 
 
 @dataclass
@@ -98,6 +100,12 @@ _NEEDS = {
     "retire": ("quote",),
     "drop": (),
 }
+#: A ``kind:`` or ``subject:`` line on REVISE or RETIRE is ignored, not malformed: the note keeps
+#: its kind and subject (run 5's repass wrote both, once ``kind:`` as the instruction's own
+#: placeholder). Recorded in ``set_aside`` with ``why = "ignored"``.
+_IGNORED = {"revise": ("kind", "subject"), "retire": ("kind", "subject")}
+#: A block whose first word is one of these is an attempt at a change, even when malformed.
+_ACTION_WORDS = ("ADD", "REVISE", "RETIRE", "DROP")
 
 
 def _limits() -> dict[str, int]:
@@ -136,15 +144,23 @@ def parse_block(raw: str) -> Block:
         if match is None:
             raise ValueError(f"not a field line: {line[:40]!r}")
         key, value = match.group(1), match.group(2).strip()
+        if key in _IGNORED.get(word, ()):
+            block.ignored.append(key)
+            continue
         if key not in _NEEDS[word]:
             raise ValueError(f"{key!r} is not a field of {word.upper()}")
-        if key in block.fields:
+        if key in block.fields and key != "quote":
             raise ValueError(f"{key!r} given twice")
         if not value:
             raise ValueError(f"{key!r} is empty")
         if key in limits and len(value) > limits[key]:
             raise ValueError(f"{key} is {len(value)} characters; the limit is {limits[key]}")
-        block.fields[key] = value
+        if key == "quote":
+            block.quotes.append(value)
+        block.fields.setdefault(key, value)
+    most = config.notes_pass_max_quote_lines()
+    if len(block.quotes) > most:
+        raise ValueError(f"{len(block.quotes)} quote lines; the limit is {most}")
     missing = [k for k in _NEEDS[word] if k not in block.fields]
     if missing:
         raise ValueError(f"missing {', '.join(missing)}")
@@ -153,11 +169,26 @@ def parse_block(raw: str) -> Block:
     return block
 
 
+def _attempts_a_change(raw: str) -> bool:
+    """Whether a block is an attempt at a change, well formed or not: its first word, without
+    surrounding punctuation (``**ADD**``), is an action word, written in capitals or followed by
+    more lines. "No changes." and "Add nothing." are not."""
+    lines = raw.strip().split("\n")
+    word = re.sub(r"^\W+|\W+$", "", lines[0].split(None, 1)[0]) if lines[0].strip() else ""
+    return word.upper() in _ACTION_WORDS and (word.isupper() or len(lines) > 1)
+
+
 def parse(reply: str) -> Parsed:
     """The blocks in a reply. ``NONE`` alone is no blocks; a ``NONE`` block among others is
-    ignored. Every other unparseable block is recorded as malformed."""
+    ignored. A reply in which no block starts with ADD, REVISE, RETIRE or DROP is no blocks,
+    whatever it says ("No changes."): nothing is recorded as malformed, and the raw reply is kept
+    with the pass as every reply is. Otherwise every unparseable block is recorded as
+    malformed."""
     out = Parsed()
-    for raw in split_blocks(reply):
+    raws = split_blocks(reply)
+    if not any(_attempts_a_change(raw) for raw in raws):
+        return out
+    for raw in raws:
         try:
             block = parse_block(raw)
         except ValueError as exc:
@@ -337,7 +368,8 @@ def instruction() -> str:
     return texts.pass_instruction(
         subject=config.notes_max_subject_chars(), line=config.notes_line_max_chars(),
         text=config.notes_max_text_chars(), quote=config.notes_pass_quote_max_chars(),
-        min_words=config.notes_min_quote_words())
+        min_words=config.notes_min_quote_words(),
+        quote_lines=config.notes_pass_max_quote_lines())
 
 
 def build_messages(*, soul: str, date: str, people: str, listed: Listed,
@@ -429,7 +461,7 @@ def _prepare(drafts: list[Draft], conversation: Any, context_ids: frozenset[str]
                                   "pending proposal or another draft"})
                 continue
         try:
-            resolved = note_quotes.resolve_quote(b.fields["quote"], context_ids)
+            resolved = note_quotes.resolve_quotes(b.quotes, context_ids)
         except texts.QuoteRefused as exc:
             set_aside.append({"raw": b.raw, "reason": f"quote: {exc}"})
             continue
@@ -572,6 +604,9 @@ def _run(conversation_id: str) -> PassResult:
             cut_blocks.append(cut)
         parsed = parse(usable)
         set_aside.extend({**m, "piece": index, "why": "malformed"} for m in parsed.malformed)
+        set_aside.extend({"raw": b.raw, "piece": index, "why": "ignored",
+                          "reason": f"ignored field {key}"}
+                         for b in parsed.blocks for key in b.ignored)
         for block in parsed.blocks:
             if block.action == "drop":
                 found = next((d for d in drafts if d.number == block.number), None)

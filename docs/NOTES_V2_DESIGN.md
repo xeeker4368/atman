@@ -101,6 +101,26 @@ messages.
 > quote: {the person's exact words, at least four, ≤200 characters} / REVISE N{number}, then line, note, quote / RETIRE
 > N{number}, then quote / DROP D{number}
 
+**Amended by note-pass-v2.1 (2026-11-10), from run 5's repass.** The paragraph after the criteria and the
+format section above are superseded; the text of record is `note_texts.PASS_INSTRUCTION`. Added:
+- one subject per note;
+- revise or retire a listed note only when a person's message in this conversation speaks to its subject,
+  and proposing nothing is the normal outcome;
+- a revision replaces the whole note;
+- one `quote:` line per message quoted;
+- worked examples that parse, with no placeholder values and no `kind:` on REVISE or RETIRE.
+
+The parser now:
+- accepts up to `notes.pass_max_quote_lines` (3) `quote:` lines, resolved together; more is malformed;
+- ignores and records a `kind:` or `subject:` line on REVISE and RETIRE;
+- reads a reply with no change block as no blocks. The criteria are unchanged.
+
+**§1.2 and §1.3 re-derived (same piece).** A maximal ADD with three quote lines is 1,050 + 2 × 208 = 1,466
+characters, 489 tokens at 3.0; four plus 100 is 2,056, so `notes.pass_num_predict` is **2,560** (5 × 512).
+The window left for the piece is then 32,768 − 2,560 − 512 − 750 − 1,000 − 100 − 6,000 = 21,846 tokens,
+87,384 characters, so `notes.pass_piece_max_chars` is **87,000**. The tables below keep the 1,536 figures
+as first derived; `config/defaults.toml` is the value of record.
+
 The criteria are #27's, word for word, with one change: criterion 2 reads "your own" for "the entity's
 own". The limits are rendered from config.
 
