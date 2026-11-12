@@ -43,9 +43,11 @@ EMPTY_QUERY = "give some words to look for."
 # --- the note pass (Notes v2, docs/NOTES_V2_DESIGN.md section 1.1) -----------------------------
 
 #: The pass's instruction (decisions #36 and #37; the rules after the criteria and the format
-#: examples rewritten by note-pass-v2.1 from run 5's repass), with the field limits rendered from
-#: config. The six criteria are decision #27's, word for word, with "your own" for "the entity's
-#: own". The examples have no placeholder a model can copy as a value, and each parses with
+#: examples rewritten by note-pass-v2.1 from run 5's repass; v2.2, from the second repass, never
+#: says "line" for a quote, adds the relationship to rule 1 and stale facts to rule 3), with the
+#: field limits rendered from config. "line" appears only for the ``line:`` field. The six
+#: criteria are decision #27's, word for word, with "your own" for "the entity's own". The
+#: examples have no placeholder a model can copy as a value, and each parses with
 #: ``note_pass.parse_block``. Sent after soul.md, in the system message of every piece's call.
 PASS_INSTRUCTION = (
     "When a conversation has closed, you decide whether anything a person said in it should "
@@ -70,22 +72,23 @@ PASS_INSTRUCTION = (
     "(N), a pending change (P) or a draft (D) already says it, change nothing.\n"
     "\n"
     "One subject per note: one person, one project or one topic. Never combine two subjects in "
-    "one note; give each its own.\n"
+    "one note; give each its own. A note about a person says how that person relates to the "
+    "speaker, when the conversation says it.\n"
     "Revise or retire a listed note only when a person's message in this conversation says "
     "something about that note's subject. Otherwise leave every listed note alone. If what a "
     "person said changes a listed note, revise it; if it makes one no longer true, retire it; if "
     "it changes or takes back a draft, drop the draft.\n"
-    "A revised note's text replaces the whole note: keep everything in it that is still true, and "
-    "change only what this conversation changes.\n"
-    "A quote line is a person's exact words, copied from one of their messages. To quote words "
-    "from more than one message, give one quote line for each message, at most {quote_lines} "
-    "quote lines in a block.\n"
+    "A revised note's text replaces the whole note: keep what is still true, and drop or change "
+    "what this conversation shows is no longer true.\n"
+    "A quote is a person's exact words, copied from one of their messages. To quote words from "
+    "more than one message, give one quote: for each message, at most {quote_lines}.\n"
     "\n"
-    "Answer NONE, or one block per change, with a blank line between blocks. kind is person, "
-    "topic or project. A subject is at most {subject} characters, a line at most {line}, a note "
-    "at most {text}, and each quote at most {quote} characters and at least {words} words. REVISE "
-    "and RETIRE keep the note's kind and subject, so they have only the lines shown. The names "
-    "and words below only show the format; never copy them.\n"
+    "Answer NONE, or one block per change, separated as in the examples below. kind is person, "
+    "topic or project. subject is at most {subject} characters. line: is the note's one-sentence "
+    "summary, at most {line} characters. note: is the whole note, at most {text} characters. "
+    "Each quote is at most {quote} characters and at least {words} words. REVISE and RETIRE keep "
+    "the note's kind and subject, so they have only the fields shown. The names and words below "
+    "only show the format; never copy them.\n"
     "\n"
     "ADD\n"
     "kind: person\n"

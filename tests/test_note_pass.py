@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 import threading
 
 import pytest
@@ -102,10 +103,10 @@ def test_quote_lines_up_to_the_cap_are_accepted_and_one_more_is_malformed_and_na
     assert "quote lines; the limit is" in note_pass.parse(retire).malformed[0]["reason"]
 
 
-def test_the_instruction_states_the_quote_line_cap_from_config(monkeypatch):
-    assert "at most three quote lines in a block" in note_pass.instruction()
+def test_the_instruction_states_the_quote_cap_from_config(monkeypatch):
+    assert "give one quote: for each message, at most three." in note_pass.instruction()
     monkeypatch.setattr(config, "notes_pass_max_quote_lines", lambda: 2)
-    assert "at most two quote lines in a block" in note_pass.instruction()
+    assert "give one quote: for each message, at most two." in note_pass.instruction()
 
 
 def test_an_over_cap_second_quote_line_makes_the_block_malformed():
@@ -368,14 +369,35 @@ def test_the_instruction_is_within_its_allowance_and_keeps_the_criteria():
     "Revise or retire a listed note only when a person's message in this conversation says "
     "something about that note's subject. Otherwise leave every listed note alone.",
     "proposing nothing is the normal outcome",
-    # 3, a revision replaces the whole note
-    "A revised note's text replaces the whole note: keep everything in it that is still true, and "
-    "change only what this conversation changes.",
-    # 5, one quote line per message
-    "give one quote line for each message",
+    # 1 (v2.2), a person's relationship to the speaker (run5-repass2: the Tom note, twice)
+    "A note about a person says how that person relates to the speaker, when the conversation "
+    "says it.",
+    # 3, a revision replaces the whole note; (v2.2) stale facts go (run5-repass2, C8)
+    "A revised note's text replaces the whole note: keep what is still true, and drop or change "
+    "what this conversation shows is no longer true.",
+    # 5, one quote per message; (v2.2) never called a "line" (run5-repass2, C3 and C8)
+    "A quote is a person's exact words, copied from one of their messages.",
+    "give one quote: for each message",
+    # (v2.2) the line: field described as the summary
+    "line: is the note's one-sentence summary, at most 100 characters.",
 ])
 def test_the_instruction_states_each_rule(rule):
     assert rule in note_pass.instruction()
+
+
+def test_line_is_said_only_of_the_line_field():
+    """v2.2: run5-repass2's C3 put the note in ``line:`` and C8 put quotes in two ``line:``
+    fields, while the instruction called quotes "quote lines". "line" (any case, singular or
+    plural) now appears only as the ``line:`` field: in its description and in the examples."""
+    text = note_pass.instruction()
+    description = "line: is the note's one-sentence summary"
+    places = [m.start() for m in re.finditer(r"(?i)\blines?\b", text)]
+    assert places, "the line: field is described and shown"
+    for at in places:
+        field_in_example = text[at:at + 5] == "line:" and text[at - 1] == "\n"
+        assert field_in_example or text.startswith(description, at), text[at - 40:at + 20]
+    assert text.count(description) == 1
+    assert "quote line" not in text.lower()
 
 
 def _example_blocks():
