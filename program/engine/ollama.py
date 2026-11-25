@@ -38,6 +38,7 @@ from typing import Any, Iterator
 import requests
 
 from program import config
+from program.engine import call_timing
 
 
 class OllamaError(RuntimeError):
@@ -93,6 +94,18 @@ def _split_options(overrides: dict[str, Any] | None) -> tuple[dict[str, Any], bo
     return options, think
 
 
+def _keep_alive(payload: dict[str, Any]) -> None:
+    """Add ``keep_alive`` to a chat payload for the chat model, when it is configured.
+
+    ``ollama.chat_keep_alive`` absent or empty sends nothing, which leaves Ollama's own
+    default in force (5 minutes). It applies only when the call is for the chat model, so a
+    classifier pinned to a different model is left alone, and embeddings never carry it.
+    """
+    keep_alive = config.chat_keep_alive()
+    if keep_alive is not None and payload["model"] == config.chat_model():
+        payload["keep_alive"] = keep_alive
+
+
 def _post(path: str, payload: dict[str, Any], *, timeout: int, stream: bool = False):
     try:
         response = requests.post(_url(path), json=payload, timeout=timeout, stream=stream)
@@ -145,10 +158,13 @@ def chat(
 
     Returns the parsed response dict, which carries ``message`` plus Ollama's
     own counters, ``prompt_eval_count`` and ``eval_count``. **Nothing in
-    ``program/`` reads ``prompt_eval_count``**: the history window's token estimate
-    is a fixed characters-per-token ratio (``history.py``) and is not calibrated
+    ``program/`` decides anything on ``prompt_eval_count``**: the history window's token
+    estimate is a fixed characters-per-token ratio (``history.py``) and is not calibrated
     against these counters at run time. Within ``program/``, ``eval_count`` is read
-    only to word the error for a truncated reply (``loop.py``, ``journal.py``).
+    only to word the error for a truncated reply (``loop.py``, ``journal.py``). Inside a
+    chat turn the counters and durations are logged per call (``call_timing.py``); note
+    there that ``prompt_eval_count`` counts the whole prompt even when the cache held most
+    of it, so ``prompt_eval_duration`` is the measure of work done.
     """
     model = model or config.chat_model()
     opts, think = _split_options(options)
@@ -161,6 +177,7 @@ def chat(
     }
     if tools:
         payload["tools"] = tools
+    _keep_alive(payload)
 
     response = _post(
         "/api/chat",
@@ -175,6 +192,7 @@ def chat(
             f"Ollama returned a non-JSON body: {response.text[:200]}"
         ) from exc
 
+    call_timing.record("chat", model, data)
     if "message" not in data:
         raise OllamaResponseError(
             f"Ollama response had no 'message' field. Keys: {sorted(data)}"
@@ -212,6 +230,7 @@ def chat_stream(
     }
     if tools:
         payload["tools"] = tools
+    _keep_alive(payload)
 
     response = _post(
         "/api/chat",
@@ -258,6 +277,7 @@ def embed(text: str, *, model: str | None = None, timeout: int | None = None) ->
         raise OllamaResponseError(
             f"Ollama returned a non-JSON body for /api/embed: {response.text[:200]}"
         ) from exc
+    call_timing.record("embed", model, data)
 
     embeddings = data.get("embeddings")
     if not embeddings or not isinstance(embeddings, list):

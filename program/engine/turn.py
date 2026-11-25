@@ -106,7 +106,7 @@ from typing import Any
 
 from program import config
 from program.attribution import AttributionContext
-from program.engine import earlier_tools, loop, notes_listing, turn_locks
+from program.engine import call_timing, earlier_tools, loop, notes_listing, turn_locks
 from program.engine import situation as situation_block
 
 # Re-exported deliberately: a caller catches one name from this module beside the
@@ -415,7 +415,8 @@ def handle_user_message(
 
     conversation_id, is_new = _resolve_conversation(actor, conversation_id)
 
-    with turn_locks.turn(conversation_id):
+    # Every model call inside is logged with Ollama's timing fields (call_timing.py).
+    with turn_locks.turn(conversation_id), call_timing.turn(conversation_id):
         return _answer(
             actor,
             content,
@@ -459,32 +460,35 @@ def _answer(
         )
         user_message_id = db.save_message(
             conversation_id, actor.user_id, "user", content)
+    call_timing.set_message(conversation_id, user_message_id)
 
     if situation is None:
         situation = _build_situation(actor, user_message_id)
 
-    retrieved = _retrieve(content)
+    with call_timing.step("query_embedding"):
+        retrieved = _retrieve(content)
     history = db.get_conversation_messages(conversation_id)
-    result = loop.run_turn(
-        # History goes as stored. What earlier replies' tools did is one system-written list
-        # in the system message, never a line inside the entity's own messages (#30, #32 D4).
-        history,
-        situation,
-        retrieved,
-        registry=registry,
-        # Q2b: the person present. They asked for the thing, so the record of it
-        # belongs in their history. This is attribution, not authorization — the
-        # actor's role is deliberately not carried across (see
-        # `program/attribution.py`), so nothing downstream can gate on it.
-        attribution=AttributionContext(user_id=actor.user_id),
-        # Named on every turn, apart from the situation block, which names them only on a
-        # first message or after a gap of 15 minutes or more and is what the gate reads.
-        speaker=actor.name,
-        # The entity's notes, one line each, when Notes is on (Notes v2 section 3). Read fresh
-        # every turn: a note Lyle approved between turns is listed on the next one.
-        notes_listing=notes_listing.system_listing(),
-        earlier_tools=earlier_tools.system_list(history),
-    )
+    with call_timing.step("main"):
+        result = loop.run_turn(
+            # History goes as stored. What earlier replies' tools did is one system-written list
+            # in the system message, never a line inside the entity's own messages (#30, #32 D4).
+            history,
+            situation,
+            retrieved,
+            registry=registry,
+            # Q2b: the person present. They asked for the thing, so the record of it
+            # belongs in their history. This is attribution, not authorization — the
+            # actor's role is deliberately not carried across (see
+            # `program/attribution.py`), so nothing downstream can gate on it.
+            attribution=AttributionContext(user_id=actor.user_id),
+            # Named on every turn, apart from the situation block, which names them only on a
+            # first message or after a gap of 15 minutes or more and is what the gate reads.
+            speaker=actor.name,
+            # The entity's notes, one line each, when Notes is on (Notes v2 section 3). Read fresh
+            # every turn: a note Lyle approved between turns is listed on the next one.
+            notes_listing=notes_listing.system_listing(),
+            earlier_tools=earlier_tools.system_list(history),
+        )
 
     if not result.text.strip():
         # Visible rather than papered over: an empty answer is a real event
@@ -501,7 +505,8 @@ def _answer(
     # Before the save. Both users go through this identically — see the gate's
     # own docstring on why fabrication is not a permissions question.
     # The gate reasons over tool calls; B21's window-event markers are not calls.
-    verdict = gate.check(result.text, loop.call_entries(result.trace), situation)
+    with call_timing.step("gate"):
+        verdict = gate.check(result.text, loop.call_entries(result.trace), situation)
     if not verdict.clean:
         logger.warning(
             "integrity gate: turn in conversation %s recorded as %s (%d finding(s): %s)",
@@ -572,7 +577,7 @@ def _answer(
             assistant_message_id, result.prompt.records if result.prompt else None,
             retrieved)
 
-    with _after_durable("correction links", conversation_id):
+    with _after_durable("correction links", conversation_id), call_timing.step("corrections"):
         _record_corrections(actor, conversation_id, retrieved, content,
                             user_message_id, result.text, assistant_message_id,
                             answer_trace=loop.call_entries(result.trace))

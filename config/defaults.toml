@@ -27,6 +27,11 @@ port = 8000
 [ollama]
 host = "http://localhost:11434"
 timeout_seconds = 300
+# keep_alive sent on calls to the chat model (the agent loop, and the classifiers, the
+# note pass and the journal while they run on it). Unset here on purpose: nothing is sent
+# and Ollama's default (5 minutes) applies. The operator sets it in local.toml, e.g.
+# chat_keep_alive = "30m" or chat_keep_alive = -1 (seconds; -1 keeps it loaded).
+# chat_keep_alive = ""
 # Seed values for settings-backed keys. Model selection and temperature become
 # admin-panel settings in Phase 9; until the settings table holds a row for one,
 # these are what the system uses.

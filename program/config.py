@@ -445,6 +445,27 @@ def chat_model() -> str:
     return _settings_first("models", "chat")
 
 
+def chat_keep_alive() -> str | int | None:
+    """``keep_alive`` for calls to the chat model, or ``None`` to send nothing.
+
+    Absent or empty means unset: no ``keep_alive`` is sent and Ollama's own default
+    applies, as before this key existed. There is no default here on purpose; the
+    operator sets it in ``local.toml``. A string is passed through as Ollama reads it
+    (``"30m"``, ``"-1"``); an integer is seconds (``-1`` keeps the model loaded).
+    """
+    raw = get("ollama", "chat_keep_alive")
+    if raw is None:
+        return None
+    if isinstance(raw, str):
+        return raw.strip() or None
+    if isinstance(raw, int) and not isinstance(raw, bool):
+        return raw
+    raise ValueError(
+        f"ollama.chat_keep_alive is {raw!r}; it must be a string such as \"30m\" "
+        f"or a whole number of seconds."
+    )
+
+
 def embed_model() -> str:
     return _settings_first("models", "embedding")
 
