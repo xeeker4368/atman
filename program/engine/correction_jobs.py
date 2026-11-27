@@ -268,6 +268,12 @@ def wait_for(conversation_id: str, *, before: str = "this turn") -> float | None
     return waited
 
 
+#: How long :func:`drain` waits before it reads its configured bound. Nothing pending (the
+#: usual teardown) finishes in microseconds; only a job still running after this needs the
+#: bound, so a test that leaves the configuration broken does not fail every later teardown.
+_DRAIN_FAST_SECONDS = 1.0
+
+
 class DrainTimeout(RuntimeError):
     """:func:`drain` gave up: a queued or running job did not finish within its bound."""
 
@@ -284,7 +290,8 @@ def drain(timeout: float | None = None) -> None:
     already waits on a pending job (a job's own worst case: three classifier timeouts plus a
     stated margin). Tests fake the model, so a real drain finishes in milliseconds and the
     bound is reached only by a job that is stuck. Past it: a WARNING, then
-    :class:`DrainTimeout`.
+    :class:`DrainTimeout`. The configuration is read only if the queue has not drained
+    within ``_DRAIN_FAST_SECONDS``.
     """
     with _lock:
         executor = _executor
@@ -294,6 +301,14 @@ def drain(timeout: float | None = None) -> None:
         marker = executor.submit(lambda: None)
     except RuntimeError:  # shut down meanwhile: nothing more will run
         return
+    if timeout is None:
+        # The common case (nothing pending) finishes at once, and must not need the
+        # configuration: a test may leave it deliberately broken at teardown.
+        try:
+            marker.result(timeout=_DRAIN_FAST_SECONDS)
+            return
+        except FutureTimeout:
+            pass
     bound = config.corrections_pending_wait_seconds() if timeout is None else timeout
     try:
         marker.result(timeout=bound)

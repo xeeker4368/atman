@@ -15,6 +15,10 @@
     message.
   - Its docstring now says it is called only from tests (`tests/conftest.py` and
     `tests/test_correction_jobs.py`).
+  - It reads that configured bound only if the queue has not drained within 1 s
+    (`_DRAIN_FAST_SECONDS`). The first commit read it on every teardown, which turned
+    `test_config.py::test_bad_integer_env_raises_rather_than_silently_defaulting` into a teardown
+    error: that test leaves `ANAM_API_PORT` deliberately invalid. The second commit fixes it.
 
 **Why.** These are the close-out items of the corrections-background build (`f6fc9e0`).
 
