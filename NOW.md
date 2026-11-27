@@ -20,7 +20,7 @@ each phase) and the history in `BUILT.md` (frozen; `ARCHITECTURE.md` holds the c
 - **Also built ahead of its phase:** the chat page (decision #31, `8b0f45b`); the gate's ordinary reading, the speaker
   line on every turn and the earlier-tools list (decision #32, `b4eab13`).
 - **HEAD:** see `git log`.
-- **Last full suite on record:** 2,271 passed, 24 skipped, 0 failed, `ruff` clean, at `ulimit -n 256`, 2026-10-23, on `cc/notes-v2` at `5dcc31a`, with and without a throwaway `config/local.toml` (the docs commit after it changes no code); the 24 skips are the live tests and two opt-in Moltbook tests.
+- **Last full suite on record:** 2,391 passed, 24 skipped, 0 failed, `ruff` clean, at `ulimit -n 256`, 2026-11-27, at `a377fd0` (main), with no `ANAM_*` set; the 24 skips are the 22 live tests and two opt-in Moltbook tests.
 - **Dark or off by default** (`config/defaults.toml`, parsed with `tomllib`): `notes.enabled = false`, `moltbook.enabled = false`,
   `corrections.person_corrects_entity = false`, `search.fallback = "none"`, `search.store_snippets = false`. A local `config/local.toml` can override them; it was not read for this block.
 
@@ -40,6 +40,8 @@ each phase) and the history in `BUILT.md` (frozen; `ARCHITECTURE.md` holds the c
 | Pre-run-4: retrieval capture (migration 9), recall runner with Notes off, the soul sentence on its own states (decisions #33 to #35) | `c306042` | `changelog/2026-10-09-retrieval-capture.md`, `changelog/2026-10-09-soul-states-sentence.md` |
 | Pre-run-5: SearXNG option 2, the Brave fallback (migration 10), the honest no-results note (decisions #38, #39) | `df7c1a0` | `changelog/2026-10-20-brave-fallback.md` |
 | Notes v2 refreeze: NP2 to NP5b retired, AR1/AR1b added, fingerprint `e7c3d15f…` | `a589535` | `changelog/2026-10-22-notes-refreeze.md` |
+| Speed part C: Ollama's timing fields logged per model call in a turn; `ollama.chat_keep_alive` (unset by default, nothing sent) | `89f092c` | `changelog/2026-11-25-speed-timing-keepalive.md` |
+| Corrections after the response: the chat route runs a turn's correction calls on one worker (decision #40); close-out bounds `correction_jobs.drain()` | `f6fc9e0`, `0db0df1`, `a377fd0` | `changelog/2026-11-27-corrections-background.md`, `changelog/2026-11-27-corrections-closeout.md` |
 
 **Run 3** (2026-10-06, code `8890489`; descriptive, nothing here is a frozen finding; raw data outside the
 repo, rule 3). Compared with run 2:
@@ -162,6 +164,7 @@ Number and title only; the text is in `docs/DECISIONS.md`.
 37. The note pass runs once per conversation, at close (amends #36(a))
 38. Web search's primary source is the Brave Search API; SearXNG is the fallback (order reversed by #39)
 39. SearXNG is web search's primary source, Brave the fallback (merged, `df7c1a0`)
+40. A turn's correction calls run after the chat response (merged, `f6fc9e0`)
 
 ## Go-live checklist
 
