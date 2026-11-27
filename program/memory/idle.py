@@ -151,6 +151,7 @@ def close_idle_conversations(
     exclude_conversation_id: str | None = None,
     dry_run: bool = False,
     is_busy: Callable[[str], bool] | None = None,
+    wait_pending: Callable[[str], object] | None = None,
 ) -> IdleCloseResult:
     """Close every conversation past its idle window.
 
@@ -163,6 +164,12 @@ def close_idle_conversations(
     imported so this module keeps knowing nothing about turns, and it is an
     in-process answer only — the conditional close below is what covers another
     process, and the two are deliberately both present.
+
+    ``wait_pending`` is called, when given, with each candidate's id **before** it is
+    ended: the chat route passes ``correction_jobs.wait_for`` (bound by
+    ``corrections.pending_wait_seconds``), so a conversation is not closed while its last
+    turn's correction calls are still running after the response. Injected for the same
+    reason as ``is_busy``.
 
     **The close is conditional on the snapshot** this sweep judged
     (``IdleCandidate.last_message_at``): a message that arrived since means the
@@ -203,6 +210,8 @@ def close_idle_conversations(
                 conversation_id[:8],
             )
             continue
+        if wait_pending is not None:
+            wait_pending(conversation_id)
         try:
             if not db.end_conversation(
                 conversation_id, not_after=candidate.last_message_at

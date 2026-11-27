@@ -280,6 +280,53 @@ completed turn.
 Measured cost to compare against: the gate's classifier call is **0.45 s warm**
 and the shipped prompt measured 1.7–3.1 s per call in live turns.
 
+**Revised 2026-11-27: on the chat route the calls run after the response.** In run 6
+they added a mean 9.2 s (0 to 14.8 s) to the person's wait, after the save and before
+the HTTP response. They now run on one process-wide worker thread
+(`program/engine/correction_jobs.py`); the plan of record is outside the repository
+(`corrections-after-response-plan-2026-11-27.md`, option (c)).
+
+- **What runs where.** The candidate pool is still built inline in
+  `turn._record_corrections`, before the response, from the store as it stood at the
+  turn. That call reads the database only and makes no model call, and it freezes every
+  input into a `CorrectionJob`: the pool, both texts and ids, the speaker,
+  `person_corrects_entity`, CO17's skip, and the classifier model. That model inherits
+  `models.chat`, which is live-editable. **The classifier calls and the link writes** then
+  run on the worker. A message saved after the turn can therefore never enter its pool.
+- **Who waits.**
+  - The next turn in the **same** conversation waits for that conversation's pending
+    job. It does so after taking its turn lock and before retrieval, so retrieval sees
+    the links.
+  - **Idle close** waits the same way before ending a conversation (the route passes
+    `correction_jobs.wait_for` to `idle.close_idle_conversations`).
+  - Other conversations never wait.
+  - The wait is bounded by `corrections.pending_wait_seconds`, 150 s: the job's own worst
+    case, 3 × the classifier timeout plus a stated margin. Past the bound the waiter logs
+    a WARNING and proceeds. A turn that waited logs one INFO line with the seconds.
+- **Ordering.** The single worker is FIFO across the process, so link writes happen in
+  turn order, as they did inline.
+- **The job is a leaf.** It takes no turn lock, waits on no future and does not call into
+  `turn`, so no waiter can deadlock with it. Its whole body is in
+  `try/except Exception`. It is not a Starlette background task, so it cannot cancel
+  `_checkpoint` or `_sweep`, and they cannot cancel it.
+- **Who opts in.** Only `POST /api/chat` passes `defer_corrections=True`. Every direct
+  caller of `turn.handle_user_message` (the scripts, eval and replay harnesses, and tests)
+  still runs the calls inline, so their timing differs from the route's while what is
+  judged is identical.
+- **What is guaranteed now, and what is not.** Before: every link a turn produces exists
+  before its response is sent and before its lock is released. Now: it exists before the
+  next turn in that conversation retrieves (up to the bound) and before that conversation
+  is idle-closed. **A reader outside the conversation** can miss a fresh link until the
+  job finishes: another person's turn, or a recall question in a new conversation right
+  after the play kit's `/kit/end`, which closes without waiting.
+- **Recording is log only (Lyle, 2026-11-27).** A failed job logs a WARNING naming both
+  message ids and the error. **A forced stop (kill, crash) loses queued and running jobs
+  with no trace**: the messages stand with no link, and nothing records that a correction
+  was due. A graceful stop finishes them: the app's lifespan calls
+  `correction_jobs.shutdown(wait=True)`.
+
+The idle-close floor is unchanged: correction calls already sat outside it (D9 above).
+
 ## C9. The write path, and `db.py`'s contention issue
 
 **Fold the link write into the transaction that saves the assistant message.**
@@ -291,6 +338,9 @@ working-store row about that message, so it goes in the same transaction.
 this adds no concurrent writer. **Recommended anyway, not blocking** — it already
 makes the backup race test intermittently flaky, and every additional row written
 inside the turn's transaction lengthens the window that test is sensitive to.
+
+*Revised 2026-11-27:* on the chat route the link write runs on the correction worker,
+after the response; see C8's revision and "One deviation from C9" below.
 
 ## C10. No new `source_type` for corrections — recommended, flagged not decided
 
@@ -485,6 +535,13 @@ recommendation stands where it was — recommended, not blocking — but the "no
 write path" justification for that verdict is withdrawn; the honest version is
 that one extra single-row insert inside a turn is a small increase in the window
 the backup race test is sensitive to.
+
+**Revised 2026-11-27 (C8's revision): the link write is now off the turn's thread on the
+chat route.** It runs on the correction worker, so it can coincide with the next turn's
+own writes, as the background checkpoint and idle sweep already do. The write is the
+same `db.create_supersedes_link()` transaction under the same `busy_timeout` and retry
+deadline; `db.py` is unchanged. If `database is locked` ever appears from it and needs a
+locking change, that is `db.py` locking and atomicity (Tier 3), not this design.
 
 ---
 

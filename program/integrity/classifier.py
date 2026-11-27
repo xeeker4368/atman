@@ -33,10 +33,33 @@ not differ.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 
 from program import config
 from program.engine import ollama
+
+#: A model pinned for the calls made inside :func:`pinned_model`. Used by a turn's
+#: correction job, which runs after the response: ``classifier_model`` inherits
+#: ``models.chat``, a live setting, so the job pins the model the turn resolved.
+_pinned: ContextVar[str | None] = ContextVar("classifier_pinned_model", default=None)
+
+
+def current_model() -> str:
+    """The model a classification call made now would use."""
+    return _pinned.get() or config.classifier_model()
+
+
+@contextmanager
+def pinned_model(model: str) -> Iterator[None]:
+    """Make classification calls inside this block use ``model``. Changes nothing else."""
+    token = _pinned.set(model)
+    try:
+        yield
+    finally:
+        _pinned.reset(token)
 
 #: The reply grammar, fixed rather than free text. A verdict word on the first
 #: line, then zero or more ``- <phrase> | <fact>`` items. Free-form prose was
@@ -71,7 +94,7 @@ def classify(prompt: str) -> str:
     """
     return ollama.chat_text(
         [{"role": "user", "content": prompt}],
-        model=config.classifier_model(),
+        model=current_model(),
         # Temperature is pinned here (piece 3.1) so a verdict does not move with the chat
         # temperature, which is a live setting. num_ctx is deliberately NOT overridden: a
         # different value would reload the shared model on every alternation (fix plan A1).

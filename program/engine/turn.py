@@ -106,13 +106,22 @@ from typing import Any
 
 from program import config
 from program.attribution import AttributionContext
-from program.engine import call_timing, earlier_tools, loop, notes_listing, turn_locks
+from program.engine import (
+    call_timing,
+    correction_jobs,
+    earlier_tools,
+    loop,
+    notes_listing,
+    turn_locks,
+)
 from program.engine import situation as situation_block
 
 # Re-exported deliberately: a caller catches one name from this module beside the
 # other turn-level errors, rather than importing the lock registry to name it.
 from program.engine.turn_locks import TurnAlreadyRunning  # noqa: F401
-from program.integrity import corrections, gate
+
+# ``corrections`` is re-exported: tests and harnesses patch ``turn.corrections.*``.
+from program.integrity import corrections, gate  # noqa: F401
 from program.memory import db, retrieval, retrieval_capture
 from program.memory.retrieval import RetrievalResult
 from program.settings.permissions import Actor
@@ -259,6 +268,8 @@ def _record_corrections(
     answer_text: str,
     assistant_message_id: str,
     answer_trace: list | None = None,
+    *,
+    defer: bool = False,
 ) -> None:
     """Link anything this turn corrected. Never edits.
 
@@ -267,22 +278,28 @@ def _record_corrections(
     drawn from the turn's own retrieval plus the open trailing group — see
     ``docs/CORRECTION_DESIGN.md`` C4.
 
+    **Two halves** (``correction_jobs.py``, C8 revised 2026-11-27). ``prepare`` builds the
+    candidate pool and freezes every input, reading only the database; ``run`` makes the
+    calls and writes the links. Inline (the default, and what every direct caller of
+    :func:`handle_user_message` gets) both run here. With ``defer`` (the chat route) only
+    ``prepare`` runs here, and ``run`` goes to the process-wide worker, after the response.
+
     **A classifier failure is not a turn failure.** The answer has already been
     generated and saved; losing a link is a missed correction, which leaves the
     record accurate and merely uncorrected. Same shape as the fabrication gate
     declining to take a turn down with it.
 
-    **The "never raises" half of that promise is the caller's**, and it used to be
-    nobody's. The ``try`` below covers assembling and classifying; the write loop
-    after it does not, and ``corrections.record()`` catches only
+    **The "never raises" half of that promise is the caller's** inline: ``run`` covers
+    classifying, not the write loop after it, and ``corrections.record()`` catches only
     ``sqlite3.IntegrityError`` — an expected schema refusal — while
-    ``db.create_supersedes_link`` can still raise ``OperationalError`` past its
-    retry deadline. That reached FastAPI as a 500 on a turn whose answer was
-    already saved. The guarantee now lives in ``_after_durable`` at the call site,
-    once, rather than being claimed here and enforced nowhere.
+    ``db.create_supersedes_link`` can still raise ``OperationalError`` past its retry
+    deadline. The guarantee lives in ``_after_durable`` at the call site, once. On the
+    worker, the job's own ``try`` is that guarantee.
     """
     chunk_ids = [hit.chunk_id for hit in retrieved.results] if retrieved else []
     try:
+        # Built here, before the response, from the store as it stands at this turn: a
+        # message saved later in the conversation can never enter the pool.
         pool = corrections.candidates(
             actor.user_id,
             conversation_id,
@@ -290,69 +307,29 @@ def _record_corrections(
             exclude_message_ids=(user_message_id, assistant_message_id),
             user_name=actor.name,
         )
-        # Three calls, one per (speaker, candidate role) pair — CO4 as amended at
-        # stage 3 (D1). The third runs only when it is switched on (a ship gate, D6)
-        # and the pool holds entity candidates: `classify` makes no call when
-        # nothing is eligible.
-        own = corrections.classify(
-            user_text, user_message_id, pool, "user", actor.name)
-        of_entity = corrections.classify(
-            user_text, user_message_id, pool, "user", actor.name,
-            candidate_role="assistant",
-        ) if config.corrections_person_corrects_entity() else None
-        # CO17, the symmetric skip: an answer that reports only empty searches ("There is no note
-        # about X") is not judged against the entity's earlier claims. Measured: with such a new
-        # message every one of 640 canonical samples linked a genuine earlier claim as superseded.
-        self_correction = None if corrections.entries_report_nothing_found(answer_trace) else \
-            corrections.classify(
-                answer_text, assistant_message_id, pool, "assistant", "the system")
-    except Exception as exc:  # noqa: BLE001 — a missed link, never a failed turn
-        logger.warning(
-            "correction classifier could not run for conversation %s; no link "
-            "written: %s: %s", conversation_id[:8], type(exc).__name__, exc,
+        job = correction_jobs.prepare(
+            pool=pool,
+            actor_name=actor.name,
+            conversation_id=conversation_id,
+            user_text=user_text,
+            user_message_id=user_message_id,
+            answer_text=answer_text,
+            assistant_message_id=assistant_message_id,
+            answer_trace=answer_trace,
         )
+    except Exception as exc:  # noqa: BLE001 — a missed link, never a failed turn
+        correction_jobs.classifier_could_not_run(
+            conversation_id, user_message_id, assistant_message_id, exc)
         return
-
-    judged = [own, of_entity, _unless_person_took_it(
-        of_entity, self_correction, conversation_id)]
-    for correction in judged:
-        if correction is None:
-            continue
-        if corrections.record(correction) is not None:
-            logger.info(
-                "correction recorded in conversation %s: %s supersedes %s",
-                conversation_id[:8],
-                correction.superseding_message_id[:8],
-                correction.superseded_message_id[:8],
-            )
+    if defer:
+        correction_jobs.submit(job)
+    else:
+        correction_jobs.run(job)
 
 
-def _unless_person_took_it(
-    person: corrections.Correction | None,
-    entity: corrections.Correction | None,
-    conversation_id: str,
-) -> corrections.Correction | None:
-    """D5: when the person and the entity both supersede the same entity message in
-    one turn, only the person's link is written.
-
-    The two are not redundant rows the schema would merge (``UNIQUE`` is on the
-    pair, and the superseding messages differ), so without this rule the same echo
-    would carry two corrections. The person's is kept because they are the source
-    of the value. The entity's is **logged, not silently discarded** — both
-    verdicts and every id — so a human reading the log later can see the judgment
-    that was set aside. When the two target different messages, both are written.
-    """
-    if (person is None or entity is None
-            or person.superseded_message_id != entity.superseded_message_id):
-        return entity
-    logger.info(
-        "correction dropped in conversation %s (D5: the person's link wins): "
-        "target %s; kept %s (%s, %r); dropped %s (%s, %r)",
-        conversation_id[:8], entity.superseded_message_id,
-        person.superseding_message_id, person.replacement, person.rationale,
-        entity.superseding_message_id, entity.replacement, entity.rationale,
-    )
-    return None
+#: D5, kept under its old name: ``tests/test_corrections_stage3.py`` and readers of this
+#: module find it here. The rule itself lives with the job (``correction_jobs.py``).
+_unless_person_took_it = correction_jobs.unless_person_took_it
 
 
 def _build_situation(actor: Actor, user_message_id: str) -> str:
@@ -380,6 +357,7 @@ def handle_user_message(
     *,
     situation: str | None = None,
     registry: ToolRegistry | None = None,
+    defer_corrections: bool = False,
 ) -> TurnOutcome:
     """Take one message from a person and produce one answer.
 
@@ -400,6 +378,12 @@ def handle_user_message(
     with no ``conversation_id`` is never refused: the id does not exist until
     ``db.start_conversation`` returns, so two first sends simply produce two
     conversations.
+
+    **``defer_corrections``** (the chat route only) runs the correction calls after the
+    response, on ``correction_jobs``' worker. Default ``False``: every direct caller (the
+    scripts, harnesses and tests) keeps them inline, so a harness's timing differs from the
+    route's while what is judged is identical. Either way, a turn **waits for this
+    conversation's pending job** before it retrieves (``correction_jobs.wait_for``).
     """
     content = (text or "").strip()
     if not content:
@@ -424,6 +408,7 @@ def handle_user_message(
             is_new=is_new,
             situation=situation,
             registry=registry,
+            defer_corrections=defer_corrections,
         )
 
 
@@ -435,6 +420,7 @@ def _answer(
     is_new: bool,
     situation: str | None,
     registry: ToolRegistry | None,
+    defer_corrections: bool = False,
 ) -> TurnOutcome:
     """The turn itself, with the conversation already resolved and held.
 
@@ -465,6 +451,10 @@ def _answer(
     if situation is None:
         situation = _build_situation(actor, user_message_id)
 
+    # The previous turn's corrections may still be running after its response (the chat
+    # route defers them). Retrieval must see their links, so wait, up to the job's own
+    # worst case. Other conversations never wait here.
+    correction_jobs.wait_for(conversation_id)
     with call_timing.step("query_embedding"):
         retrieved = _retrieve(content)
     history = db.get_conversation_messages(conversation_id)
@@ -580,7 +570,8 @@ def _answer(
     with _after_durable("correction links", conversation_id), call_timing.step("corrections"):
         _record_corrections(actor, conversation_id, retrieved, content,
                             user_message_id, result.text, assistant_message_id,
-                            answer_trace=loop.call_entries(result.trace))
+                            answer_trace=loop.call_entries(result.trace),
+                            defer=defer_corrections)
 
     return TurnOutcome(
         conversation_id=conversation_id,

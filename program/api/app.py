@@ -19,6 +19,7 @@ from fastapi.staticfiles import StaticFiles
 from program import config
 from program.api.headers import SecurityHeaders
 from program.api.routes import auth, chat, conversations, health, ui, upload
+from program.engine import correction_jobs
 from program.memory import capability, db, vectors
 from program.ops import store_lock
 
@@ -62,6 +63,9 @@ async def lifespan(app: FastAPI):
     **``[search]`` is checked beside the secret** (decision #39): with the Brave fallback on,
     a missing or malformed key stops startup, with a message naming the file and the key and
     never the value (``config.check_search``).
+
+    **Shutdown finishes pending correction jobs** (``correction_jobs.shutdown(wait=True)``)
+    while the store lock is still held.
     """
     config.auth_session_secret()
     config.check_search()
@@ -74,7 +78,12 @@ async def lifespan(app: FastAPI):
     with store_lock.hold_for_server():
         db.init_databases()
         vectors.get_vector_store()
-        yield
+        try:
+            yield
+        finally:
+            # A graceful stop finishes every queued correction job before the store
+            # lock is released (CORRECTION_DESIGN C8). A forced stop loses them.
+            correction_jobs.shutdown(wait=True)
 
 
 def create_app() -> FastAPI:

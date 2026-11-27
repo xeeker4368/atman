@@ -54,7 +54,6 @@ import sqlite3
 from collections.abc import Iterable
 from dataclasses import dataclass
 
-from program import config
 from program.integrity import classifier
 from program.memory import chunking, db
 
@@ -513,7 +512,7 @@ def record(correction: Correction) -> str | None:
             correction.superseding_message_id,
             correction.superseded_message_id,
             correction.replacement,
-            classifier_model=config.classifier_model(),
+            classifier_model=classifier.current_model(),
             confidence=correction.confidence,
             rationale=correction.rationale,
         )

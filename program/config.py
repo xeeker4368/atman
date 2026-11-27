@@ -713,6 +713,19 @@ def corrections_person_corrects_entity() -> bool:
     return bool(get("corrections", "person_corrects_entity", False))
 
 
+def corrections_pending_wait_seconds() -> float:
+    """How long the next turn, or idle close, waits for a conversation's pending job.
+
+    Derived in ``config/defaults.toml`` from three classifier timeouts plus a stated
+    margin (the job's own worst case). Bootstrap-only, like the rest of the section.
+    """
+    value = float(get("corrections", "pending_wait_seconds", 150))
+    if value <= 0:
+        raise ValueError(
+            f"corrections.pending_wait_seconds is {value}; it must be positive.")
+    return value
+
+
 def comfyui_host() -> str:
     """Base URL of the local ComfyUI instance. Bootstrap-only.
 

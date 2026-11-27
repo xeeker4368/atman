@@ -557,6 +557,12 @@ def isolated_data_dir(tmp_path, monkeypatch):
     # its own vector store rather than one another test built for another path.
     vectors.reset_vector_store()
     yield tmp_path
+    # The chat route runs a turn's correction calls on a background worker. Finish them
+    # here, while this test's store and patches are still in place, so no job outlives
+    # its test and writes into another one's store (or the real one).
+    from program.engine import correction_jobs
+
+    correction_jobs.drain()
     monkeypatch.delenv("ANAM_CONFIG_DIR", raising=False)
     monkeypatch.delenv("ANAM_DATA_DIR", raising=False)
     monkeypatch.delenv("ANAM_BACKUP_DIR", raising=False)

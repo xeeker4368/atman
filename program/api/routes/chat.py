@@ -47,7 +47,7 @@ from pydantic import BaseModel, Field
 
 from program.api import trace_view
 from program.api.routes.auth import CurrentActor
-from program.engine import ollama, turn, turn_locks
+from program.engine import correction_jobs, ollama, turn, turn_locks
 from program.memory import chunking, idle
 from program.settings.permissions import Actor
 from program.tools import receipts
@@ -109,6 +109,9 @@ def _sweep(conversation_id: str) -> None:
             # is left open. The conditional close inside the sweep is what covers
             # another process, so this is an improvement on top, not the guard.
             is_busy=turn_locks.held,
+            # A conversation's last turn may still have correction calls running on the
+            # worker; closing waits for them, bounded (CORRECTION_DESIGN C8).
+            wait_pending=lambda cid: correction_jobs.wait_for(cid, before="closing it"),
         )
         if result.closed:
             logger.info(
@@ -162,7 +165,10 @@ def chat(
     """One turn: the user's message in, the entity's answer out."""
     try:
         outcome = turn.handle_user_message(
-            actor, payload.message, payload.conversation_id
+            actor, payload.message, payload.conversation_id,
+            # The correction calls run after the response, on correction_jobs' worker
+            # (CORRECTION_DESIGN C8, revised 2026-11-27). Only this route opts in.
+            defer_corrections=True,
         )
     except turn.ConversationAccessError:
         # 404 rather than 403: a 403 would confirm the conversation exists.

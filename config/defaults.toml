@@ -945,6 +945,25 @@ login_max_attempts_per_minute = 5
 # CORRECTION_DESIGN CO16.
 person_corrects_entity = false
 
+# How long a turn (or idle close) waits for its conversation's pending correction job,
+# which runs after the response on the process-wide worker (CORRECTION_DESIGN C8, 2026-11-27).
+#
+# DERIVED, the job's own worst case. Every term is a ceiling some other setting enforces:
+#
+#   three classifier calls       135 s  3 x integrity.classifier_timeout_seconds (45)
+#                                       (Ollama queue time counts against each call's own
+#                                       timeout, so 45 s bounds a queued call too)
+#   margin for the link writes    15 s  JUDGMENT: an uncontended write is milliseconds
+#                              -------
+#                                150 s
+#
+# NOT covered: a link write in its retry worst case (database.write_retry_deadline_seconds
+# + database.busy_timeout_seconds = 40 s each), and a job queued behind another
+# conversation's job on the one worker. Past the bound the waiter logs a WARNING and
+# proceeds; the job still finishes and writes its links, only later.
+# tests/test_correction_jobs.py checks this value against the terms above.
+pending_wait_seconds = 150
+
 # ---------------------------------------------------------------------------
 # Integrity classifier (fabrication gate; task 3.3's correction classifier later)
 # ---------------------------------------------------------------------------

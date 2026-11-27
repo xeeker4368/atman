@@ -9,6 +9,12 @@ fingerprint before and after.
 
 Turns go through ``turn.handle_user_message`` with the **default registry**, exactly as the chat
 route does: the real loop, the real tools, the real gate, the real model.
+
+**Differs from the chat route in one respect** (CORRECTION_DESIGN C8, 2026-11-27): this calls
+``turn.handle_user_message`` without ``defer_corrections``, so a turn's correction calls run
+inline, before the call returns, where the route runs them after its response on
+``correction_jobs``' worker. What is judged and written is identical; the timing is not, and a
+link exists as soon as the call returns.
 """
 
 from __future__ import annotations
