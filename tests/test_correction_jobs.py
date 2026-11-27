@@ -482,3 +482,24 @@ def test_the_job_keeps_the_classifier_model_the_turn_resolved(lyle, model, monke
     monkeypatch.setattr(config, "classifier_model", lambda: "model-changed-later")
     correction_jobs.run(job)
     assert used and set(used) == {"model-at-the-turn"}
+
+
+# --- drain() is bounded: a stuck job fails the test instead of hanging the run -------------
+
+
+def test_drain_gives_up_on_a_stuck_job_with_a_warning_and_a_raise(lyle, model, caplog):
+    conv, claim = first_turn(lyle)
+    model.hold()
+    out = deferred(lyle, CORRECTION, conv)
+    assert model.started.wait(5)
+    caplog.set_level(logging.WARNING, logger="program.engine.correction_jobs")
+    try:
+        started = time.monotonic()
+        with pytest.raises(correction_jobs.DrainTimeout, match="still pending after 0.2 s"):
+            correction_jobs.drain(timeout=0.2)
+        assert time.monotonic() - started < 5
+        assert any("did not drain within 0.2 s" in r.getMessage() for r in caplog.records)
+    finally:
+        model.release()
+    correction_jobs.drain()
+    assert (out.user_message_id, claim) in links()

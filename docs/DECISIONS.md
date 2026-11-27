@@ -570,3 +570,13 @@ it rather than deciding silently.
     - **Storage rights are unresolved** (Lyle is checking his Brave terms). `search.store_snippets`
       (default off) keeps each result's title and URL in the stored trace, not its snippet, for both
       sources.
+
+40. **A turn's correction calls run after the chat response** (decided by Lyle 2026-11-27).
+    On `POST /api/chat` the up-to-three correction classifier calls and their link writes run on
+    one process-wide FIFO worker after the response; the candidate pool is still built before the
+    response from the store as it stood at the turn. The next turn in the same conversation and
+    idle close wait for that conversation's pending job, bounded by
+    `corrections.pending_wait_seconds` (the job's own worst case); other conversations do not.
+    Recording is log only: a failed job logs both message ids; a forced stop loses pending jobs
+    with no trace. Direct callers of `turn.handle_user_message` stay inline. The gate stays inline
+    (design F3). `docs/CORRECTION_DESIGN.md` C8 (revised 2026-11-27).

@@ -268,15 +268,42 @@ def wait_for(conversation_id: str, *, before: str = "this turn") -> float | None
     return waited
 
 
-def drain() -> None:
-    """Block until every job queued so far has finished. FIFO makes one marker enough."""
+class DrainTimeout(RuntimeError):
+    """:func:`drain` gave up: a queued or running job did not finish within its bound."""
+
+
+def drain(timeout: float | None = None) -> None:
+    """Block until every job queued so far has finished. FIFO makes one marker enough.
+
+    **Called only from tests**: ``tests/conftest.py`` (``isolated_data_dir``'s teardown, so no
+    job outlives its test's store) and ``tests/test_correction_jobs.py``. Production never
+    drains; the lifespan's :func:`shutdown` is the graceful stop.
+
+    **Bounded**, so a job stuck in a test fails that test with a message instead of hanging
+    the run. ``timeout`` defaults to ``corrections.pending_wait_seconds``, the bound a turn
+    already waits on a pending job (a job's own worst case: three classifier timeouts plus a
+    stated margin). Tests fake the model, so a real drain finishes in milliseconds and the
+    bound is reached only by a job that is stuck. Past it: a WARNING, then
+    :class:`DrainTimeout`.
+    """
     with _lock:
         executor = _executor
-    if executor is not None:
-        try:
-            executor.submit(lambda: None).result()
-        except RuntimeError:  # shut down meanwhile: nothing more will run
-            pass
+    if executor is None:
+        return
+    try:
+        marker = executor.submit(lambda: None)
+    except RuntimeError:  # shut down meanwhile: nothing more will run
+        return
+    bound = config.corrections_pending_wait_seconds() if timeout is None else timeout
+    try:
+        marker.result(timeout=bound)
+    except FutureTimeout:
+        logger.warning(
+            "correction worker did not drain within %.1f s: a queued or running job is stuck",
+            bound)
+        raise DrainTimeout(
+            f"correction jobs still pending after {bound:.1f} s; a job is stuck "
+            f"(a held classifier call never released?)") from None
 
 
 def shutdown(*, wait: bool = True, cancel_pending: bool = False) -> None:
